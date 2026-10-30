@@ -22,5 +22,5 @@ public class HealthController {
         );
 
         return ResponseEntity.status(HttpStatus.OK).body(response);
-    }c
+    }
 }

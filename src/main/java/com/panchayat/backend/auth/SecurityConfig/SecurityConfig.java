@@ -1,10 +1,9 @@
 
         package com.panchayat.backend.auth.SecurityConfig;
 
-import com.panchayat.backend.auth.repository.UserRepository;
-import com.panchayat.backend.auth.SecurityConfig.JwtAuthenticationFilter;
-import com.panchayat.backend.auth.SecurityConfig.JwtService;
+import jakarta.servlet.Filter;
 
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -12,8 +11,6 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -26,29 +23,33 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
-    private final JwtService jwtService;
-    private final UserRepository userRepository;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
     public SecurityConfig(
-            JwtService jwtService,
-            UserRepository userRepository
+            JwtAuthenticationFilter jwtAuthenticationFilter
     ) {
-        this.jwtService = jwtService;
-        this.userRepository = userRepository;
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
+    /**
+     * Prevent duplicate servlet-container registration of the JWT filter.
+     * The filter runs through Spring Security's filter chain.
+     */
     @Bean
-    public JwtAuthenticationFilter jwtAuthenticationFilter() {
-        return new JwtAuthenticationFilter(
-                jwtService,
-                userRepository
-        );
+    public FilterRegistrationBean<Filter> jwtFilterRegistration() {
+
+        FilterRegistrationBean<Filter> registration =
+                new FilterRegistrationBean<>();
+
+        registration.setFilter(jwtAuthenticationFilter);
+        registration.setEnabled(false);
+
+        return registration;
     }
 
     @Bean
     public SecurityFilterChain securityFilterChain(
-            HttpSecurity http,
-            JwtAuthenticationFilter jwtAuthenticationFilter
+            HttpSecurity http
     ) throws Exception {
 
         http
@@ -64,26 +65,70 @@ public class SecurityConfig {
 
                 .authorizeHttpRequests(auth -> auth
 
-                        // Health endpoint
+                        // Allow CORS preflight requests.
+                        .requestMatchers(
+                                HttpMethod.OPTIONS,
+                                "/**"
+                        ).permitAll()
+
+                        // Public health endpoint.
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/v1/health"
                         ).permitAll()
 
-                        // Email OTP authentication
+                        // Public shop GET endpoints for the User Web App.
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/shop/categories",
+                                "/api/v1/shop/products",
+                                "/api/v1/shop/products/**"
+                        ).permitAll()
+
+                        // Public user authentication endpoints.
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/v1/auth/send-otp",
-                                "/api/v1/auth/verify-otp"
-                        ).permitAll()
-
-                        // Google authentication
-                        .requestMatchers(
-                                HttpMethod.POST,
+                                "/api/v1/auth/verify-otp",
                                 "/api/v1/auth/google"
                         ).permitAll()
 
-                        // Every other endpoint requires authentication
+                        // Public uploaded files.
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/uploads/**"
+                        ).permitAll()
+
+                        // Public admin login endpoint.
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/admin/auth/login"
+                        ).permitAll()
+
+                        // Super-admin-only endpoints.
+                        .requestMatchers(
+                                "/api/v1/admin/super/**"
+                        ).hasRole("SUPER_ADMIN")
+
+                        // Moderation endpoints.
+                        .requestMatchers(
+                                "/api/v1/admin/moderation/**"
+                        ).hasAnyRole(
+                                "MODERATOR",
+                                "ADMIN",
+                                "SUPER_ADMIN"
+                        )
+
+                        // Standard admin endpoints.
+                        // MODERATOR is intentionally excluded.
+                        .requestMatchers(
+                                "/api/v1/admin/**"
+                        ).hasAnyRole(
+                                "ADMIN",
+                                "SUPER_ADMIN"
+                        )
+
+                        // All remaining endpoints require authentication.
                         .anyRequest().authenticated()
                 )
 
@@ -96,18 +141,14 @@ public class SecurityConfig {
     }
 
     @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
-
-    @Bean
     public CorsConfigurationSource corsConfigurationSource() {
 
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // Local frontend development
+        // Allowed frontend development origins.
         configuration.setAllowedOrigins(List.of(
                 "http://localhost:3000",
+                "http://localhost:3100",
                 "http://localhost:5173"
         ));
 
@@ -123,15 +164,20 @@ public class SecurityConfig {
         configuration.setAllowedHeaders(List.of(
                 "Authorization",
                 "Content-Type",
-                "Accept"
+                "Accept",
+                "ngrok-skip-browser-warning"
         ));
 
+        // Bearer-token authentication does not require cookies.
         configuration.setAllowCredentials(false);
 
         UrlBasedCorsConfigurationSource source =
                 new UrlBasedCorsConfigurationSource();
 
-        source.registerCorsConfiguration("/**", configuration);
+        source.registerCorsConfiguration(
+                "/**",
+                configuration
+        );
 
         return source;
     }

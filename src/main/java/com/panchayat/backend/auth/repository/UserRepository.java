@@ -1,4 +1,5 @@
-package com.panchayat.backend.auth.repository;
+
+        package com.panchayat.backend.auth.repository;
 
 import com.panchayat.backend.auth.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;

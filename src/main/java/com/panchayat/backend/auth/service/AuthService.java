@@ -51,14 +51,12 @@ public class AuthService {
 
     /*
      * STEP 1: Send a six-digit OTP to the user's email.
+     * Existing OTP records are updated instead of duplicated.
      */
     @Transactional
     public void sendOtp(SendOtpRequest request) {
 
         String email = normalizeEmail(request.email());
-
-        // Invalidate any previously issued OTP.
-        emailOtpRepository.deleteByEmailIgnoreCase(email);
 
         String otp = String.format(
                 Locale.ROOT,
@@ -66,17 +64,23 @@ public class AuthService {
                 secureRandom.nextInt(1_000_000)
         );
 
-        EmailOtp emailOtp = new EmailOtp();
+        Instant now = Instant.now();
+
+        // Find the existing record or create one if it doesn't exist.
+        EmailOtp emailOtp = emailOtpRepository
+                .findByEmailIgnoreCase(email)
+                .orElseGet(EmailOtp::new);
+
+        // Replace the old OTP and reset its expiration and attempts.
         emailOtp.setEmail(email);
         emailOtp.setOtpHash(passwordEncoder.encode(otp));
-        emailOtp.setExpiresAt(
-                Instant.now().plusSeconds(OTP_EXPIRATION_SECONDS)
-        );
+        emailOtp.setExpiresAt(now.plusSeconds(OTP_EXPIRATION_SECONDS));
         emailOtp.setAttempts(0);
 
+        // Save the existing record or insert a new one.
         emailOtpRepository.saveAndFlush(emailOtp);
 
-        // Send the OTP using the configured email service.
+        // Send the new OTP using the configured email service.
         emailService.sendOtp(email, otp);
     }
 
@@ -105,7 +109,7 @@ public class AuthService {
             );
         }
 
-        // Limit the number of incorrect attempts.
+        // Reject OTPs after the maximum number of failed attempts.
         if (emailOtp.getAttempts() >= MAX_OTP_ATTEMPTS) {
 
             emailOtpRepository.delete(emailOtp);
@@ -204,16 +208,18 @@ public class AuthService {
             );
         }
 
-        String fullName = request.fullName().trim();
-        String gender = request.gender().trim();
-
-        if (fullName.isEmpty()) {
+        if (request.fullName() == null ||
+                request.fullName().isBlank()) {
             throw new AuthException("Full name is required");
         }
 
-        if (gender.isEmpty()) {
+        if (request.gender() == null ||
+                request.gender().isBlank()) {
             throw new AuthException("Gender is required");
         }
+
+        String fullName = request.fullName().trim();
+        String gender = request.gender().trim();
 
         user.setFullName(fullName);
         user.setGender(gender);
