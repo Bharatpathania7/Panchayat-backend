@@ -38,5 +38,9 @@ public interface VipCosmeticRepository extends JpaRepository<VipCosmetic, Long> 
             VipCosmetic.CosmeticType cosmeticType,
             VipCosmetic.CosmeticFormat format
     );
+    List<VipCosmetic> findAllByVipLevelLessThanEqualOrderByVipLevelAscCosmeticTypeAsc(
+            Integer vipLevel
+    );
+
 
 }

@@ -1,5 +1,5 @@
 
-        package com.panchayat.backend.voice.controller;
+package com.panchayat.backend.voice.controller;
 
 import com.panchayat.backend.voice.dto.CreateVoiceRoomRequest;
 import com.panchayat.backend.voice.dto.JoinVoiceRoomResponse;
@@ -33,8 +33,7 @@ public class VoiceRoomController {
     public ResponseEntity<VoiceRoomResponse> createRoom(
             @Valid @RequestBody CreateVoiceRoomRequest request) {
 
-        VoiceRoomResponse response =
-                voiceRoomService.createRoom(request);
+        VoiceRoomResponse response = voiceRoomService.createRoom(request);
 
         return ResponseEntity
                 .status(HttpStatus.CREATED)
@@ -44,7 +43,7 @@ public class VoiceRoomController {
     /**
      * Get all active public voice rooms.
      */
-    @GetMapping
+    @GetMapping("/public")
     public ResponseEntity<List<VoiceRoomResponse>> getPublicRooms() {
 
         return ResponseEntity.ok(
@@ -53,9 +52,9 @@ public class VoiceRoomController {
     }
 
     /**
-     * Get a voice room by ID.
+     * Get a voice room by numeric ID.
      */
-    @GetMapping("/{id}")
+    @GetMapping("/{id:[0-9]+}")
     public ResponseEntity<VoiceRoomResponse> getRoomById(
             @PathVariable Long id) {
 
@@ -67,12 +66,11 @@ public class VoiceRoomController {
     /**
      * Join a voice room and generate a LiveKit access token.
      */
-    @PostMapping("/{id}/join")
+    @PostMapping("/{id:[0-9]+}/join")
     public ResponseEntity<JoinVoiceRoomResponse> joinRoom(
             @PathVariable Long id) {
 
-        JoinVoiceRoomResponse response =
-                voiceRoomService.joinRoom(id);
+        JoinVoiceRoomResponse response = voiceRoomService.joinRoom(id);
 
         return ResponseEntity.ok(response);
     }
@@ -80,7 +78,7 @@ public class VoiceRoomController {
     /**
      * Leave a voice room.
      */
-    @PostMapping("/{id}/leave")
+    @PostMapping("/{id:[0-9]+}/leave")
     public ResponseEntity<Void> leaveRoom(
             @PathVariable Long id) {
 
@@ -91,9 +89,8 @@ public class VoiceRoomController {
 
     /**
      * Close a voice room.
-     * Only the room owner should be allowed to close it.
      */
-    @PostMapping("/{id}/close")
+    @PostMapping("/{id:[0-9]+}/close")
     public ResponseEntity<Void> closeRoom(
             @PathVariable Long id) {
 
@@ -105,7 +102,7 @@ public class VoiceRoomController {
     /**
      * Get active participants in a voice room.
      */
-    @GetMapping("/{id}/participants")
+    @GetMapping("/{id:[0-9]+}/participants")
     public ResponseEntity<List<VoiceRoomParticipantResponse>> getParticipants(
             @PathVariable Long id) {
 
@@ -117,7 +114,7 @@ public class VoiceRoomController {
     /**
      * Get the number of active participants in a voice room.
      */
-    @GetMapping("/{id}/participants/count")
+    @GetMapping("/{id:[0-9]+}/participants/count")
     public ResponseEntity<Long> getParticipantCount(
             @PathVariable Long id) {
 
@@ -128,9 +125,8 @@ public class VoiceRoomController {
 
     /**
      * Mute or unmute an active participant.
-     * Only the room owner or moderator should be allowed.
      */
-    @PatchMapping("/{id}/mute")
+    @PatchMapping("/{id:[0-9]+}/mute")
     public ResponseEntity<Void> setParticipantMuted(
             @PathVariable Long id,
             @Valid @RequestBody MuteParticipantRequest request) {
@@ -143,5 +139,16 @@ public class VoiceRoomController {
         );
 
         return ResponseEntity.noContent().build();
+    }
+    /**
+     * Get the number of active participants in a voice room.
+     */
+    @GetMapping("/{id:[0-9]+}/count")
+    public ResponseEntity<Long> getParticipantCountByRoomId(
+            @PathVariable Long id) {
+
+        return ResponseEntity.ok(
+                voiceRoomService.getParticipantCount(id)
+        );
     }
 }

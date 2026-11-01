@@ -1,4 +1,5 @@
-package com.panchayat.backend.vip.service;
+
+        package com.panchayat.backend.vip.service;
 
 import com.panchayat.backend.auth.entity.User;
 import com.panchayat.backend.auth.repository.UserRepository;
@@ -6,6 +7,7 @@ import com.panchayat.backend.auth.service.VipLevelService;
 import com.panchayat.backend.vip.entity.UserEquippedCosmetic;
 import com.panchayat.backend.vip.entity.VipCosmetic;
 import com.panchayat.backend.vip.repository.UserEquippedCosmeticRepository;
+import com.panchayat.backend.vip.repository.UserUnlockedCosmeticRepository;
 import com.panchayat.backend.vip.repository.VipCosmeticRepository;
 
 import org.springframework.stereotype.Service;
@@ -19,23 +21,26 @@ public class VipCosmeticEquipmentService {
     private final UserRepository userRepository;
     private final VipCosmeticRepository cosmeticRepository;
     private final UserEquippedCosmeticRepository equippedRepository;
+    private final UserUnlockedCosmeticRepository unlockedCosmeticRepository;
     private final VipLevelService vipLevelService;
 
     public VipCosmeticEquipmentService(
             UserRepository userRepository,
             VipCosmeticRepository cosmeticRepository,
             UserEquippedCosmeticRepository equippedRepository,
+            UserUnlockedCosmeticRepository unlockedCosmeticRepository,
             VipLevelService vipLevelService
     ) {
         this.userRepository = userRepository;
         this.cosmeticRepository = cosmeticRepository;
         this.equippedRepository = equippedRepository;
+        this.unlockedCosmeticRepository = unlockedCosmeticRepository;
         this.vipLevelService = vipLevelService;
     }
 
     /**
-     * Equip a cosmetic for a user.
-     * One cosmetic per type can be equipped at a time.
+     * Equip a cosmetic owned by the user.
+     * Only one cosmetic per type can be equipped at a time.
      */
     @Transactional
     public EquippedCosmeticResponse equip(
@@ -44,9 +49,9 @@ public class VipCosmeticEquipmentService {
     ) {
         User user = findUser(userId);
 
-        VipCosmetic cosmetic = cosmeticRepository.findById(cosmeticId)
-                .orElseThrow(() ->
-                        new IllegalArgumentException("Cosmetic not found"));
+        if (cosmeticId == null || cosmeticId <= 0) {
+            throw new IllegalArgumentException("Invalid cosmetic ID");
+        }
 
         if (!vipLevelService.isVipMembershipActive(user)) {
             throw new IllegalStateException(
@@ -54,18 +59,32 @@ public class VipCosmeticEquipmentService {
             );
         }
 
+        VipCosmetic cosmetic = cosmeticRepository.findById(cosmeticId)
+                .orElseThrow(() ->
+                        new IllegalArgumentException("Cosmetic not found"));
+
         if (cosmetic.getVipLevel() == null
                 || !vipLevelService.canAccessCosmetic(
                 user,
                 cosmetic.getVipLevel()
         )) {
             throw new IllegalStateException(
-                    "This cosmetic is not unlocked for your VIP level"
+                    "This cosmetic is not available for your VIP level"
+            );
+        }
+
+        // Verify that the cosmetic has been unlocked in this user's inventory.
+        boolean isUnlocked = unlockedCosmeticRepository
+                .existsByUser_IdAndCosmetic_Id(userId, cosmeticId);
+
+        if (!isUnlocked) {
+            throw new IllegalStateException(
+                    "This cosmetic is not available in your inventory"
             );
         }
 
         // Reuse the existing slot for this cosmetic type.
-        // This replaces the previous cosmetic of the same type.
+        // This replaces the previously equipped cosmetic of the same type.
         UserEquippedCosmetic equipped = equippedRepository
                 .findByUser_IdAndCosmeticType(
                         userId,
@@ -84,7 +103,7 @@ public class VipCosmeticEquipmentService {
 
     /**
      * Unequip a specific cosmetic.
-     * The cosmetic remains in the catalog.
+     * The cosmetic remains unlocked in the user's inventory.
      */
     @Transactional
     public void unequip(
@@ -92,6 +111,10 @@ public class VipCosmeticEquipmentService {
             Long cosmeticId
     ) {
         findUser(userId);
+
+        if (cosmeticId == null || cosmeticId <= 0) {
+            throw new IllegalArgumentException("Invalid cosmetic ID");
+        }
 
         UserEquippedCosmetic equipped = equippedRepository
                 .findByUser_IdAndCosmetic_Id(userId, cosmeticId)
@@ -105,8 +128,8 @@ public class VipCosmeticEquipmentService {
 
     /**
      * Return currently equipped cosmetics.
-     * Expired memberships retain equipment in the database,
-     * but the cosmetics are hidden in the response.
+     * Equipment records remain in the database when membership expires,
+     * but equipped cosmetics are hidden from this response.
      */
     @Transactional(readOnly = true)
     public List<EquippedCosmeticResponse> getEquipped(Long userId) {

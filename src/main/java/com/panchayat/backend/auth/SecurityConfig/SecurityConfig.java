@@ -17,6 +17,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.http.HttpMethod;
 
 import java.util.List;
 
@@ -136,6 +137,8 @@ public class SecurityConfig {
                                 "ADMIN",
                                 "SUPER_ADMIN"
                         )
+                        // Allow WebSocket handshake to reach WebSocket security configuration.
+                        .requestMatchers("/ws", "/ws/**").permitAll()
 
                         // Wallet endpoints require USER role.
                         .requestMatchers(
@@ -146,6 +149,10 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/v1/users/**"
                         ).hasRole("USER")
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/voice-rooms/public"
+                        ).permitAll()
 
                         // All remaining endpoints require authentication.
                         .anyRequest().authenticated()

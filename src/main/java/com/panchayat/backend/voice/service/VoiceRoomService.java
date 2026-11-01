@@ -10,6 +10,8 @@ import com.panchayat.backend.voice.entity.VoiceRoomParticipant;
 import com.panchayat.backend.voice.repository.VoiceRoomParticipantRepository;
 import com.panchayat.backend.voice.repository.VoiceRoomRepository;
 import com.panchayat.backend.voice.dto.VoiceRoomParticipantResponse;
+import com.panchayat.backend.vip.entity.UserEquippedCosmetic;
+import com.panchayat.backend.vip.repository.UserEquippedCosmeticRepository;
 import io.livekit.server.RoomServiceClient;
 import retrofit2.Response;
 import java.io.IOException;
@@ -39,6 +41,7 @@ public class VoiceRoomService {
     private final String liveKitUrl;
     private final String liveKitApiKey;
     private final String liveKitApiSecret;
+    private final UserEquippedCosmeticRepository equippedCosmeticRepository;
 
     public VoiceRoomService(
             VoiceRoomRepository voiceRoomRepository,
@@ -46,6 +49,7 @@ public class VoiceRoomService {
             UserRepository userRepository,
             VipCosmeticRepository vipCosmeticRepository,
             LiveKitTokenService liveKitTokenService,
+            UserEquippedCosmeticRepository equippedCosmeticRepository,
             @Value("${livekit.url}") String liveKitUrl,
             @Value("${livekit.api-key}") String liveKitApiKey,
             @Value("${livekit.api-secret}") String liveKitApiSecret) {
@@ -58,6 +62,8 @@ public class VoiceRoomService {
         this.liveKitApiKey = liveKitApiKey;
         this.liveKitApiSecret = liveKitApiSecret;
         this.vipCosmeticRepository = vipCosmeticRepository;
+        this.equippedCosmeticRepository = equippedCosmeticRepository;
+
     }
 
     // --------------------------------------------------
@@ -163,6 +169,7 @@ public class VoiceRoomService {
 
         return VoiceRoomResponse.from(room);
     }
+
     @Transactional(readOnly = true)
     public List<VoiceRoomParticipantResponse> getParticipants(Long roomId) {
 
@@ -194,28 +201,50 @@ public class VoiceRoomService {
                 .findByRoomIdAndStatusOrderByJoinedAtAsc(roomId, "JOINED")
                 .stream()
                 .map(participant -> {
+
                     User participantUser = userRepository
                             .findById(participant.getUserId())
                             .orElse(null);
 
                     Integer vipLevel = resolveVipLevel(participantUser);
 
-                    String badgeUrl = getCosmeticUrl(
-                            vipLevel,
-                            VipCosmetic.CosmeticType.BADGE
-                    );
-                    String frameUrl = getCosmeticUrl(
-                            vipLevel,
-                            VipCosmetic.CosmeticType.FRAME
-                    );
-                    String bubbleUrl = getCosmeticUrl(
-                            vipLevel,
-                            VipCosmetic.CosmeticType.BUBBLE
-                    );
-                    String entryAnimationUrl = getCosmeticUrl(
-                            vipLevel,
-                            VipCosmetic.CosmeticType.ENTRY
-                    );
+                    String badgeUrl = null;
+                    String frameUrl = null;
+                    String bubbleUrl = null;
+                    String entryAnimationUrl = null;
+
+                    if (participantUser != null) {
+
+                        List<UserEquippedCosmetic> equippedCosmetics =
+                                equippedCosmeticRepository.findAllByUser_Id(
+                                        participantUser.getId()
+                                );
+
+                        for (UserEquippedCosmetic equipped : equippedCosmetics) {
+
+                            VipCosmetic cosmetic = equipped.getCosmetic();
+
+                            if (cosmetic == null
+                                    || cosmetic.getSecureUrl() == null
+                                    || cosmetic.getSecureUrl().isBlank()) {
+                                continue;
+                            }
+
+                            switch (cosmetic.getCosmeticType()) {
+                                case BADGE ->
+                                        badgeUrl = cosmetic.getSecureUrl();
+
+                                case FRAME ->
+                                        frameUrl = cosmetic.getSecureUrl();
+
+                                case BUBBLE ->
+                                        bubbleUrl = cosmetic.getSecureUrl();
+
+                                case ENTRY ->
+                                        entryAnimationUrl = cosmetic.getSecureUrl();
+                            }
+                        }
+                    }
 
                     return new VoiceRoomParticipantResponse(
                             participant.getUserId(),
@@ -235,6 +264,7 @@ public class VoiceRoomService {
                 })
                 .toList();
     }
+
     // --------------------------------------------------
     // JOIN ROOM
     // --------------------------------------------------

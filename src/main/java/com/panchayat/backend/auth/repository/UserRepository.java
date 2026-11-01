@@ -24,4 +24,5 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByIdForWalletUpdate(
             @Param("userId") Long userId
     );
+    Optional<User> findByEmail(String email);
 }
