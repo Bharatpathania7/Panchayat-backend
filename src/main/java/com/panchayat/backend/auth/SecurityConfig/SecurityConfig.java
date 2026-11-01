@@ -8,6 +8,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -21,6 +22,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
@@ -48,6 +50,7 @@ public class SecurityConfig {
     }
 
     @Bean
+
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http
     ) throws Exception {
@@ -77,7 +80,13 @@ public class SecurityConfig {
                                 "/api/v1/health"
                         ).permitAll()
 
-                        // Public shop GET endpoints for the User Web App.
+                        // Public VIP cosmetics endpoint.
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/vip/cosmetics"
+                        ).permitAll()
+
+                        // Public shop GET endpoints.
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/v1/shop/categories",
@@ -128,6 +137,16 @@ public class SecurityConfig {
                                 "SUPER_ADMIN"
                         )
 
+                        // Wallet endpoints require USER role.
+                        .requestMatchers(
+                                "/api/v1/wallet/**"
+                        ).hasRole("USER")
+
+                        // User profile endpoints require USER role.
+                        .requestMatchers(
+                                "/api/v1/users/**"
+                        ).hasRole("USER")
+
                         // All remaining endpoints require authentication.
                         .anyRequest().authenticated()
                 )
@@ -139,6 +158,7 @@ public class SecurityConfig {
 
         return http.build();
     }
+
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {

@@ -2,44 +2,40 @@ package com.panchayat.backend.user.service;
 
 import com.panchayat.backend.auth.entity.User;
 import com.panchayat.backend.auth.repository.UserRepository;
-import com.panchayat.backend.user.dto.UpdateProfileRequest;
 import com.panchayat.backend.user.dto.PublicUserProfileResponse;
+import com.panchayat.backend.user.dto.UpdateProfileRequest;
 import com.panchayat.backend.user.dto.UserProfileResponse;
 import com.panchayat.backend.user.dto.UserStatsResponse;
+import com.panchayat.backend.vip.entity.VipCosmetic;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.net.URI;
+import com.panchayat.backend.auth.service.VipLevelService;
+import com.panchayat.backend.vip.entity.UserEquippedCosmetic;
+import com.panchayat.backend.vip.repository.UserEquippedCosmeticRepository;
+
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.Period;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 
 @Service
 public class UserProfileService {
 
     private final UserRepository userRepository;
+    private final UserEquippedCosmeticRepository equippedCosmeticRepository;
+    private final VipLevelService vipLevelService;
 
-
-    private static final Set<String> ALLOWED_GAMES = Set.of(
-            "CHESS",
-            "LUDO",
-            "MIC_GRAB",
-            "CARROM",
-            "POOL",
-            "DRAW_AND_GUESS",
-            "ANTAKSHARI",
-            "CARD_NIGHT"
-    );
-
-
-
-
-
-    public UserProfileService(UserRepository userRepository) {
+    public UserProfileService(
+            UserRepository userRepository,
+            UserEquippedCosmeticRepository equippedCosmeticRepository,
+            VipLevelService vipLevelService
+    ) {
         this.userRepository = userRepository;
+        this.equippedCosmeticRepository = equippedCosmeticRepository;
+        this.vipLevelService = vipLevelService;
     }
 
     @Transactional(readOnly = true)
@@ -69,8 +65,7 @@ public class UserProfileService {
 
             if (value.isEmpty()) {
                 throw new IllegalArgumentException(
-                        "Full name cannot be blank"
-                );
+                        "Full name cannot be blank");
             }
 
             user.setFullName(value);
@@ -81,8 +76,7 @@ public class UserProfileService {
 
             if (value.isEmpty()) {
                 throw new IllegalArgumentException(
-                        "Gender cannot be blank"
-                );
+                        "Gender cannot be blank");
             }
 
             user.setGender(value);
@@ -93,8 +87,7 @@ public class UserProfileService {
 
             if (!request.dateOfBirth().isBefore(today)) {
                 throw new IllegalArgumentException(
-                        "Date of birth must be in the past"
-                );
+                        "Date of birth must be in the past");
             }
 
             int age = Period.between(
@@ -104,8 +97,7 @@ public class UserProfileService {
 
             if (age < 18) {
                 throw new IllegalArgumentException(
-                        "You must be at least 18 years old"
-                );
+                        "You must be at least 18 years old");
             }
 
             user.setDateOfBirth(request.dateOfBirth());
@@ -120,8 +112,7 @@ public class UserProfileService {
 
             if (bio.length() > 120) {
                 throw new IllegalArgumentException(
-                        "Bio cannot exceed 120 characters"
-                );
+                        "Bio cannot exceed 120 characters");
             }
 
             user.setBio(bio);
@@ -143,49 +134,11 @@ public class UserProfileService {
             user.setAvatarHair(request.avatarHair());
         }
 
-        if (request.avatarUrl() != null) {
-            user.setAvatarUrl(
-                    validateImageUrl(request.avatarUrl(), "Avatar")
-            );
-        }
-
-        if (request.bannerUrl() != null) {
-            user.setBannerUrl(
-                    validateImageUrl(request.bannerUrl(), "Banner")
-            );
-        }
+        // Avatar and banner images use dedicated Cloudinary upload APIs.
 
         if (request.favoriteGames() != null) {
-            List<String> games = request.favoriteGames()
-                    .stream()
-                    .map(game -> {
-                        if (game == null || game.isBlank()) {
-                            throw new IllegalArgumentException(
-                                    "Favorite game cannot be blank"
-                            );
-                        }
-
-                        return normalize(game);
-                    })
-                    .toList();
-
-            if (games.size() > 4) {
-                throw new IllegalArgumentException(
-                        "You can select a maximum of 4 favorite games"
-                );
-            }
-
-            if (games.stream().distinct().count() != games.size()) {
-                throw new IllegalArgumentException(
-                        "Duplicate favorite games are not allowed"
-                );
-            }
-
-            if (!ALLOWED_GAMES.containsAll(games)) {
-                throw new IllegalArgumentException(
-                        "One or more favorite games are unsupported"
-                );
-            }
+            List<String> games =
+                    new ArrayList<>(request.favoriteGames());
 
             user.setFavoriteGames(games);
         }
@@ -208,58 +161,22 @@ public class UserProfileService {
     }
 
     private User findUserByEmail(String email) {
-        return userRepository.findByEmailIgnoreCase(email)
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException(
+                    "Authenticated email cannot be blank");
+        }
+
+        return userRepository.findByEmailIgnoreCase(email.trim())
                 .orElseThrow(() ->
                         new UserNotFoundException(
-                                "Authenticated user not found"
-                        ));
-    }
-
-    private String normalize(String value) {
-        return value.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private String validateImageUrl(
-            String input,
-            String fieldName
-    ) {
-        String value = input.trim();
-
-        if (value.isEmpty()) {
-            throw new IllegalArgumentException(
-                    fieldName + " URL cannot be blank"
-            );
-        }
-
-        if (value.length() > 1000) {
-            throw new IllegalArgumentException(
-                    fieldName + " URL cannot exceed 1000 characters"
-            );
-        }
-
-        try {
-            URI uri = URI.create(value);
-
-            if (!"https".equalsIgnoreCase(uri.getScheme())
-                    || uri.getHost() == null
-                    || uri.getHost().isBlank()) {
-                throw new IllegalArgumentException(
-                        fieldName + " URL must be a valid HTTPS URL"
-                );
-            }
-        } catch (IllegalArgumentException exception) {
-            throw new IllegalArgumentException(
-                    fieldName + " URL must be a valid HTTPS URL",
-                    exception
-            );
-        }
-
-        return value;
+                                "Authenticated user not found"));
     }
 
     private UserProfileResponse toResponse(User user) {
         List<String> favoriteGames =
-                new java.util.ArrayList<>(user.getFavoriteGames());
+                new ArrayList<>(user.getFavoriteGames());
+
+        VipDetails vip = getVipDetails(user);
 
         return new UserProfileResponse(
                 user.getId(),
@@ -278,13 +195,23 @@ public class UserProfileService {
                 user.getAvatarBackground(),
                 user.getAvatarSkinTone(),
                 user.getAvatarOutfit(),
-                user.getAvatarHair()
+                user.getAvatarHair(),
+
+                vip.active(),
+                vip.level(),
+                vip.expiresAt(),
+                vip.badgeUrl(),
+                vip.frameUrl(),
+                vip.bubbleUrl(),
+                vip.entryAnimationUrl()
         );
     }
 
     private PublicUserProfileResponse toPublicResponse(User user) {
         List<String> favoriteGames =
-                new java.util.ArrayList<>(user.getFavoriteGames());
+                new ArrayList<>(user.getFavoriteGames());
+
+        VipDetails vip = getVipDetails(user);
 
         return new PublicUserProfileResponse(
                 user.getId(),
@@ -297,9 +224,93 @@ public class UserProfileService {
                 user.getAvatarBackground(),
                 user.getAvatarSkinTone(),
                 user.getAvatarOutfit(),
-                user.getAvatarHair()
+                user.getAvatarHair(),
+
+                vip.active(),
+                vip.level(),
+                vip.expiresAt(),
+                vip.badgeUrl(),
+                vip.frameUrl(),
+                vip.bubbleUrl(),
+                vip.entryAnimationUrl()
         );
     }
+
+    private VipDetails getVipDetails(User user) {
+
+        Instant expiresAt = user.getVipExpiresAt();
+
+        boolean active = vipLevelService.isVipMembershipActive(user);
+
+        if (!active) {
+            return new VipDetails(
+                    false,
+                    null,
+                    expiresAt,
+                    null,
+                    null,
+                    null,
+                    null
+            );
+        }
+
+        int vipLevel = vipLevelService.calculateEffectiveVipLevel(user);
+
+        List<UserEquippedCosmetic> equipped =
+                equippedCosmeticRepository.findAllByUser_Id(user.getId());
+
+        String badgeUrl = null;
+        String frameUrl = null;
+        String bubbleUrl = null;
+        String entryAnimationUrl = null;
+
+        for (UserEquippedCosmetic item : equipped) {
+
+            VipCosmetic cosmetic = item.getCosmetic();
+
+            if (cosmetic == null) {
+                continue;
+            }
+
+            // A user's VIP level must still allow this cosmetic.
+            if (cosmetic.getVipLevel() > vipLevel) {
+                continue;
+            }
+
+            String url = cosmetic.getSecureUrl();
+
+            if (url == null || url.isBlank()) {
+                continue;
+            }
+
+            switch (cosmetic.getCosmeticType()) {
+                case BADGE -> badgeUrl = url;
+                case FRAME -> frameUrl = url;
+                case BUBBLE -> bubbleUrl = url;
+                case ENTRY -> entryAnimationUrl = url;
+            }
+        }
+
+        return new VipDetails(
+                true,
+                vipLevel,
+                expiresAt,
+                badgeUrl,
+                frameUrl,
+                bubbleUrl,
+                entryAnimationUrl
+        );
+    }
+
+    private record VipDetails(
+            boolean active,
+            Integer level,
+            Instant expiresAt,
+            String badgeUrl,
+            String frameUrl,
+            String bubbleUrl,
+            String entryAnimationUrl
+    ) {}
 
     public static class UserNotFoundException
             extends RuntimeException {

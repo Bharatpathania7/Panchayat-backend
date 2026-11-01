@@ -1,6 +1,7 @@
 
         package com.panchayat.backend.user.dto;
 
+import java.time.Instant;
 import java.util.List;
 
 public record PublicUserProfileResponse(
@@ -14,5 +15,16 @@ public record PublicUserProfileResponse(
         String avatarBackground,
         String avatarSkinTone,
         String avatarOutfit,
-        String avatarHair
+        String avatarHair,
+
+        // VIP details
+        boolean vipActive,
+        Integer vipLevel,
+        Instant vipExpiresAt,
+
+        // VIP cosmetics
+        String badgeUrl,
+        String frameUrl,
+        String bubbleUrl,
+        String entryAnimationUrl
 ) {}

@@ -16,6 +16,7 @@ import jakarta.persistence.OrderColumn;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import java.time.Instant;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -69,6 +70,11 @@ public class User {
 
     @Column(name = "vip_points", nullable = false)
     private long vipPoints = 0;
+    @Column(name = "vip_active", nullable = false)
+    private boolean vipActive = false;
+
+    @Column(name = "vip_expires_at")
+    private Instant vipExpiresAt;
 
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(
@@ -102,6 +108,16 @@ public class User {
 
     @Column(name = "avatar_hair", length = 30)
     private String avatarHair;
+    @Column(name = "avatar_public_id", length = 255)
+    private String avatarPublicId;
+
+    @Column(name = "banner_public_id", length = 255)
+    private String bannerPublicId;
+    @Column(name = "vip_level", nullable = false)
+    private Integer vipLevel = 1;
+
+    @Column(name = "admin_vip_level")
+    private Integer adminVipLevel;
 
     @PrePersist
     protected void onCreate() {
@@ -153,6 +169,21 @@ public class User {
 
     public String getGender() {
         return gender;
+    }
+    public boolean isVipActive() {
+        return vipActive;
+    }
+
+    public void setVipActive(boolean vipActive) {
+        this.vipActive = vipActive;
+    }
+
+    public Instant getVipExpiresAt() {
+        return vipExpiresAt;
+    }
+
+    public void setVipExpiresAt(Instant vipExpiresAt) {
+        this.vipExpiresAt = vipExpiresAt;
     }
 
     public void setGender(String gender) {
@@ -295,5 +326,48 @@ public class User {
 
     public void setAvatarHair(String avatarHair) {
         this.avatarHair = avatarHair;
+    }
+    public String getAvatarPublicId() {
+        return avatarPublicId;
+    }
+
+    public void setAvatarPublicId(String avatarPublicId) {
+        this.avatarPublicId = avatarPublicId;
+    }
+
+    public String getBannerPublicId() {
+        return bannerPublicId;
+    }
+
+    public void setBannerPublicId(String bannerPublicId) {
+        this.bannerPublicId = bannerPublicId;
+    }
+    public Integer getVipLevel() {
+        return vipLevel;
+    }
+
+    public void setVipLevel(Integer vipLevel) {
+        if (vipLevel == null || vipLevel < 1 || vipLevel > 11) {
+            throw new IllegalArgumentException(
+                    "VIP level must be between 1 and 11"
+            );
+        }
+
+        this.vipLevel = vipLevel;
+    }
+
+    public Integer getAdminVipLevel() {
+        return adminVipLevel;
+    }
+
+    public void setAdminVipLevel(Integer adminVipLevel) {
+        if (adminVipLevel != null
+                && (adminVipLevel < 1 || adminVipLevel > 11)) {
+            throw new IllegalArgumentException(
+                    "Admin VIP level must be between 1 and 11"
+            );
+        }
+
+        this.adminVipLevel = adminVipLevel;
     }
 }
