@@ -14,6 +14,9 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -29,6 +32,9 @@ import java.util.Set;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private static final Logger log =
+            LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
     private final JwtService jwtService;
     private final UserRepository userRepository;
@@ -58,9 +64,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
 
         String authHeader = request.getHeader("Authorization");
+        String requestUri = request.getRequestURI();
 
         // No bearer token: continue and let Spring Security decide.
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            log.debug(
+                    "No Bearer token provided. URI={}",
+                    requestUri
+            );
+
             filterChain.doFilter(request, response);
             return;
         }
@@ -69,6 +81,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         try {
             if (!jwtService.isValid(token)) {
+                log.warn(
+                        "JWT validation failed. URI={}",
+                        requestUri
+                );
+
                 SecurityContextHolder.clearContext();
                 filterChain.doFilter(request, response);
                 return;
@@ -77,17 +94,61 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             Long accountId = jwtService.extractUserId(token);
             String accountType = jwtService.extractAccountType(token);
 
+            if (accountType == null) {
+                log.warn(
+                        "JWT account type is missing. URI={}",
+                        requestUri
+                );
+
+                SecurityContextHolder.clearContext();
+                filterChain.doFilter(request, response);
+                return;
+            }
+
             if (SecurityContextHolder.getContext().getAuthentication() == null) {
 
                 if ("USER".equals(accountType)) {
+
                     authenticateUser(request, accountId);
 
                 } else if (ADMIN_ROLES.contains(accountType)) {
-                    authenticateAdmin(request, accountId, accountType);
+
+                    authenticateAdmin(
+                            request,
+                            accountId,
+                            accountType
+                    );
+
+                } else {
+
+                    log.warn(
+                            "Unsupported JWT account type. URI={}",
+                            requestUri
+                    );
                 }
             }
 
+            if (SecurityContextHolder.getContext().getAuthentication() != null) {
+                log.debug(
+                        "JWT authentication successful. URI={}, accountType={}",
+                        requestUri,
+                        accountType
+                );
+            } else {
+                log.warn(
+                        "JWT was valid, but authentication was not established. URI={}",
+                        requestUri
+                );
+            }
+
         } catch (JwtException | IllegalArgumentException ex) {
+
+            log.warn(
+                    "JWT processing failed. URI={}, exceptionType={}",
+                    requestUri,
+                    ex.getClass().getSimpleName()
+            );
+
             SecurityContextHolder.clearContext();
         }
 
@@ -101,6 +162,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         Optional<User> optionalUser = userRepository.findById(userId);
 
         if (optionalUser.isEmpty()) {
+            log.warn("JWT user lookup failed: user not found.");
             return;
         }
 
@@ -108,6 +170,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         Role role = user.getRole();
 
         if (role == null) {
+            log.warn("JWT user lookup succeeded, but user role is missing.");
             return;
         }
 
@@ -116,6 +179,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 user.getEmail(),
                 role.name()
         );
+
+        log.debug("User authentication established.");
     }
 
     private void authenticateAdmin(
@@ -127,12 +192,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 adminAccountRepository.findById(adminId);
 
         if (optionalAdmin.isEmpty()) {
+            log.warn("JWT admin lookup failed: admin not found.");
             return;
         }
 
         AdminAccount admin = optionalAdmin.get();
 
         if (!admin.isEnabled() || admin.getRole() == null) {
+            log.warn(
+                    "JWT admin authentication rejected: account disabled or role missing."
+            );
             return;
         }
 
@@ -144,6 +213,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         // This also invalidates the old token after a role change.
         if (!ADMIN_ROLES.contains(databaseRole)
                 || !databaseRole.equals(tokenRole)) {
+
+            log.warn(
+                    "JWT admin authentication rejected: role mismatch or unsupported role."
+            );
             return;
         }
 
@@ -152,6 +225,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 admin.getUsername(),
                 databaseRole
         );
+
+        log.debug("Admin authentication established.");
     }
 
     private void setAuthentication(

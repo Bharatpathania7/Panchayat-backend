@@ -1,4 +1,5 @@
-package com.panchayat.backend.payment.config;
+
+        package com.panchayat.backend.payment.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
@@ -10,23 +11,18 @@ public class PayUProperties {
     private String merchantKey;
     private String merchantSalt;
 
+    // Production PayU API endpoints
     private String paymentUrl =
-            "https://apitest.payu.in/v2/payments";
+            "https://api.payu.in/v2/payments";
 
     private String verifyPaymentUrl =
-            "https://test.payu.in/v3/transaction";
+            "https://info.payu.in/v3/transaction";
 
     private String frontendUrl;
     private String backendUrl;
-    private String environment = "test";
 
-    public String getEnvironment() {
-        return environment;
-    }
-
-    public void setEnvironment(String environment) {
-        this.environment = environment;
-    }
+    // Production environment by default
+    private String environment = "production";
 
     public String getMerchantKey() {
         return merchantKey;
@@ -74,5 +70,13 @@ public class PayUProperties {
 
     public void setBackendUrl(String backendUrl) {
         this.backendUrl = backendUrl;
+    }
+
+    public String getEnvironment() {
+        return environment;
+    }
+
+    public void setEnvironment(String environment) {
+        this.environment = environment;
     }
 }
