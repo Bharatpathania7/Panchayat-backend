@@ -17,7 +17,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.http.HttpMethod;
 
 import java.util.List;
 
@@ -28,9 +27,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    public SecurityConfig(
-            JwtAuthenticationFilter jwtAuthenticationFilter
-    ) {
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
@@ -40,7 +37,6 @@ public class SecurityConfig {
      */
     @Bean
     public FilterRegistrationBean<Filter> jwtFilterRegistration() {
-
         FilterRegistrationBean<Filter> registration =
                 new FilterRegistrationBean<>();
 
@@ -51,22 +47,16 @@ public class SecurityConfig {
     }
 
     @Bean
-
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http
     ) throws Exception {
 
         http
                 .cors(Customizer.withDefaults())
-
                 .csrf(csrf -> csrf.disable())
-
                 .sessionManagement(session -> session
-                        .sessionCreationPolicy(
-                                SessionCreationPolicy.STATELESS
-                        )
+                        .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
-
                 .authorizeHttpRequests(auth -> auth
 
                         // Allow CORS preflight requests.
@@ -137,8 +127,17 @@ public class SecurityConfig {
                                 "ADMIN",
                                 "SUPER_ADMIN"
                         )
-                        // Allow WebSocket handshake to reach WebSocket security configuration.
-                        .requestMatchers("/ws", "/ws/**").permitAll()
+
+                        // Allow WebSocket handshake to reach WebSocket security.
+                        .requestMatchers(
+                                "/ws",
+                                "/ws/**"
+                        ).permitAll()
+
+                        // Payment endpoints require authentication.
+                        .requestMatchers(
+                                "/api/v1/payments/**"
+                        ).authenticated()
 
                         // Wallet endpoints require USER role.
                         .requestMatchers(
@@ -149,6 +148,8 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/v1/users/**"
                         ).hasRole("USER")
+
+                        // Public voice rooms.
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/v1/voice-rooms/public"
@@ -157,7 +158,6 @@ public class SecurityConfig {
                         // All remaining endpoints require authentication.
                         .anyRequest().authenticated()
                 )
-
                 .addFilterBefore(
                         jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class
@@ -166,14 +166,16 @@ public class SecurityConfig {
         return http.build();
     }
 
-
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
 
         CorsConfiguration configuration = new CorsConfiguration();
 
-        // Allowed frontend development origins.
+        // Production and local development frontend origins.
         configuration.setAllowedOrigins(List.of(
+                "https://panchayat.world",
+                "https://www.panchayat.world",
+                "https://admin.panchayat.world",
                 "http://localhost:3000",
                 "http://localhost:3100",
                 "http://localhost:5173"
@@ -201,10 +203,7 @@ public class SecurityConfig {
         UrlBasedCorsConfigurationSource source =
                 new UrlBasedCorsConfigurationSource();
 
-        source.registerCorsConfiguration(
-                "/**",
-                configuration
-        );
+        source.registerCorsConfiguration("/**", configuration);
 
         return source;
     }
