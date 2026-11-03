@@ -16,7 +16,8 @@ import java.util.Map;
 /** Readable { "message": ... } errors for the gift, reward and finance APIs. */
 @RestControllerAdvice(basePackageClasses = {AdminGiftController.class, AdminFinanceController.class, UserRewardController.class,
         com.panchayat.backend.admin.users.AdminUsersController.class, com.panchayat.backend.search.SearchController.class,
-        com.panchayat.backend.chat.controller.ChatSocialController.class, com.panchayat.backend.ranking.RankingController.class})
+        com.panchayat.backend.chat.controller.ChatSocialController.class, com.panchayat.backend.ranking.RankingController.class,
+        com.panchayat.backend.shop.controller.ShopPurchaseController.class})
 public class AdminErrorHandler {
 
     @ExceptionHandler(ResponseStatusException.class)

@@ -89,82 +89,73 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         /*
          * Clients may publish only to application destinations.
          * Voice-room membership is checked again in the chat service.
+         * A refused frame is dropped (null), never answered with an error:
+         * an error frame closes the whole connection and the app would
+         * reconnect in a loop.
          */
         if (StompCommand.SEND.equals(command)) {
             String destination = accessor.getDestination();
 
             if (destination == null
                     || !destination.startsWith("/app/")) {
-                throw new IllegalArgumentException(
-                        "Messages can only be sent to application destinations."
-                );
+                return null;
             }
         }
 
-        /*
-         * Preserve personal chat subscriptions.
-         * Voice-room subscriptions require an active room and JOINED membership.
-         */
         if (StompCommand.SUBSCRIBE.equals(command)) {
-            String destination = accessor.getDestination();
-
-            if ("/user/queue/chat".equals(destination)) {
-                return message;
-            }
-
-            Matcher matcher = destination == null
-                    ? null
-                    : VOICE_CHAT_TOPIC.matcher(destination);
-
-            if (matcher == null || !matcher.matches()) {
-                throw new IllegalArgumentException(
-                        "Subscription to this destination is not allowed."
-                );
-            }
-
-            Long roomId = parseId(matcher.group(1));
-
-            Principal principal = accessor.getUser();
-
-            if (principal == null || principal.getName() == null) {
-                throw new IllegalArgumentException(
-                        "Authenticated user identity is missing."
-                );
-            }
-
-            var user = userRepository
-                    .findByEmailIgnoreCase(principal.getName())
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Authenticated user not found."
-                    ));
-
-            VoiceRoom room = voiceRoomRepository.findById(roomId)
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "Voice room not found."
-                    ));
-
-            if (!"ACTIVE".equals(room.getStatus())) {
-                throw new IllegalArgumentException(
-                        "Voice room is not active."
-                );
-            }
-
-            boolean isJoined = participantRepository
-                    .findByRoomIdAndUserIdAndStatus(
-                            roomId,
-                            user.getId(),
-                            "JOINED"
-                    )
-                    .isPresent();
-
-            if (!isJoined) {
-                throw new IllegalArgumentException(
-                        "You must join this voice room before subscribing to its chat."
-                );
-            }
+            return allowedSubscription(accessor) ? message : null;
         }
 
         return message;
+    }
+
+    /** Private queues the app listens on; Spring delivers them only to their own user. */
+    private static final Pattern OWN_QUEUE =
+            Pattern.compile("^/user/queue/(chat|wallet|rewards|chat\\.typing|chat\\.events)$");
+
+    /** A room's live topics other than its chat. */
+    private static final Pattern ROOM_TOPIC =
+            Pattern.compile("^/topic/voice-rooms/(\\d+)/(state|info|gifts|media|pk|auction)$");
+
+    /**
+     * Who may listen to what:
+     *  - your own private queues: always;
+     *  - online status: any signed-in user;
+     *  - a room's chat: only people who joined it;
+     *  - a room's other topics (seats, settings, gifts, media, PK, auction):
+     *    the room must be live; a private room only for its owner or people in it.
+     * Everything else is refused.
+     */
+    private boolean allowedSubscription(StompHeaderAccessor accessor) {
+        String destination = accessor.getDestination();
+        if (destination == null) return false;
+        if (OWN_QUEUE.matcher(destination).matches()) return true;
+        if ("/topic/presence".equals(destination)) return true;
+
+        Matcher chat = VOICE_CHAT_TOPIC.matcher(destination);
+        Matcher topic = ROOM_TOPIC.matcher(destination);
+        boolean isChat = chat.matches();
+        if (!isChat && !topic.matches()) return false;
+
+        Long roomId;
+        try {
+            roomId = parseId(isChat ? chat.group(1) : topic.group(1));
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+        Principal principal = accessor.getUser();
+        if (principal == null || principal.getName() == null) return false;
+        var user = userRepository.findByEmailIgnoreCase(principal.getName()).orElse(null);
+        if (user == null) return false;
+        VoiceRoom room = voiceRoomRepository.findById(roomId).orElse(null);
+        if (room == null || !"ACTIVE".equals(room.getStatus())) return false;
+
+        boolean joined = participantRepository
+                .findByRoomIdAndUserIdAndStatus(roomId, user.getId(), "JOINED")
+                .isPresent();
+        if (isChat) return joined;
+        // Room updates (also how a removed person learns it): live room, and for private rooms the owner or people in it
+        return !room.isPrivate() || joined || room.getOwnerId().equals(user.getId());
     }
 
     private void authenticate(StompHeaderAccessor accessor) {

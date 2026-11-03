@@ -67,6 +67,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             user("chat-blocks", null, "^/api/v1/chat/blocks/\\d+$", 30, MIN),
             user("room-create", "POST", "^/api/v1/voice-rooms$", 10, 60 * MIN),
             user("room-join", "POST", "^/api/v1/voice-rooms/\\d+/join$", 30, MIN),
+            user("room-chat", "POST", "^/api/voice-rooms/\\d+/chat$", 60, MIN),
+            user("shop-buy", "POST", "^/api/v1/shop/products/\\d+/buy$", 30, MIN),
             user("gifts", "POST", "^/api/v1/voice-rooms/\\d+/gifts$", 120, MIN),
             user("room-moderation", null, "^/api/v1/voice-rooms/\\d+/(kick|bans.*|admins/\\d+)$", 30, MIN),
             user("search", "GET", "^/api/v1/(search|presence)$", 60, MIN),
