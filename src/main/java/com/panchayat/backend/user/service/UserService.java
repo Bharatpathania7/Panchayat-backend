@@ -25,6 +25,10 @@ import java.util.Locale;
 
 @Service
 public class UserService {
+    /** Effects each person wears from their Bag (spend rewards); everyone sees them. */
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.rewards.service.SpendRewardService rewardBag;
+
 
     private final UserRepository userRepository;
     private final UserEquippedCosmeticRepository equippedCosmeticRepository;
@@ -239,7 +243,9 @@ public class UserService {
                 vip.badgeUrl(),
                 vip.frameUrl(),
                 vip.bubbleUrl(),
-                vip.entryAnimationUrl()
+                vip.entryAnimationUrl(),
+                rewardBag.effectsFor(user.getId()),
+                com.panchayat.backend.common.PublicIds.user(user.getId())
         );
     }
 

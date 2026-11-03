@@ -8,7 +8,10 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import com.panchayat.backend.admin.media.MediaUrls;
 
 /**
  * Gifts in the admin panel. Super Admins, Admins and Moderators manage them
@@ -26,29 +29,29 @@ public class AdminGiftController {
     }
 
     @GetMapping
-    public List<GiftDefinition> list() {
-        return service.list();
+    public List<Map<String, Object>> list() {
+        return service.list().stream().map(AdminGiftController::view).toList();
     }
 
     @PostMapping
-    public GiftDefinition create(@RequestBody GiftInput body) {
-        return service.create(body);
+    public Map<String, Object> create(@RequestBody GiftInput body) {
+        return view(service.create(body));
     }
 
     @PatchMapping("/{id}")
-    public GiftDefinition update(@PathVariable String id, @RequestBody GiftInput body) {
-        return service.update(id, body);
+    public Map<String, Object> update(@PathVariable String id, @RequestBody GiftInput body) {
+        return view(service.update(id, body));
     }
 
     /** kind: image (PNG/JPG/JPEG), animation (SVGA/MP4), sound (MP3). Field: file. */
     @PostMapping(value = "/{id}/{kind:image|animation|sound}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public GiftDefinition upload(@PathVariable String id, @PathVariable String kind, @RequestParam("file") MultipartFile file) {
-        return service.upload(id, kind, file);
+    public Map<String, Object> upload(@PathVariable String id, @PathVariable String kind, @RequestParam("file") MultipartFile file) {
+        return view(service.upload(id, kind, file));
     }
 
     @DeleteMapping("/{id}/{kind:animation|sound}")
-    public GiftDefinition removeFile(@PathVariable String id, @PathVariable String kind) {
-        return service.removeFile(id, kind);
+    public Map<String, Object> removeFile(@PathVariable String id, @PathVariable String kind) {
+        return view(service.removeFile(id, kind));
     }
 
     @DeleteMapping("/{id}")
@@ -56,5 +59,23 @@ public class AdminGiftController {
     public ResponseEntity<Void> delete(@PathVariable String id) {
         service.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /** The gift with signed, expiring links to its files. */
+    static Map<String, Object> view(GiftDefinition g) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", g.getId());
+        m.put("name", g.getName());
+        m.put("price", g.getPrice());
+        m.put("category", g.getCategory());
+        m.put("sortOrder", g.getSortOrder());
+        m.put("active", g.isActive());
+        m.put("imageUrl", MediaUrls.link(g.getImageUrl()));
+        m.put("animationUrl", MediaUrls.link(g.getAnimationUrl()));
+        m.put("animationFormat", g.getAnimationFormat());
+        m.put("soundUrl", MediaUrls.link(g.getSoundUrl()));
+        m.put("createdAt", g.getCreatedAt());
+        m.put("updatedAt", g.getUpdatedAt());
+        return m;
     }
 }

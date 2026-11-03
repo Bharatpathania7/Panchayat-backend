@@ -20,7 +20,7 @@ public class RoomGiftEvent {
     @Column(name = "receiver_id", nullable = false)
     private Long receiverId;
 
-    @Column(name = "gift_id", nullable = false, length = 40)
+    @Column(name = "gift_id", nullable = false, length = 64)
     private String giftId;
 
     @Column(name = "gift_count", nullable = false)
@@ -37,6 +37,13 @@ public class RoomGiftEvent {
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
+
+    /** Sent from the sender's Bag: no coins were charged. */
+    @Column(name = "from_bag", nullable = false)
+    private boolean fromBag;
+
+    public boolean isFromBag() { return fromBag; }
+    public void setFromBag(boolean fromBag) { this.fromBag = fromBag; }
 
     protected RoomGiftEvent() {
     }

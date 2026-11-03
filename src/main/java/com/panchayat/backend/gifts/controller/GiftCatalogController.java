@@ -1,5 +1,6 @@
 package com.panchayat.backend.gifts.controller;
 
+import com.panchayat.backend.admin.media.MediaUrls;
 import com.panchayat.backend.gifts.entity.GiftDefinition;
 import com.panchayat.backend.gifts.service.GiftCatalogService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,10 +31,10 @@ public class GiftCatalogController {
         m.put("price", g.getPrice());
         m.put("category", g.getCategory());
         m.put("sortOrder", g.getSortOrder());
-        m.put("imageUrl", g.getImageUrl());
-        m.put("animationUrl", g.getAnimationUrl());
+        m.put("imageUrl", MediaUrls.link(g.getImageUrl()));
+        m.put("animationUrl", MediaUrls.link(g.getAnimationUrl()));
         m.put("animationFormat", g.getAnimationFormat());
-        m.put("soundUrl", g.getSoundUrl());
+        m.put("soundUrl", MediaUrls.link(g.getSoundUrl()));
         return m;
     }
 }

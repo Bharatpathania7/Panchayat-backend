@@ -14,7 +14,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Map;
 
 /** Readable { "message": ... } errors for the gift, reward and finance APIs. */
-@RestControllerAdvice(basePackageClasses = {AdminGiftController.class, AdminFinanceController.class, UserRewardController.class})
+@RestControllerAdvice(basePackageClasses = {AdminGiftController.class, AdminFinanceController.class, UserRewardController.class,
+        com.panchayat.backend.admin.users.AdminUsersController.class, com.panchayat.backend.search.SearchController.class,
+        com.panchayat.backend.chat.controller.ChatSocialController.class, com.panchayat.backend.ranking.RankingController.class})
 public class AdminErrorHandler {
 
     @ExceptionHandler(ResponseStatusException.class)

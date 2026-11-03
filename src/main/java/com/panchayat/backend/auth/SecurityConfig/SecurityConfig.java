@@ -26,9 +26,25 @@ import java.util.List;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final com.panchayat.backend.security.RateLimitFilter rateLimitFilter;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    /** Sites allowed to call the API from a browser (app.cors.allowed-origins / CORS_ALLOWED_ORIGINS). */
+    @org.springframework.beans.factory.annotation.Value("${app.cors.allowed-origins:https://panchayat.world,https://www.panchayat.world,https://admin.panchayat.world,http://localhost:3000,http://localhost:3100,http://localhost:5173}")
+    private String allowedOrigins;
+
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
+                          com.panchayat.backend.security.RateLimitFilter rateLimitFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.rateLimitFilter = rateLimitFilter;
+    }
+
+    /* Rate limits run inside the security chain (after the token is read), not a second time as a servlet filter. */
+    @Bean
+    public FilterRegistrationBean<Filter> rateLimitFilterRegistration() {
+        FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>();
+        registration.setFilter(rateLimitFilter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     /*
@@ -54,6 +70,14 @@ public class SecurityConfig {
         http
                 .cors(Customizer.withDefaults())
                 .csrf(csrf -> csrf.disable())
+                // No pages here, only JSON and files: nothing may frame, sniff or script it
+                .headers(h -> h
+                        .contentTypeOptions(Customizer.withDefaults())
+                        .frameOptions(f -> f.deny())
+                        .referrerPolicy(r -> r.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER))
+                        .contentSecurityPolicy(c -> c.policyDirectives("default-src 'none'; frame-ancestors 'none'; base-uri 'none'"))
+                        .httpStrictTransportSecurity(t -> t.includeSubDomains(true).maxAgeInSeconds(31536000))
+                )
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
@@ -190,6 +214,11 @@ public class SecurityConfig {
                 .addFilterBefore(
                         jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class
+                )
+                // Limits per IP and per account, body size, signed media links
+                .addFilterAfter(
+                        rateLimitFilter,
+                        JwtAuthenticationFilter.class
                 );
 
         return http.build();
@@ -201,14 +230,8 @@ public class SecurityConfig {
         CorsConfiguration frontendConfig = new CorsConfiguration();
 
         // Trusted frontend origins.
-        frontendConfig.setAllowedOrigins(List.of(
-                "https://panchayat.world",
-                "https://www.panchayat.world",
-                "https://admin.panchayat.world",
-                "http://localhost:3000",
-                "http://localhost:3100",
-                "http://localhost:5173"
-        ));
+        frontendConfig.setAllowedOrigins(java.util.Arrays.stream(allowedOrigins.split(","))
+                .map(String::trim).filter(o -> !o.isEmpty()).toList());
 
         frontendConfig.setAllowedMethods(List.of(
                 "GET",

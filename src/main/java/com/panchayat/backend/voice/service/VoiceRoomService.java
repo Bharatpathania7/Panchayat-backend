@@ -36,6 +36,10 @@ import com.panchayat.backend.vip.repository.VipCosmeticRepository;
 
 @Service
 public class VoiceRoomService {
+    /** Effects each person wears from their Bag (spend rewards); everyone sees them. */
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.rewards.service.SpendRewardService rewardBag;
+
 
     private final VoiceRoomRepository voiceRoomRepository;
     private final VipCosmeticRepository vipCosmeticRepository;
@@ -223,8 +227,12 @@ public class VoiceRoomService {
             );
         }
 
-        return participantRepository
-                .findByRoomIdAndStatusOrderByJoinedAtAsc(roomId, "JOINED")
+        List<VoiceRoomParticipant> present = participantRepository
+                .findByRoomIdAndStatusOrderByJoinedAtAsc(roomId, "JOINED");
+        java.util.Map<Long, java.util.Map<String, java.util.Map<String, Object>>> worn =
+                rewardBag.effectsFor(present.stream().map(VoiceRoomParticipant::getUserId).toList());
+
+        return present
                 .stream()
                 .map(participant -> {
 
@@ -285,7 +293,9 @@ public class VoiceRoomService {
                             badgeUrl,
                             frameUrl,
                             bubbleUrl,
-                            entryAnimationUrl
+                            entryAnimationUrl,
+                            worn.getOrDefault(participant.getUserId(), java.util.Map.of()),
+                            com.panchayat.backend.common.PublicIds.user(participant.getUserId())
                     );
                 })
                 .toList();

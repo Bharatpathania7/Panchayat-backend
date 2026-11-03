@@ -4,14 +4,17 @@ import com.panchayat.backend.auth.repository.UserRepository;
 import com.panchayat.backend.rewards.service.SpendRewardService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
-/** Your spend rewards in the app: what you won and how close the next ones are. */
+/**
+ * Your spend rewards in the app: your Bag (effects and gifts you won), how
+ * close the next rewards are, and wearing or taking off an effect.
+ */
 @RestController
+@RequestMapping("/api/v1/rewards")
 public class UserRewardController {
 
     private final SpendRewardService rewards;
@@ -22,12 +25,25 @@ public class UserRewardController {
         this.users = users;
     }
 
-    @GetMapping("/api/v1/rewards/me")
+    @GetMapping("/me")
     public Map<String, Object> mine(Authentication auth) {
+        return rewards.mine(me(auth));
+    }
+
+    @PostMapping("/{id:[0-9]+}/wear")
+    public Map<String, Object> wear(@PathVariable Long id, Authentication auth) {
+        return rewards.wear(me(auth), id);
+    }
+
+    @DeleteMapping("/{id:[0-9]+}/wear")
+    public Map<String, Object> takeOff(@PathVariable Long id, Authentication auth) {
+        return rewards.takeOff(me(auth), id);
+    }
+
+    private Long me(Authentication auth) {
         if (auth == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first");
-        Long id = users.findByEmail(auth.getName())
+        return users.findByEmail(auth.getName())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first"))
                 .getId();
-        return rewards.mine(id);
     }
 }

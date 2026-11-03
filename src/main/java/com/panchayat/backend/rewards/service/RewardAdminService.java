@@ -2,6 +2,7 @@ package com.panchayat.backend.rewards.service;
 
 import com.panchayat.backend.admin.media.AdminMediaService;
 import com.panchayat.backend.admin.media.AdminMediaService.Uploaded;
+import com.panchayat.backend.admin.media.MediaUrls;
 import com.panchayat.backend.gifts.repository.GiftDefinitionRepository;
 import com.panchayat.backend.rewards.entity.RewardRule;
 import com.panchayat.backend.rewards.entity.RewardRuleItem;
@@ -92,7 +93,7 @@ public class RewardAdminService {
                     m.put("itemType", rs.getString("item_type"));
                     m.put("giftId", rs.getString("gift_id"));
                     m.put("quantity", rs.getInt("quantity"));
-                    m.put("mediaUrl", rs.getString("media_url"));
+                    m.put("mediaUrl", MediaUrls.link(rs.getString("media_url")));
                     m.put("mediaFormat", rs.getString("media_format"));
                     m.put("grantedAt", instant(rs.getTimestamp("granted_at")));
                     m.put("expiresAt", instant(rs.getTimestamp("expires_at")));
@@ -275,9 +276,9 @@ public class RewardAdminService {
             m.put("priority", i.getPriority());
             m.put("enabled", i.isEnabled());
             m.put("durationDays", i.getDurationDays());
-            m.put("mediaUrl", i.getMediaUrl());
+            m.put("mediaUrl", MediaUrls.link(i.getMediaUrl()));
             m.put("mediaFormat", i.getMediaFormat());
-            m.put("soundUrl", i.getSoundUrl());
+            m.put("soundUrl", MediaUrls.link(i.getSoundUrl()));
             double chance = r.getKind() == RewardRule.Kind.RANDOM
                     ? (i.isEnabled() && total > 0 ? Math.round(weight(i) * 1000.0 / total) / 10.0 : 0)
                     : (i.isEnabled() ? 100 : 0);

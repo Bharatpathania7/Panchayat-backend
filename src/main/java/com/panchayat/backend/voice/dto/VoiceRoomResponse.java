@@ -30,7 +30,11 @@ public record VoiceRoomResponse(
         Map<String, Object> settings,
         int memberCount,
         int fanCount,
-        long points
+        long points,
+        /* The 7-digit room ID people share and search by. */
+        Long roomCode,
+        /* The owner's 7-digit public user ID. */
+        Long ownerPublicId
 ) {
     public static VoiceRoomResponse from(VoiceRoom room) {
         return new VoiceRoomResponse(
@@ -52,7 +56,9 @@ public record VoiceRoomResponse(
                 RoomSettingsJson.read(room.getSettings()),
                 Math.max(0, room.getMemberCount()),
                 Math.max(0, room.getFanCount()),
-                Math.max(0, room.getPoints())
+                Math.max(0, room.getPoints()),
+                com.panchayat.backend.common.PublicIds.room(room.getId()),
+                com.panchayat.backend.common.PublicIds.user(room.getOwnerId())
         );
     }
 }

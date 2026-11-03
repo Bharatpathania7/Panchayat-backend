@@ -126,10 +126,9 @@ public class AdminMediaService {
 
     private static long maxBytes(String format) {
         return switch (format) {
-            case "MP4" -> 40 * MB;
-            case "SVGA" -> 15 * MB;
-            case "MP3" -> 10 * MB;
-            default -> 5 * MB;
+            case "MP4", "SVGA" -> 100 * MB;
+            case "MP3" -> 20 * MB;
+            default -> 10 * MB;
         };
     }
 

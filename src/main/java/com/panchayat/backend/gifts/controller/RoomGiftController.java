@@ -31,13 +31,14 @@ public class RoomGiftController {
         this.userRepository = userRepository;
     }
 
-    public record SendGiftRequest(String giftId, Long toUserId, Integer count, String requestId) {
+    public record SendGiftRequest(String giftId, Long toUserId, Integer count, String requestId, Boolean fromBag) {
     }
 
     @PostMapping("/gifts")
     public GiftSent send(@PathVariable Long roomId, @RequestBody SendGiftRequest body, Authentication auth) {
         if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Gift details are required");
-        return gifts.send(roomId, me(auth), body.giftId(), body.toUserId(), body.count() == null ? 1 : body.count(), body.requestId());
+        return gifts.send(roomId, me(auth), body.giftId(), body.toUserId(), body.count() == null ? 1 : body.count(), body.requestId(),
+                Boolean.TRUE.equals(body.fromBag()));
     }
 
     @GetMapping("/contribution")

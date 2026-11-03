@@ -40,6 +40,10 @@ import java.util.regex.Pattern;
 @Service
 public class RoomGiftService {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate charmJdbc;
+
+
     private static final Pattern REQUEST_ID = Pattern.compile("^[A-Za-z0-9-]{8,64}$");
     private static final int MAX_COUNT = 9999;
     private static final ZoneId BOARD_ZONE = ZoneId.of("Asia/Kolkata");
@@ -76,11 +80,17 @@ public class RoomGiftService {
 
     public record GiftSent(String eventId, String roomId, String fromUserId, String toUserId, String giftId,
                            int count, long coins, long earned, long roomPoints, String requestId,
-                           Instant at, long senderBalance) {
+                           Instant at, long senderBalance, boolean fromBag) {
     }
 
     @Transactional
     public GiftSent send(Long roomId, Long senderId, String giftId, Long receiverId, int count, String requestId) {
+        return send(roomId, senderId, giftId, receiverId, count, requestId, false);
+    }
+
+    /** fromBag: the gift comes out of the sender's Bag (won as a reward): no coins, and the receiver earns none. */
+    @Transactional
+    public GiftSent send(Long roomId, Long senderId, String giftId, Long receiverId, int count, String requestId, boolean fromBag) {
         if (requestId == null || !REQUEST_ID.matcher(requestId).matches()) throw bad("A request id is required");
         if (receiverId == null || receiverId <= 0) throw bad("Choose who gets the gift");
         if (count < 1 || count > MAX_COUNT) throw bad("Send between 1 and " + MAX_COUNT + " at a time");
@@ -116,34 +126,46 @@ public class RoomGiftService {
         } catch (ArithmeticException e) {
             throw bad("That's too many at once");
         }
-        long earned = coins * GiftCatalog.RECEIVER_SHARE_PERCENT / 100;
+        // Bag gifts were free to the sender, so they don't turn into coins for the receiver
+        long earned = fromBag ? 0 : coins * GiftCatalog.RECEIVER_SHARE_PERCENT / 100;
         String ref = "room:" + roomId;
 
-        try {
-            wallet.debit(senderId, coins, "GIFT_SENT", ref, "gift:" + requestId + ":send",
-                    count + "x " + giftId + " to user " + receiverId);
-        } catch (IllegalStateException e) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Not enough coins. Recharge to send this gift.");
+        if (fromBag) {
+            if (!rewards.takeBagGift(senderId, giftId, count)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "You don't have that many of this gift in your Bag.");
+            }
+        } else {
+            try {
+                wallet.debit(senderId, coins, "GIFT_SENT", ref, "gift:" + requestId + ":send",
+                        count + "x " + giftId + " to user " + receiverId);
+            } catch (IllegalStateException e) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Not enough coins. Recharge to send this gift.");
+            }
         }
         if (earned > 0) {
             wallet.credit(receiverId, earned, "GIFT_EARNINGS", ref, "gift:" + requestId + ":earn",
                     "From user " + senderId + ": " + count + "x " + giftId);
         }
 
-        RoomGiftEvent saved = events.save(new RoomGiftEvent(roomId, senderId, receiverId, giftId, count, coins, earned, requestId));
+        RoomGiftEvent ev = new RoomGiftEvent(roomId, senderId, receiverId, giftId, count, coins, earned, requestId);
+        ev.setFromBag(fromBag);
+        RoomGiftEvent saved = events.save(ev);
         events.flush();
         rooms.addPoints(roomId, points);
         // Gifts between two tagged people grow their tag (same transaction)
         tags.addIntimacy(senderId, receiverId, coins);
         // Spend rewards: coins spent count towards random and guaranteed rewards (same transaction)
-        rewards.onSpend(senderId, coins);
+        if (!fromBag) rewards.onSpend(senderId, coins);
+        // The receiver's charm: 1 per 5 coins, double on Saturdays and Sundays (India time), like the rankings
+        int charmFactor = java.time.LocalDate.now(BOARD_ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
+        charmJdbc.update("update users set charm_points = charm_points + ? where id = ?", coins * charmFactor / 5, receiverId);
         long roomPoints = rooms.findById(roomId).map(VoiceRoom::getPoints).orElse(0L);
         GiftSent result = toResult(saved, roomPoints, wallet.getBalance(senderId), requestId);
 
         afterCommit(() -> {
             Object payload = result;
             messaging.convertAndSend("/topic/voice-rooms/" + roomId + "/gifts", payload);
-            walletPush.pushBalance(senderId, "GIFT_SENT", -coins);
+            if (!fromBag) walletPush.pushBalance(senderId, "GIFT_SENT", -coins);
             if (earned > 0) walletPush.pushBalance(receiverId, "GIFT_EARNINGS", earned);
             // Room games: PK points and Kharidari bids come from real gifts
             pk.onGift(roomId, senderId, receiverId, coins);
@@ -188,7 +210,7 @@ public class RoomGiftService {
     private static GiftSent toResult(RoomGiftEvent e, long roomPoints, long senderBalance, String requestId) {
         return new GiftSent(String.valueOf(e.getId()), String.valueOf(e.getRoomId()), String.valueOf(e.getSenderId()),
                 String.valueOf(e.getReceiverId()), e.getGiftId(), e.getGiftCount(), e.getCoins(), e.getReceiverEarned(),
-                roomPoints, requestId, e.getCreatedAt(), senderBalance);
+                roomPoints, requestId, e.getCreatedAt(), senderBalance, e.isFromBag());
     }
 
     private static void afterCommit(Runnable r) {

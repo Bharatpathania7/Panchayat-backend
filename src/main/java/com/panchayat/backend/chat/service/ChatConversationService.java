@@ -22,6 +22,13 @@ import java.util.Comparator;
 @Service
 public class ChatConversationService {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private ChatSocialService chatSocial;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+
     private final ChatConversationRepository conversationRepository;
     private final ChatConversationParticipantRepository participantRepository;
     private final UserRepository userRepository;
@@ -79,8 +86,10 @@ public class ChatConversationService {
 
             Long existingConversationId = participant.getConversationId();
 
+            // A group that happens to have these two people is not their direct chat
             boolean recipientIsParticipant =
-                    participantRepository.existsByConversationIdAndUserId(
+                    !chatSocial.isGroup(existingConversationId)
+                    && participantRepository.existsByConversationIdAndUserId(
                             existingConversationId,
                             recipientUserId
                     );
@@ -142,42 +151,42 @@ public class ChatConversationService {
     }
     @Transactional(readOnly = true)
     public List<ConversationListItem> getConversationList(Long userId) {
-
         if (userId == null || userId <= 0) {
             throw new IllegalArgumentException("Valid user ID is required.");
         }
-
+        java.util.Set<String> online = chatSocial.onlineEmails();
         return participantRepository.findByUserId(userId)
                 .stream()
                 .map(participant -> {
-
                     ChatConversation conversation = conversationRepository
                             .findById(participant.getConversationId())
                             .orElse(null);
-
                     if (conversation == null) {
                         return null;
                     }
+                    java.util.Map<String, Object> meta = jdbc.queryForMap(
+                            "select c.kind, c.name, p.role, p.muted,"
+                                    + " (select count(*) from chat_conversation_participants x where x.conversation_id = c.id) as members"
+                                    + " from chat_conversations c join chat_conversation_participants p on p.conversation_id = c.id and p.user_id = ?"
+                                    + " where c.id = ?", userId, conversation.getId());
+                    boolean group = "GROUP".equals(meta.get("kind"));
 
-                    ChatConversationParticipant otherParticipant =
-                            participantRepository
-                                    .findByConversationId(conversation.getId())
-                                    .stream()
-                                    .filter(p ->
-                                            !userId.equals(p.getUserId()))
-                                    .findFirst()
-                                    .orElse(null);
-
-                    if (otherParticipant == null) {
-                        return null;
-                    }
-
-                    User otherUser = userRepository
-                            .findById(otherParticipant.getUserId())
-                            .orElse(null);
-
-                    if (otherUser == null) {
-                        return null;
+                    User otherUser = null;
+                    if (!group) {
+                        ChatConversationParticipant otherParticipant =
+                                participantRepository
+                                        .findByConversationId(conversation.getId())
+                                        .stream()
+                                        .filter(p -> !userId.equals(p.getUserId()))
+                                        .findFirst()
+                                        .orElse(null);
+                        if (otherParticipant == null) {
+                            return null;
+                        }
+                        otherUser = userRepository.findById(otherParticipant.getUserId()).orElse(null);
+                        if (otherUser == null) {
+                            return null;
+                        }
                     }
 
                     ChatMessage lastMessage = messageRepository
@@ -188,18 +197,14 @@ public class ChatConversationService {
 
                     String lastMessagePreview = null;
                     String lastMessageType = null;
+                    Long lastSenderId = null;
                     Instant lastMessageAt = conversation.getUpdatedAt();
 
                     if (lastMessage != null) {
-
-                        lastMessageType =
-                                lastMessage.getMessageType().name();
-
+                        lastMessageType = lastMessage.getMessageType().name();
                         lastMessageAt = lastMessage.getCreatedAt();
-
-                        if (lastMessage.getMessageType()
-                                == ChatMessageType.TEXT) {
-
+                        lastSenderId = lastMessage.getSenderUserId();
+                        if (lastMessage.getMessageType() == ChatMessageType.TEXT) {
                             try {
                                 lastMessagePreview =
                                         messageService.decryptMessageForParticipant(
@@ -210,10 +215,7 @@ public class ChatConversationService {
                             } catch (RuntimeException ex) {
                                 lastMessagePreview = "Message unavailable";
                             }
-
-                        } else if (lastMessage.getMessageType()
-                                == ChatMessageType.IMAGE) {
-
+                        } else if (lastMessage.getMessageType() == ChatMessageType.IMAGE) {
                             lastMessagePreview = "📷 Photo";
                         }
                     }
@@ -224,15 +226,26 @@ public class ChatConversationService {
                                     conversation.getId()
                             );
 
+                    Long otherId = otherUser == null ? null : otherUser.getId();
+                    String email = otherUser == null ? null : otherUser.getEmail();
                     return new ConversationListItem(
                             conversation.getId(),
-                            otherUser.getId(),
-                            otherUser.getFullName(),
-                            otherUser.getAvatarUrl(),
+                            otherId,
+                            group ? (String) meta.get("name") : otherUser.getFullName(),
+                            group ? null : otherUser.getAvatarUrl(),
                             lastMessagePreview,
                             lastMessageType,
                             lastMessageAt,
-                            unreadCount
+                            unreadCount,
+                            group ? "GROUP" : "DIRECT",
+                            ((Number) meta.get("members")).intValue(),
+                            (String) meta.get("role"),
+                            Boolean.TRUE.equals(meta.get("muted")),
+                            lastSenderId,
+                            otherId != null && chatSocial.blocked(userId, otherId),
+                            otherId != null && chatSocial.blocked(otherId, userId),
+                            email != null && online.contains(email.toLowerCase(java.util.Locale.ROOT)),
+                            otherUser == null ? null : otherUser.getId() == null ? null : com.panchayat.backend.common.PublicIds.user(otherUser.getId())
                     );
                 })
                 .filter(Objects::nonNull)
@@ -245,6 +258,10 @@ public class ChatConversationService {
                 .toList();
     }
 
+    /**
+     * One chat in your list. Groups: otherUser* are null and otherUserName is the
+     * group's name. blockedByMe / blockedMe and otherOnline are for direct chats.
+     */
     public record ConversationListItem(
             Long conversationId,
             Long otherUserId,
@@ -253,6 +270,15 @@ public class ChatConversationService {
             String lastMessage,
             String lastMessageType,
             Instant lastMessageAt,
-            long unreadCount
+            long unreadCount,
+            String kind,
+            int memberCount,
+            String myRole,
+            boolean muted,
+            Long lastSenderId,
+            boolean blockedByMe,
+            boolean blockedMe,
+            boolean otherOnline,
+            Long otherPublicId
     ) {}
 }

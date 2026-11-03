@@ -36,6 +36,10 @@ import java.util.Map;
 @RequestMapping("/api/v1/chat")
 public class ChatController {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.chat.service.ChatSocialService chatSocial;
+
+
     private static final long MAX_IMAGE_SIZE = 5L * 1024 * 1024;
 
     private final UserRepository userRepository;
@@ -105,10 +109,13 @@ public class ChatController {
                         request.message()
                 );
 
-        return ChatMessageResponse.from(
+        ChatMessageResponse response = ChatMessageResponse.from(
                 savedMessage,
                 request.message()
         );
+        // Live to everyone in the chat (people in a group, or the other person)
+        chatSocial.deliver(conversationId, response);
+        return response;
     }
 
     @GetMapping("/conversations/{conversationId}/messages")
@@ -216,6 +223,8 @@ public class ChatController {
                         imageBytes,
                         validatedContentType
                 );
+
+        chatSocial.deliver(conversationId, ChatMessageResponse.from(message, null));
 
         String imageUrl =
                 "/api/v1/chat/conversations/"

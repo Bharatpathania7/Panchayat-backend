@@ -26,6 +26,11 @@ import java.util.List;
 @Service
 public class ChatMessageService {
 
+    /** Blocks, groups (field-injected: no change to the constructor). */
+    @org.springframework.beans.factory.annotation.Autowired
+    private ChatSocialService chatSocial;
+
+
     private final ChatConversationParticipantRepository participantRepository;
     private final ChatMessageRepository messageRepository;
     private final ChatMessageReceiptRepository receiptRepository;
@@ -71,6 +76,8 @@ public class ChatMessageService {
         }
 
         verifyParticipant(conversationId, authenticatedUserId);
+        // Blocked either way: no direct messages
+        chatSocial.checkCanSend(conversationId, authenticatedUserId);
 
         ChatEncryptionService.EncryptedPayload encrypted =
                 encryptionService.encrypt(messageText);
@@ -104,6 +111,8 @@ public class ChatMessageService {
         validateIdentifiers(authenticatedUserId, conversationId);
 
         verifyParticipant(conversationId, authenticatedUserId);
+        // Blocked either way: no direct messages
+        chatSocial.checkCanSend(conversationId, authenticatedUserId);
 
         if (imageBytes == null || imageBytes.length == 0) {
             throw new IllegalArgumentException(
