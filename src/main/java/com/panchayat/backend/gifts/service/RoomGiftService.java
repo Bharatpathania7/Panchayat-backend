@@ -53,13 +53,16 @@ public class RoomGiftService {
     private final com.panchayat.backend.tags.service.UserTagService tags;
     private final com.panchayat.backend.pk.service.RoomPkService pk;
     private final com.panchayat.backend.auction.service.RoomAuctionService auction;
+    private final com.panchayat.backend.rewards.service.SpendRewardService rewards;
 
     public RoomGiftService(RoomGiftEventRepository events, VoiceRoomRepository rooms,
                            VoiceRoomParticipantRepository participants, CoinWalletService wallet,
                            WalletPushService walletPush, SimpMessagingTemplate messaging,
                            com.panchayat.backend.tags.service.UserTagService tags,
                            com.panchayat.backend.pk.service.RoomPkService pk,
-                           com.panchayat.backend.auction.service.RoomAuctionService auction) {
+                           com.panchayat.backend.auction.service.RoomAuctionService auction,
+                           com.panchayat.backend.rewards.service.SpendRewardService rewards) {
+        this.rewards = rewards;
         this.events = events;
         this.rooms = rooms;
         this.participants = participants;
@@ -132,6 +135,8 @@ public class RoomGiftService {
         rooms.addPoints(roomId, points);
         // Gifts between two tagged people grow their tag (same transaction)
         tags.addIntimacy(senderId, receiverId, coins);
+        // Spend rewards: coins spent count towards random and guaranteed rewards (same transaction)
+        rewards.onSpend(senderId, coins);
         long roomPoints = rooms.findById(roomId).map(VoiceRoom::getPoints).orElse(0L);
         GiftSent result = toResult(saved, roomPoints, wallet.getBalance(senderId), requestId);
 

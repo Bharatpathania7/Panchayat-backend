@@ -81,6 +81,12 @@ public class SecurityConfig {
                                 "/api/v1/vip/cosmetics"
                         ).permitAll()
 
+                        // Gifts on sale (managed from the admin panel).
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/gifts"
+                        ).permitAll()
+
                         // Public shop GET endpoints.
                         .requestMatchers(
                                 HttpMethod.GET,
@@ -116,6 +122,15 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/v1/admin/super/**"
                         ).hasRole("SUPER_ADMIN")
+
+                        // Catalog management (gifts, spend rewards): every staff role.
+                        .requestMatchers(
+                                "/api/v1/admin/manage/**"
+                        ).hasAnyRole(
+                                "MODERATOR",
+                                "ADMIN",
+                                "SUPER_ADMIN"
+                        )
 
                         // Moderation endpoints.
                         .requestMatchers(
