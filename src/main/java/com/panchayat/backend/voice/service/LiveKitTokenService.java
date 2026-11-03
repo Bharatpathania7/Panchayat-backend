@@ -38,6 +38,17 @@ public class LiveKitTokenService {
     public String generateJoinToken(
             String roomName,
             String userIdentity) {
+        return generateJoinToken(roomName, userIdentity, true);
+    }
+
+    /**
+     * canPublish: whether this person may send audio right away. Listeners
+     * join with false; the server grants it when they take a seat.
+     */
+    public String generateJoinToken(
+            String roomName,
+            String userIdentity,
+            boolean canPublish) {
 
         if (roomName == null || roomName.isBlank()
                 || userIdentity == null || userIdentity.isBlank()) {
@@ -54,7 +65,7 @@ public class LiveKitTokenService {
         token.addGrants(
                 new RoomJoin(true),
                 new RoomName(roomName),
-                new CanPublish(true),
+                new CanPublish(canPublish),
                 new CanSubscribe(true)
         );
 

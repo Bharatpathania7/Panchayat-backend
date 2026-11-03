@@ -68,11 +68,16 @@ public class VoiceRoomController {
      */
     @PostMapping("/{id:[0-9]+}/join")
     public ResponseEntity<JoinVoiceRoomResponse> joinRoom(
-            @PathVariable Long id) {
+            @PathVariable Long id,
+            @RequestBody(required = false) JoinRequest body) {
 
-        JoinVoiceRoomResponse response = voiceRoomService.joinRoom(id);
+        // Password rooms: everyone except the owner and admins sends the 4-digit password
+        JoinVoiceRoomResponse response = voiceRoomService.joinRoom(id, body == null ? null : body.password());
 
         return ResponseEntity.ok(response);
+    }
+
+    public record JoinRequest(String password) {
     }
 
     /**

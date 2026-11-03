@@ -21,15 +21,18 @@ public class GoogleAuthService {
     private final GoogleIdTokenVerifier googleIdTokenVerifier;
     private final UserRepository userRepository;
     private final JwtService jwtService;
+    private final RefreshTokenService refreshTokenService;
 
     public GoogleAuthService(
             GoogleIdTokenVerifier googleIdTokenVerifier,
             UserRepository userRepository,
-            JwtService jwtService
+            JwtService jwtService,
+            RefreshTokenService refreshTokenService
     ) {
         this.googleIdTokenVerifier = googleIdTokenVerifier;
         this.userRepository = userRepository;
         this.jwtService = jwtService;
+        this.refreshTokenService = refreshTokenService;
     }
 
     @Transactional
@@ -82,17 +85,7 @@ public class GoogleAuthService {
 
         user = userRepository.save(user);
 
-        // Generate our own Panchayat JWT.
-        String accessToken = jwtService.generateToken(
-                user.getId(),
-                user.getEmail()
-        );
-
-        return new AuthResponse(
-                "Google sign-in successful",
-                accessToken,
-                "Bearer",
-                user.isProfileCompleted()
-        );
+        // Our own Panchayat access token plus a refresh token (session).
+        return refreshTokenService.signIn(user, "Google sign-in successful");
     }
 }

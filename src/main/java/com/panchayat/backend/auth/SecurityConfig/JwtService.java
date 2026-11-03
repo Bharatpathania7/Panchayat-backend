@@ -44,6 +44,11 @@ public class JwtService {
         this.expirationMs = expirationMs;
     }
 
+    /** Access token lifetime in milliseconds. */
+    public long getExpirationMs() {
+        return expirationMs;
+    }
+
     /**
      * Generate a token for a normal user.
      */

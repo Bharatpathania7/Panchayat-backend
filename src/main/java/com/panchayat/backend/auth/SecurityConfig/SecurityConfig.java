@@ -31,9 +31,9 @@ public class SecurityConfig {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
     }
 
-    /**
-     * Prevent duplicate servlet-container registration of the JWT filter.
-     * The filter runs through Spring Security's filter chain.
+    /*
+     * Prevent duplicate servlet-container registration.
+     * JWT filter runs through Spring Security's filter chain only.
      */
     @Bean
     public FilterRegistrationBean<Filter> jwtFilterRegistration() {
@@ -59,11 +59,15 @@ public class SecurityConfig {
                 )
                 .authorizeHttpRequests(auth -> auth
 
-                        // Allow CORS preflight requests.
+                        // CORS preflight requests.
                         .requestMatchers(
                                 HttpMethod.OPTIONS,
                                 "/**"
                         ).permitAll()
+
+                        // Spring's error page: lets real error codes (400/404/500)
+                        // reach the client instead of being masked as 403.
+                        .requestMatchers("/error").permitAll()
 
                         // Public health endpoint.
                         .requestMatchers(
@@ -71,7 +75,7 @@ public class SecurityConfig {
                                 "/api/v1/health"
                         ).permitAll()
 
-                        // Public VIP cosmetics endpoint.
+                        // Public VIP cosmetics.
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/v1/vip/cosmetics"
@@ -85,12 +89,15 @@ public class SecurityConfig {
                                 "/api/v1/shop/products/**"
                         ).permitAll()
 
-                        // Public user authentication endpoints.
+                        // Public authentication endpoints.
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/v1/auth/send-otp",
                                 "/api/v1/auth/verify-otp",
-                                "/api/v1/auth/google"
+                                "/api/v1/auth/google",
+                                // The refresh token itself is the credential here
+                                "/api/v1/auth/refresh",
+                                "/api/v1/auth/logout"
                         ).permitAll()
 
                         // Public uploaded files.
@@ -99,13 +106,13 @@ public class SecurityConfig {
                                 "/uploads/**"
                         ).permitAll()
 
-                        // Public admin login endpoint.
+                        // Public admin login.
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/admin/auth/login"
                         ).permitAll()
 
-                        // Super-admin-only endpoints.
+                        // Super-admin endpoints.
                         .requestMatchers(
                                 "/api/v1/admin/super/**"
                         ).hasRole("SUPER_ADMIN")
@@ -120,7 +127,6 @@ public class SecurityConfig {
                         )
 
                         // Standard admin endpoints.
-                        // MODERATOR is intentionally excluded.
                         .requestMatchers(
                                 "/api/v1/admin/**"
                         ).hasAnyRole(
@@ -128,13 +134,21 @@ public class SecurityConfig {
                                 "SUPER_ADMIN"
                         )
 
-                        // Allow WebSocket handshake to reach WebSocket security.
+                        // WebSocket handshake.
                         .requestMatchers(
                                 "/ws",
                                 "/ws/**"
                         ).permitAll()
 
-                        // Payment endpoints require authentication.
+                        /*
+                         * PayU callback does not require user JWT.
+                         * Payment verification remains mandatory.
+                         */
+                        .requestMatchers(
+                                "/api/v1/payments/callback"
+                        ).permitAll()
+
+                        // Protect all other payment endpoints.
                         .requestMatchers(
                                 "/api/v1/payments/**"
                         ).authenticated()
@@ -144,7 +158,7 @@ public class SecurityConfig {
                                 "/api/v1/wallet/**"
                         ).hasRole("USER")
 
-                        // User profile endpoints require USER role.
+                        // User endpoints require USER role.
                         .requestMatchers(
                                 "/api/v1/users/**"
                         ).hasRole("USER")
@@ -155,7 +169,7 @@ public class SecurityConfig {
                                 "/api/v1/voice-rooms/public"
                         ).permitAll()
 
-                        // All remaining endpoints require authentication.
+                        // Everything else requires authentication.
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(
@@ -169,10 +183,10 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
 
-        CorsConfiguration configuration = new CorsConfiguration();
+        CorsConfiguration frontendConfig = new CorsConfiguration();
 
-        // Production and local development frontend origins.
-        configuration.setAllowedOrigins(List.of(
+        // Trusted frontend origins.
+        frontendConfig.setAllowedOrigins(List.of(
                 "https://panchayat.world",
                 "https://www.panchayat.world",
                 "https://admin.panchayat.world",
@@ -181,7 +195,7 @@ public class SecurityConfig {
                 "http://localhost:5173"
         ));
 
-        configuration.setAllowedMethods(List.of(
+        frontendConfig.setAllowedMethods(List.of(
                 "GET",
                 "POST",
                 "PUT",
@@ -190,21 +204,37 @@ public class SecurityConfig {
                 "OPTIONS"
         ));
 
-        configuration.setAllowedHeaders(List.of(
+        frontendConfig.setAllowedHeaders(List.of(
                 "Authorization",
                 "Content-Type",
                 "Accept",
                 "ngrok-skip-browser-warning"
         ));
 
-        // Bearer-token authentication does not require cookies.
-        configuration.setAllowCredentials(false);
+        frontendConfig.setAllowCredentials(false);
+        frontendConfig.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source =
                 new UrlBasedCorsConfigurationSource();
 
-        source.registerCorsConfiguration("/**", configuration);
+        source.registerCorsConfiguration(
+                "/**",
+                frontendConfig
+        );
 
-        return source;
+        /*
+         * The PayU callback is a top-level browser form POST (redirect),
+         * not an XHR/fetch call, so CORS does not apply to it. Its Origin
+         * header may be test.payu.in, a bank domain, or "null" after the
+         * redirect chain. Returning no CORS config skips CORS checks for
+         * this path only; payment is still verified server-side with PayU.
+         */
+        return request -> {
+            String path = request.getRequestURI();
+            if (path != null && path.startsWith("/api/v1/payments/callback")) {
+                return null;
+            }
+            return source.getCorsConfiguration(request);
+        };
     }
 }

@@ -46,6 +46,54 @@ public class VoiceRoom {
     @Column(nullable = false, length = 20)
     private String status = "ACTIVE";
 
+    /** Mic order: people ask the owner or an admin before taking a seat. */
+    @Column(name = "mic_order", nullable = false)
+    private boolean micOrder = false;
+
+    /** Closed seat indexes, comma separated (e.g. "3,5"). */
+    @Column(name = "closed_seats", nullable = false, length = 100)
+    private String closedSeats = "";
+
+    @Column(length = 30)
+    private String category;
+
+    @Column(name = "cover_theme", length = 20)
+    private String coverTheme;
+
+    @Column(name = "cover_motif", length = 20)
+    private String coverMotif;
+
+    @Column(name = "cover_image_url", length = 1000)
+    private String coverImageUrl;
+
+    @Column(name = "cover_image_public_id", length = 300)
+    private String coverImagePublicId;
+
+    @Column(length = 500)
+    private String announcement;
+
+    /** 4-digit password, or null. Never sent to people who aren't owner or admin. */
+    @Column(length = 4)
+    private String password;
+
+    /** JSON object of display and chat settings. */
+    @Column(nullable = false, columnDefinition = "TEXT")
+    private String settings = "{}";
+
+    @Column(name = "member_count", nullable = false)
+    private int memberCount = 0;
+
+    @Column(name = "fan_count", nullable = false)
+    private int fanCount = 0;
+
+    /** Room points from gifts (100 per coin); the room level comes from these. */
+    @Column(nullable = false)
+    private long points = 0;
+
+    public long getPoints() {
+        return points;
+    }
+
     @Column(
             name = "created_at",
             nullable = false,
@@ -135,5 +183,101 @@ public class VoiceRoom {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public boolean isMicOrder() {
+        return micOrder;
+    }
+
+    public void setMicOrder(boolean micOrder) {
+        this.micOrder = micOrder;
+    }
+
+    public String getClosedSeats() {
+        return closedSeats == null ? "" : closedSeats;
+    }
+
+    public void setClosedSeats(String closedSeats) {
+        this.closedSeats = closedSeats == null ? "" : closedSeats;
+    }
+
+    public String getCategory() {
+        return category;
+    }
+
+    public void setCategory(String category) {
+        this.category = category;
+    }
+
+    public String getCoverTheme() {
+        return coverTheme;
+    }
+
+    public void setCoverTheme(String coverTheme) {
+        this.coverTheme = coverTheme;
+    }
+
+    public String getCoverMotif() {
+        return coverMotif;
+    }
+
+    public void setCoverMotif(String coverMotif) {
+        this.coverMotif = coverMotif;
+    }
+
+    public String getCoverImageUrl() {
+        return coverImageUrl;
+    }
+
+    public void setCoverImageUrl(String coverImageUrl) {
+        this.coverImageUrl = coverImageUrl;
+    }
+
+    public String getCoverImagePublicId() {
+        return coverImagePublicId;
+    }
+
+    public void setCoverImagePublicId(String coverImagePublicId) {
+        this.coverImagePublicId = coverImagePublicId;
+    }
+
+    public String getAnnouncement() {
+        return announcement;
+    }
+
+    public void setAnnouncement(String announcement) {
+        this.announcement = announcement;
+    }
+
+    public String getPassword() {
+        return password;
+    }
+
+    public void setPassword(String password) {
+        this.password = password;
+    }
+
+    public String getSettings() {
+        return settings;
+    }
+
+    public void setSettings(String settings) {
+        this.settings = settings;
+    }
+
+    public int getMemberCount() {
+        return memberCount;
+    }
+
+    public void setMemberCount(int memberCount) {
+        this.memberCount = memberCount;
+    }
+
+    public int getFanCount() {
+        return fanCount;
+    }
+
+    public void setFanCount(int fanCount) {
+        this.fanCount = fanCount;
     }
 }

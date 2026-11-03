@@ -12,6 +12,10 @@ import com.panchayat.backend.voice.repository.VoiceRoomRepository;
 import com.panchayat.backend.voice.dto.VoiceRoomParticipantResponse;
 import com.panchayat.backend.vip.entity.UserEquippedCosmetic;
 import com.panchayat.backend.vip.repository.UserEquippedCosmeticRepository;
+import com.panchayat.backend.rooms.service.LiveKitPermissionService;
+import com.panchayat.backend.rooms.service.RoomStateService;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import io.livekit.server.RoomServiceClient;
 import retrofit2.Response;
 import java.io.IOException;
@@ -42,6 +46,9 @@ public class VoiceRoomService {
     private final String liveKitApiKey;
     private final String liveKitApiSecret;
     private final UserEquippedCosmeticRepository equippedCosmeticRepository;
+    private final RoomStateService roomStateService;
+    private final com.panchayat.backend.rooms.service.RoomSettingsService roomSettingsService;
+    private final LiveKitPermissionService liveKitPermissionService;
 
     public VoiceRoomService(
             VoiceRoomRepository voiceRoomRepository,
@@ -50,6 +57,9 @@ public class VoiceRoomService {
             VipCosmeticRepository vipCosmeticRepository,
             LiveKitTokenService liveKitTokenService,
             UserEquippedCosmeticRepository equippedCosmeticRepository,
+            RoomStateService roomStateService,
+            com.panchayat.backend.rooms.service.RoomSettingsService roomSettingsService,
+            LiveKitPermissionService liveKitPermissionService,
             @Value("${livekit.url}") String liveKitUrl,
             @Value("${livekit.api-key}") String liveKitApiKey,
             @Value("${livekit.api-secret}") String liveKitApiSecret) {
@@ -63,7 +73,23 @@ public class VoiceRoomService {
         this.liveKitApiSecret = liveKitApiSecret;
         this.vipCosmeticRepository = vipCosmeticRepository;
         this.equippedCosmeticRepository = equippedCosmeticRepository;
+        this.roomStateService = roomStateService;
+        this.roomSettingsService = roomSettingsService;
+        this.liveKitPermissionService = liveKitPermissionService;
+    }
 
+    /** Runs after the current transaction commits (or now, outside one). */
+    private static void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
     }
 
     // --------------------------------------------------
@@ -271,6 +297,11 @@ public class VoiceRoomService {
 
     @Transactional
     public JoinVoiceRoomResponse joinRoom(Long roomId) {
+        return joinRoom(roomId, null);
+    }
+
+    @Transactional
+    public JoinVoiceRoomResponse joinRoom(Long roomId, String password) {
 
         validateRoomId(roomId);
 
@@ -296,6 +327,35 @@ public class VoiceRoomService {
 
             throw new AccessDeniedException(
                     "You are not allowed to join this private room"
+            );
+        }
+
+        // Kicked (for a while) or banned from this room.
+        if (!room.getOwnerId().equals(user.getId())) {
+            var ban = roomStateService.activeBan(roomId, user.getId());
+            if (ban.isPresent()) {
+                Instant until = ban.get().getExpiresAt();
+                String why;
+                if (until == null) {
+                    why = "You are banned from this room";
+                } else {
+                    long secs = Math.max(1, java.time.Duration.between(Instant.now(), until).getSeconds());
+                    long mins = (secs + 59) / 60;
+                    why = "You were kicked out of this room. You can join again in "
+                            + (mins <= 1 ? "1 minute" : mins + " minutes") + ".";
+                }
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, why);
+            }
+        }
+
+        boolean roomAdmin = roomStateService.isAdmin(roomId, user.getId());
+
+        // Password rooms (the owner and admins don't need it). 423 = locked, so apps
+        // can tell it apart from a kick or ban (403).
+        if (!roomSettingsService.passwordAccepted(room, user.getId(), password)) {
+            throw new ResponseStatusException(
+                    HttpStatus.LOCKED,
+                    "This room needs the right password"
             );
         }
 
@@ -335,8 +395,8 @@ public class VoiceRoomService {
 
                 if (room.getOwnerId().equals(user.getId())) {
                     participant.setRole("OWNER");
-                } else if (!"MODERATOR".equals(participant.getRole())) {
-                    participant.setRole("MEMBER");
+                } else {
+                    participant.setRole(roomAdmin ? "MODERATOR" : "MEMBER");
                 }
 
                 participant.setMuted(false);
@@ -350,7 +410,7 @@ public class VoiceRoomService {
                 participant.setRole(
                         room.getOwnerId().equals(user.getId())
                                 ? "OWNER"
-                                : "MEMBER"
+                                : roomAdmin ? "MODERATOR" : "MEMBER"
                 );
                 participant.setStatus("JOINED");
                 participant.setMuted(false);
@@ -364,10 +424,18 @@ public class VoiceRoomService {
         String liveKitRoomName = "panchayat-room-" + room.getId();
         String participantIdentity = "user-" + user.getId();
 
+        // Listeners join without mic permission; taking a seat grants it.
+        boolean canPublish = roomStateService.canPublishOnJoin(room, user.getId());
+
         String token = liveKitTokenService.generateJoinToken(
                 liveKitRoomName,
-                participantIdentity
+                participantIdentity,
+                canPublish
         );
+        liveKitPermissionService.rememberTokenGrant(roomId, user.getId(), canPublish);
+
+        Long joinedUserId = user.getId();
+        afterCommit(() -> roomStateService.onJoined(roomId, joinedUserId));
 
         return new JoinVoiceRoomResponse(
                 liveKitUrl,
@@ -449,6 +517,9 @@ public class VoiceRoomService {
         participant.setMuted(false);
 
         participantRepository.save(participant);
+
+        Long leftUserId = user.getId();
+        afterCommit(() -> roomStateService.onLeft(roomId, leftUserId));
     }
 
     // --------------------------------------------------
@@ -500,6 +571,8 @@ public class VoiceRoomService {
 
         participantRepository.saveAll(activeParticipants);
         voiceRoomRepository.save(room);
+
+        afterCommit(() -> roomStateService.onRoomClosed(roomId));
     }
 
     // --------------------------------------------------

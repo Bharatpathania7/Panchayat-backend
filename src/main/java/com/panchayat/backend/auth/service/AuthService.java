@@ -31,6 +31,7 @@ public class AuthService {
     private final EmailOtpRepository emailOtpRepository;
     private final EmailService emailService;
     private final JwtService jwtService;
+    private final RefreshTokenService refreshTokenService;
 
     private final BCryptPasswordEncoder passwordEncoder =
             new BCryptPasswordEncoder();
@@ -41,12 +42,14 @@ public class AuthService {
             UserRepository userRepository,
             EmailOtpRepository emailOtpRepository,
             EmailService emailService,
-            JwtService jwtService
+            JwtService jwtService,
+            RefreshTokenService refreshTokenService
     ) {
         this.userRepository = userRepository;
         this.emailOtpRepository = emailOtpRepository;
         this.emailService = emailService;
         this.jwtService = jwtService;
+        this.refreshTokenService = refreshTokenService;
     }
 
     /*
@@ -151,17 +154,7 @@ public class AuthService {
         user.setEmailVerified(true);
         user = userRepository.saveAndFlush(user);
 
-        String accessToken = jwtService.generateToken(
-                user.getId(),
-                user.getEmail()
-        );
-
-        return new AuthResponse(
-                "Email verified successfully",
-                accessToken,
-                "Bearer",
-                user.isProfileCompleted()
-        );
+        return refreshTokenService.signIn(user, "Email verified successfully");
     }
 
     /*

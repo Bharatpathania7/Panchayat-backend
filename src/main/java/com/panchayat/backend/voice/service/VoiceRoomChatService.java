@@ -134,6 +134,21 @@ public class VoiceRoomChatService {
 
         verifyJoinedParticipant(roomId, user.getId());
 
+        // "Ban Text Chatting": only the owner and admins can type
+        if (com.panchayat.backend.rooms.service.RoomSettingsJson.flag(room.getSettings(), "banText")
+                && !room.getOwnerId().equals(user.getId())) {
+            boolean moderator = participantRepository
+                    .findByRoomIdAndUserIdAndStatus(roomId, user.getId(), "JOINED")
+                    .map(p -> "MODERATOR".equals(p.getRole()) || "OWNER".equals(p.getRole()))
+                    .orElse(false);
+            if (!moderator) {
+                throw new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "The owner turned off text chatting in this room."
+                );
+            }
+        }
+
         ChatEncryptionService.EncryptedPayload encrypted =
                 encryptionService.encrypt(normalizedMessage);
 

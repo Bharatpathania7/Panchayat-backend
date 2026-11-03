@@ -19,9 +19,14 @@ import java.util.Map;
 public class CoinWalletController {
 
     private final CoinWalletService coinWalletService;
+    private final com.panchayat.backend.auth.repository.UserRepository userRepository;
 
-    public CoinWalletController(CoinWalletService coinWalletService) {
+    public CoinWalletController(
+            CoinWalletService coinWalletService,
+            com.panchayat.backend.auth.repository.UserRepository userRepository
+    ) {
         this.coinWalletService = coinWalletService;
+        this.userRepository = userRepository;
     }
 
     /**
@@ -126,7 +131,16 @@ public class CoinWalletController {
 
         Object principal = authentication.getPrincipal();
 
-        if (principal instanceof com.panchayat.backend.auth.entity.User user) {
+        com.panchayat.backend.auth.entity.User user = null;
+
+        if (principal instanceof com.panchayat.backend.auth.entity.User authenticatedUser) {
+            user = authenticatedUser;
+        } else if (principal instanceof String email) {
+            // JwtAuthenticationFilter sets the user's email as the principal.
+            user = userRepository.findByEmail(email).orElse(null);
+        }
+
+        if (user != null) {
             if (user.getId() == null || user.getId() <= 0) {
                 throw new org.springframework.security.access.AccessDeniedException(
                         "Invalid authenticated user"

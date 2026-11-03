@@ -1,9 +1,14 @@
 
         package com.panchayat.backend.payment.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.panchayat.backend.payment.config.PayUProperties;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -19,6 +24,9 @@ import java.util.Map;
 
 @Service
 public class PayUVerificationService {
+
+    private static final Logger log =
+            LoggerFactory.getLogger(PayUVerificationService.class);
 
     private final PayUProperties properties;
     private final PayUAuthService authService;
@@ -36,6 +44,10 @@ public class PayUVerificationService {
         this.restTemplate = new RestTemplate();
     }
 
+    /**
+     * Requests transaction verification from PayU.
+     * Does not update payment state or credit wallet balance.
+     */
     public JsonNode verifyPayment(String txnId) {
 
         if (txnId == null || txnId.isBlank()) {
@@ -63,14 +75,21 @@ public class PayUVerificationService {
             HttpEntity<String> request =
                     new HttpEntity<>(requestBody, headers);
 
-            ResponseEntity<JsonNode> response = restTemplate.exchange(
+            // Read as String and parse with this class's Jackson 2 mapper.
+            // Spring Boot 4's RestTemplate uses Jackson 3, which cannot
+            // deserialize into com.fasterxml.jackson.databind.JsonNode.
+            ResponseEntity<String> response = restTemplate.exchange(
                     properties.getVerifyPaymentUrl(),
                     HttpMethod.POST,
                     request,
-                    JsonNode.class
+                    String.class
             );
 
-            JsonNode body = response.getBody();
+            String rawBody = response.getBody();
+
+            JsonNode body = rawBody == null || rawBody.isBlank()
+                    ? null
+                    : objectMapper.readTree(rawBody);
 
             if (!response.getStatusCode().is2xxSuccessful()
                     || body == null
@@ -83,21 +102,27 @@ public class PayUVerificationService {
             return body;
 
         } catch (RestClientException exception) {
+            log.error(
+                    "PayU transaction verification API request failed."
+            );
+
             throw new IllegalStateException(
                     "Unable to verify payment with PayU.",
                     exception
             );
-        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+
+        } catch (JsonProcessingException exception) {
             throw new IllegalStateException(
-                    "Unable to prepare PayU verification request.",
+                    "Unable to build or parse PayU verification data.",
                     exception
             );
         }
     }
 
     /**
-     * Returns the individual PayU transaction result only after
-     * checking the API response, transaction ID, amount and status.
+     * Returns a transaction only when PayU's verification response
+     * reports a successful API result, matching transaction ID,
+     * successful payment status and matching amount.
      *
      * This method does not update the database or credit rewards.
      */
@@ -105,6 +130,7 @@ public class PayUVerificationService {
             String expectedTxnId,
             BigDecimal expectedAmount
     ) {
+
         if (expectedTxnId == null || expectedTxnId.isBlank()) {
             throw new IllegalArgumentException(
                     "Expected transaction ID is required."
@@ -121,11 +147,14 @@ public class PayUVerificationService {
 
         JsonNode apiStatus = response.get("status");
 
-        if (apiStatus == null
-                || !(apiStatus.isNumber()
-                && apiStatus.asInt() == 1
-                || apiStatus.isTextual()
-                && "1".equals(apiStatus.asText()))) {
+        boolean apiSucceeded = apiStatus != null
+                && (
+                (apiStatus.isNumber() && apiStatus.asInt() == 1)
+                        || (apiStatus.isTextual()
+                        && "1".equals(apiStatus.asText()))
+        );
+
+        if (!apiSucceeded) {
             throw new IllegalStateException(
                     "PayU verification API did not return success."
             );
@@ -142,7 +171,9 @@ public class PayUVerificationService {
         JsonNode matchedResult = null;
 
         for (JsonNode result : results) {
+
             if (expectedTxnId.equals(textValue(result, "txnId"))) {
+
                 if (matchedResult != null) {
                     throw new IllegalStateException(
                             "PayU returned duplicate transaction records."
@@ -162,9 +193,8 @@ public class PayUVerificationService {
         String paymentStatus = textValue(matchedResult, "status");
 
         if (!"success".equalsIgnoreCase(paymentStatus)) {
-            throw new IllegalStateException(
-                    "Payment is not successful. Current status: "
-                            + paymentStatus
+            throw new PaymentNotSuccessfulException(
+                    "PayU transaction is not successful."
             );
         }
 
@@ -178,6 +208,11 @@ public class PayUVerificationService {
             );
         }
 
+        /*
+         * Fail closed when the verified amount is missing or mismatched.
+         * Confirm the response field names against the actual PayU API
+         * response used by this integration.
+         */
         if (verifiedAmount == null
                 || verifiedAmount.compareTo(expectedAmount) != 0) {
             throw new IllegalStateException(
@@ -185,10 +220,16 @@ public class PayUVerificationService {
             );
         }
 
+        log.info(
+                "PayU verification succeeded for transactionId={}",
+                expectedTxnId
+        );
+
         return matchedResult;
     }
 
     private String textValue(JsonNode node, String fieldName) {
+
         JsonNode value = node == null ? null : node.get(fieldName);
 
         if (value == null || value.isNull()) {
@@ -199,6 +240,7 @@ public class PayUVerificationService {
     }
 
     private BigDecimal decimalValue(JsonNode value) {
+
         if (value == null || value.isNull()) {
             return null;
         }
@@ -215,7 +257,7 @@ public class PayUVerificationService {
                     return new BigDecimal(text);
                 }
             }
-        } catch (NumberFormatException ignored) {
+        } catch (NumberFormatException exception) {
             return null;
         }
 

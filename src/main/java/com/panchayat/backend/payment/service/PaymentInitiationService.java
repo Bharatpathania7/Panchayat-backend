@@ -238,7 +238,15 @@ public class PaymentInitiationService {
                 payUProperties.getBackendUrl()
         );
 
-        String callbackUrl = backendUrl + "/api/v1/payments/callback";
+        // Embed our own txnId so the callback can always identify the
+        // transaction, even if PayU's POST body omits "txnid".
+        // Safe: fulfillment verifies the status directly with PayU.
+        String callbackUrl = backendUrl
+                + "/api/v1/payments/callback?ref="
+                + java.net.URLEncoder.encode(
+                        txnId,
+                        java.nio.charset.StandardCharsets.UTF_8
+                );
 
         callbacks.setSuccessAction(callbackUrl);
         callbacks.setFailureAction(callbackUrl);

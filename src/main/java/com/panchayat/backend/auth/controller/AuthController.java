@@ -9,6 +9,7 @@ import com.panchayat.backend.auth.dto.VerifyOtpRequest;
 import com.panchayat.backend.auth.entity.User;
 import com.panchayat.backend.auth.service.AuthService;
 import com.panchayat.backend.auth.service.GoogleAuthService;
+import com.panchayat.backend.auth.service.RefreshTokenService;
 
 import jakarta.validation.Valid;
 
@@ -24,13 +25,47 @@ public class AuthController {
 
     private final AuthService authService;
     private final GoogleAuthService googleAuthService;
+    private final RefreshTokenService refreshTokenService;
 
     public AuthController(
             AuthService authService,
-            GoogleAuthService googleAuthService
+            GoogleAuthService googleAuthService,
+            RefreshTokenService refreshTokenService
     ) {
         this.authService = authService;
         this.googleAuthService = googleAuthService;
+        this.refreshTokenService = refreshTokenService;
+    }
+
+    public record RefreshRequest(String refreshToken) {
+    }
+
+    /*
+     * Swap a refresh token for a new access token and refresh token.
+     * POST /api/v1/auth/refresh  { "refreshToken": "..." }
+     * 401 when the session ended (expired, signed out or already used).
+     */
+    @PostMapping("/refresh")
+    public ResponseEntity<?> refresh(@RequestBody(required = false) RefreshRequest request) {
+        try {
+            return ResponseEntity.ok(
+                    refreshTokenService.refresh(request == null ? null : request.refreshToken())
+            );
+        } catch (org.springframework.web.server.ResponseStatusException e) {
+            return ResponseEntity.status(e.getStatusCode()).body(
+                    Map.of("message", e.getReason() == null ? "Please sign in again." : e.getReason())
+            );
+        }
+    }
+
+    /*
+     * Sign out this device: the refresh token stops working.
+     * POST /api/v1/auth/logout  { "refreshToken": "..." }
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(@RequestBody(required = false) RefreshRequest request) {
+        refreshTokenService.revoke(request == null ? null : request.refreshToken());
+        return ResponseEntity.noContent().build();
     }
 
     /*
