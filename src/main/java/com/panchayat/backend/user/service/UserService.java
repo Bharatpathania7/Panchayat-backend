@@ -27,6 +27,10 @@ import java.util.Locale;
 public class UserService {
 
     @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate giftJdbc;
+
+
+    @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.cp.CpService cpService;
 
@@ -251,7 +255,8 @@ public class UserService {
                 vip.entryAnimationUrl(),
                 rewardBag.effectsFor(user.getId()),
                 com.panchayat.backend.common.PublicIds.user(user.getId()),
-                cpService.summary(user.getId())
+                cpService.summary(user.getId()),
+                com.panchayat.backend.user.controller.GiftSetWearController.read(giftJdbc, user.getId())
         );
     }
 

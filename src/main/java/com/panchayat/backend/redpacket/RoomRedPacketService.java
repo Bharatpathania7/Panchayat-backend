@@ -34,11 +34,12 @@ import java.util.concurrent.TimeUnit;
  *
  * Drop: the sender pays with a packet from their Bag (bought with rupees) of
  * that size, or with coins. After the countdown it rains for RAIN_SECONDS.
- * Grab: each person in the room may grab up to MAX_GRABS times. Each grab
- * takes a random share of what's left, at most twice the average share still
- * left (the classic fair split), so the pot lasts and nobody drains it alone.
- * The sender can't grab their own packet. Coins go straight to the wallet.
- * End: whatever nobody grabbed goes back to the sender.
+ * Grab: each person in the room may grab up to MAX_GRABS times during the
+ * rain. Each grab takes a random share of what's left, at most twice the
+ * average share still left (the classic fair split), so the pot lasts the
+ * whole rain and nobody drains it alone. The sender can't grab their own.
+ * End: when the rain is over, everyone's grabs are paid into their wallet in
+ * one go, and whatever nobody grabbed goes back to the sender.
  *
  * Everyone in the room sees it on /topic/voice-rooms/{id}/redpacket; the whole
  * app gets a banner on /topic/redpackets.
@@ -48,7 +49,7 @@ public class RoomRedPacketService {
 
     private static final Logger log = LoggerFactory.getLogger(RoomRedPacketService.class);
     public static final int RAIN_SECONDS = 15;
-    public static final int MAX_GRABS = 3;
+    public static final int MAX_GRABS = 10;
     private static final Set<Integer> DELAYS = Set.of(10, 30, 60, 180);
     private static final Set<String> COVERS = Set.of("red", "royal", "maharaja", "genda", "mor");
 
@@ -174,14 +175,10 @@ public class RoomRedPacketService {
         long newLeft = left - got;
         jdbc.update("update room_red_packets set coins_left = ?, shares_left = shares_left - 1 where id = ?", newLeft, packetId);
         jdbc.update("insert into room_red_packet_grabs (packet_id, user_id, coins) values (?, ?, ?)", packetId, userId, got);
-        wallet.credit(userId, got, "RED_PACKET_GRAB", "redpacket:" + packetId,
-                "rp-grab:" + packetId + ":" + userId + ":" + (myGrabs + 1), "Grabbed from red packet " + packetId);
+        // Paid into the wallet when the rain ends (settle), all grabs together
 
         Map<String, Object> view = view(packetId, "GRABBED", userId, got);
-        afterCommit(() -> {
-            broadcast(roomId, view);
-            walletPush.pushBalance(userId, "RED_PACKET_GRAB", got);
-        });
+        afterCommit(() -> broadcast(roomId, view));
         return result(packetId, got, mine + got, myGrabs + 1, newLeft);
     }
 
@@ -223,6 +220,17 @@ public class RoomRedPacketService {
         long left = ((Number) p.get("coins_left")).longValue();
         long sender = ((Number) p.get("sender_id")).longValue();
         long roomId = ((Number) p.get("room_id")).longValue();
+        // Everyone's grabs, paid now that the rain is over (one credit each)
+        List<Map<String, Object>> won = jdbc.queryForList(
+                "select user_id, sum(coins) as coins from room_red_packet_grabs where packet_id = ? group by user_id", id);
+        Map<Long, Long> paid = new LinkedHashMap<>();
+        for (Map<String, Object> w : won) {
+            long uid = ((Number) w.get("user_id")).longValue();
+            long coins = ((Number) w.get("coins")).longValue();
+            if (coins <= 0) continue;
+            wallet.credit(uid, coins, "RED_PACKET_GRAB", "redpacket:" + id, "rp-win:" + id + ":" + uid, "Won from red packet " + id);
+            paid.put(uid, coins);
+        }
         if (left > 0) {
             wallet.credit(sender, left, "RED_PACKET_REFUND", "redpacket:" + id, "rp-refund:" + id, "Unclaimed coins from red packet " + id);
         }
@@ -231,15 +239,16 @@ public class RoomRedPacketService {
         view.put("refunded", left);
         afterCommit(() -> {
             broadcast(roomId, view);
+            paid.forEach((uid, coins) -> walletPush.pushBalance(uid, "RED_PACKET_GRAB", coins));
             if (left > 0) walletPush.pushBalance(sender, "RED_PACKET_REFUND", left);
         });
     }
 
     /* ---------------- internals ---------------- */
 
-    /** How many shares a pot splits into: about one per 400 coins, between 20 and 100. */
+    /** How many shares a pot splits into: about one per 250 coins, between 40 and 300 (enough to tap through the whole rain). */
     static int shares(long amount) {
-        return (int) Math.max(20, Math.min(100, amount / 400));
+        return (int) Math.max(40, Math.min(300, amount / 250));
     }
 
     private long mine(Long packetId, Long userId) {

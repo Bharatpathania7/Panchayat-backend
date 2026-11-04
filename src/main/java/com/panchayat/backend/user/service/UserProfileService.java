@@ -23,6 +23,9 @@ import java.util.List;
 
 @Service
 public class UserProfileService {
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcForStats;
+
 
     @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
@@ -161,11 +164,16 @@ public class UserProfileService {
     public UserStatsResponse getMyStats(String authenticatedEmail) {
         User user = findUserByEmail(authenticatedEmail);
 
+        // EXP lives in users.exp (ExpService adds to it); the level is worked out from it
+        Long exp = jdbcForStats.queryForObject("select coalesce(exp, 0) from users where id = ?", Long.class, user.getId());
+        long[] lv = com.panchayat.backend.progress.service.ExpService.levelOf(exp == null ? 0 : exp);
         return new UserStatsResponse(
-                user.getLevel(),
-                user.getExpPoints(),
+                (int) lv[0],
+                exp == null ? 0 : exp,
                 user.getCharmPoints(),
-                user.getVipPoints()
+                user.getVipPoints(),
+                lv[1],
+                lv[2]
         );
     }
 
@@ -215,9 +223,19 @@ public class UserProfileService {
                 vip.entryAnimationUrl(),
                 rewardBag.effectsFor(user.getId()),
                 com.panchayat.backend.common.PublicIds.user(user.getId()),
-                cpService.summary(user.getId())
+                cpService.summary(user.getId()),
+                com.panchayat.backend.user.controller.GiftSetWearController.read(expJdbc, user.getId())
         );
     }
+
+    /** Active Level from the person's EXP (same rule as ExpService). */
+    private int activeLevel(Long userId) {
+        Long exp = expJdbc.queryForObject("select exp from users where id = ?", Long.class, userId);
+        return (int) com.panchayat.backend.progress.service.ExpService.levelOf(exp == null ? 0 : exp)[0];
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate expJdbc;
 
     private PublicUserProfileResponse toPublicResponse(User user) {
         List<String> favoriteGames =
@@ -247,7 +265,10 @@ public class UserProfileService {
                 vip.entryAnimationUrl(),
                 rewardBag.effectsFor(user.getId()),
                 com.panchayat.backend.common.PublicIds.user(user.getId()),
-                cpService.summary(user.getId())
+                cpService.summary(user.getId()),
+                user.getCharmPoints(),
+                activeLevel(user.getId()),
+                com.panchayat.backend.user.controller.GiftSetWearController.read(expJdbc, user.getId())
         );
     }
 

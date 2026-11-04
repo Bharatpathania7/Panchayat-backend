@@ -194,7 +194,8 @@ public class PayUVerificationService {
 
         if (!"success".equalsIgnoreCase(paymentStatus)) {
             throw new PaymentNotSuccessfulException(
-                    "PayU transaction is not successful."
+                    "PayU transaction is not successful.",
+                    paymentStatus
             );
         }
 

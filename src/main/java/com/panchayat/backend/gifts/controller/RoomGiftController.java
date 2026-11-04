@@ -26,19 +26,25 @@ public class RoomGiftController {
     private final RoomGiftService gifts;
     private final UserRepository userRepository;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.gifts.service.GiftNewsService giftNews;
+
     public RoomGiftController(RoomGiftService gifts, UserRepository userRepository) {
         this.gifts = gifts;
         this.userRepository = userRepository;
     }
 
-    public record SendGiftRequest(String giftId, Long toUserId, Integer count, String requestId, Boolean fromBag) {
+    public record SendGiftRequest(String giftId, Long toUserId, Integer count, String requestId, Boolean fromBag, String message) {
     }
 
     @PostMapping("/gifts")
     public GiftSent send(@PathVariable Long roomId, @RequestBody SendGiftRequest body, Authentication auth) {
         if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Gift details are required");
-        return gifts.send(roomId, me(auth), body.giftId(), body.toUserId(), body.count() == null ? 1 : body.count(), body.requestId(),
+        GiftSent sent = gifts.send(roomId, me(auth), body.giftId(), body.toUserId(), body.count() == null ? 1 : body.count(), body.requestId(),
                 Boolean.TRUE.equals(body.fromBag()));
+        // Big gifts are announced to everyone in the app, with the sender's message
+        giftNews.announce(sent, body.message());
+        return sent;
     }
 
     @GetMapping("/contribution")

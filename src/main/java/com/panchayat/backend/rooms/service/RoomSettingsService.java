@@ -35,6 +35,11 @@ import java.util.regex.Pattern;
 @Service
 public class RoomSettingsService {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.social.invites.InviteService invites;
+
+
     private static final Logger log = LoggerFactory.getLogger(RoomSettingsService.class);
 
     private static final Pattern PASSWORD = Pattern.compile("^[0-9]{4}$");
@@ -177,6 +182,8 @@ public class RoomSettingsService {
         String required = room.getPassword();
         if (required == null || required.isBlank()) return true;
         if (Objects.equals(room.getOwnerId(), userId) || roomState.isAdmin(room.getId(), userId)) return true;
+        // An invite from someone in the room (sent in a chat) lets you in without the password
+        if (invites.inviteAccepted(room.getId(), password)) return true;
 
         String key = room.getId() + ":" + userId;
         Deque<Instant> recent = wrongGuesses.computeIfAbsent(key, k -> new ArrayDeque<>());

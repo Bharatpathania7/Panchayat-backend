@@ -35,5 +35,12 @@ public record PublicUserProfileResponse(
         Long publicId,
 
         // CP: { coupleId, partnerUserId, partnerName, partnerAvatarUrl, ringId, blessings } or null
-        java.util.Map<String, Object> cp
+        java.util.Map<String, Object> cp,
+
+        // Charm points (from gifts received) and Active Level, exactly as the server has them
+        long charmPoints,
+        int level,
+
+        // Gift-set pieces they wear: { frame?, bubble?, entry?, page? } → set id
+        java.util.Map<String, Object> giftSetWear
 ) {}

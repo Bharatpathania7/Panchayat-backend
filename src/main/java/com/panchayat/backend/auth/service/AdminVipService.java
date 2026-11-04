@@ -17,6 +17,10 @@ import java.time.temporal.ChronoUnit;
 
 @Service
 public class AdminVipService {
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.sarpanch.SarpanchService sarpanch;
+
 
     private final UserRepository userRepository;
     private final VipLevelService vipLevelService;
@@ -65,6 +69,11 @@ public class AdminVipService {
         refreshVipLevel(user);
 
         User savedUser = userRepository.save(user);
+
+        sarpanch.notifySafely(savedUser.getId(), "VIP_ACTIVATED",
+                java.util.Map.of("level", String.valueOf(savedUser.getVipLevel() == null ? 1 : savedUser.getVipLevel()),
+                        "date", com.panchayat.backend.sarpanch.SarpanchService.formatDate(newExpiry)),
+                "vip:" + savedUser.getId() + ":activated:" + newExpiry.getEpochSecond());
 
         return AdminVipResponse.from(savedUser);
     }

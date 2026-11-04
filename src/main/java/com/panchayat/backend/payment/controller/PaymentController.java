@@ -91,6 +91,31 @@ public class PaymentController {
         return ResponseEntity.ok(body);
     }
 
+    /** One of your own orders (the Sarpanch "Order ..." link). Another user's order answers 404. */
+    @GetMapping("/{orderRef}")
+    public ResponseEntity<Map<String, Object>> getOrder(@PathVariable String orderRef, Authentication authentication) {
+        User user = resolveUser(authentication);
+        PaymentTransaction payment = paymentTransactionRepository.findByTxnId(orderRef)
+                .filter(p -> Objects.equals(p.getUserId(), user.getId()))
+                .orElse(null);
+        if (payment == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", "Order not found"));
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("orderRef", payment.getTxnId());
+        body.put("purpose", payment.getPurpose().name());
+        body.put("productId", payment.getProductId());
+        body.put("amountInRupees", payment.getAmount());
+        Long coins = null;
+        if (payment.getPurchasedCoins() != null) {
+            coins = payment.getPurchasedCoins() + (payment.getPurchasedBonusCoins() == null ? 0L : payment.getPurchasedBonusCoins());
+        }
+        body.put("coins", coins);
+        body.put("status", payment.getStatus().name());
+        body.put("createdAt", payment.getCreatedAt() == null ? null : payment.getCreatedAt().toString());
+        return ResponseEntity.ok(body);
+    }
+
     private User resolveUser(Authentication authentication) {
         if (authentication == null
                 || !authentication.isAuthenticated()

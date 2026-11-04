@@ -64,6 +64,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
             // Things that cost storage or other people's attention
             user("chat-groups", "POST", "^/api/v1/chat/groups$", 10, 60 * MIN),
             user("chat-send", "POST", "^/api/v1/chat/conversations/\\d+/messages(/image)?$", 60, MIN),
+            user("chat-invites", "POST", "^/api/v1/chat/conversations/\\d+/invites$", 20, MIN),
+            user("room-invite-code", "POST", "^/api/v1/voice-rooms/\\d+/invite-code$", 20, MIN),
             user("chat-blocks", null, "^/api/v1/chat/blocks/\\d+$", 30, MIN),
             user("room-create", "POST", "^/api/v1/voice-rooms$", 10, 60 * MIN),
             user("room-join", "POST", "^/api/v1/voice-rooms/\\d+/join$", 30, MIN),

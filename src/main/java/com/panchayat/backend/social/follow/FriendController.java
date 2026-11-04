@@ -47,6 +47,12 @@ public class FriendController {
         return friends.list(me(auth), kind, limit);
     }
 
+    /** People you chat with or follow who are online now, with the room they're in. */
+    @GetMapping("/api/v1/friends/active")
+    public List<Map<String, Object>> active(@RequestParam(defaultValue = "30") int limit, Authentication auth) {
+        return friends.activeNow(me(auth), Math.max(1, Math.min(limit, 60)));
+    }
+
     @GetMapping("/api/v1/friends/activity")
     public List<Map<String, Object>> activity(@RequestParam(defaultValue = "40") int limit, Authentication auth) {
         return friends.activity(me(auth), limit);

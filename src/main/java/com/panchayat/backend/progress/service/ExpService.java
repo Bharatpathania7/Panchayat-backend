@@ -33,6 +33,10 @@ import java.util.concurrent.TimeUnit;
  */
 @Service
 public class ExpService {
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.progress.tasks.DailyTaskService dailyTasks;
+
 
     private static final Logger log = LoggerFactory.getLogger(ExpService.class);
     private static final ZoneId ZONE = ZoneId.of("Asia/Kolkata");
@@ -159,6 +163,7 @@ public class ExpService {
                 int whole = (int) Math.floor(total);
                 voiceCarry.put(uid, total - whole);
                 if (whole > 0) add(uid, "VOICE", whole);
+                dailyTasks.track(uid, "VOICE_MINUTES", 1);
             }
             voiceCarry.keySet().retainAll(seen);
         } catch (Exception e) {

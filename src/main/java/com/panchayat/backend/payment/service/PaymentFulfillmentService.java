@@ -73,10 +73,17 @@ public class PaymentFulfillmentService {
         }
 
         // Verify payment directly with PayU; never trust callback parameters.
-        JsonNode result = verificationService.verifySuccessfulPayment(
-                txnId,
-                expectedAmount
-        );
+        JsonNode result;
+        try {
+            result = verificationService.verifySuccessfulPayment(
+                    txnId,
+                    expectedAmount
+            );
+        } catch (PaymentNotSuccessfulException notPaid) {
+            // Only a final failure from PayU (never the browser redirect) marks it failed and tells the buyer
+            if (notPaid.finalFailure()) transactionService.markFailed(txnId);
+            throw notPaid;
+        }
 
         if (result == null || !result.isObject()) {
             throw new IllegalStateException(

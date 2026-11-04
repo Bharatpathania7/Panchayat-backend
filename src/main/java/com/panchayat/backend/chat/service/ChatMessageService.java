@@ -25,6 +25,10 @@ import java.util.List;
 
 @Service
 public class ChatMessageService {
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.progress.tasks.DailyTaskService dailyTasks;
+
 
     /** Blocks, groups (field-injected: no change to the constructor). */
     @org.springframework.beans.factory.annotation.Autowired
@@ -61,6 +65,7 @@ public class ChatMessageService {
             Long conversationId,
             String messageText
     ) {
+        dailyTasks.track(authenticatedUserId, "SEND_MESSAGE", 1);
         validateIdentifiers(authenticatedUserId, conversationId);
 
         if (messageText == null || messageText.isBlank()) {
@@ -225,7 +230,7 @@ public class ChatMessageService {
             );
         }
 
-        if (message.getMessageType() != ChatMessageType.TEXT) {
+        if (message.getMessageType() != ChatMessageType.TEXT && message.getMessageType() != ChatMessageType.SYSTEM) {
             throw new IllegalArgumentException(
                     "This message does not contain a text payload."
             );

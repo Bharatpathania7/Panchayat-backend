@@ -130,7 +130,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         String destination = accessor.getDestination();
         if (destination == null) return false;
         if (OWN_QUEUE.matcher(destination).matches()) return true;
-        if ("/topic/presence".equals(destination) || "/topic/redpackets".equals(destination)) return true;
+        if ("/topic/presence".equals(destination) || "/topic/redpackets".equals(destination) || "/topic/gift-news".equals(destination)) return true;
 
         Matcher chat = VOICE_CHAT_TOPIC.matcher(destination);
         Matcher topic = ROOM_TOPIC.matcher(destination);

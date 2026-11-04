@@ -23,6 +23,10 @@ import java.util.Locale;
 
 @Service
 public class AuthService {
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.sarpanch.SarpanchService sarpanch;
+
 
     private static final int OTP_EXPIRATION_SECONDS = 120;
     private static final int MAX_OTP_ATTEMPTS = 5;
@@ -217,9 +221,12 @@ public class AuthService {
         user.setFullName(fullName);
         user.setGender(gender);
         user.setDateOfBirth(dateOfBirth);
+        boolean firstTime = !user.isProfileCompleted();
         user.setProfileCompleted(true);
 
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        if (firstTime) sarpanch.notifySafely(saved.getId(), "WELCOME", java.util.Map.of("name", fullName), "welcome:" + saved.getId());
+        return saved;
     }
 
     /*

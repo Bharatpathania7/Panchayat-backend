@@ -57,6 +57,10 @@ import java.util.regex.Pattern;
  */
 @Service
 public class CpService {
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.sarpanch.SarpanchService sarpanch;
+
 
     private static final Logger log = LoggerFactory.getLogger(CpService.class);
 
@@ -101,15 +105,74 @@ public class CpService {
 
     /* ================= rings ================= */
 
+    /** Ring products from the admin panel (Shop categories named like "ring") join the CP catalogue as "shop-<id>". */
+    public static final String SHOP_PREFIX = "shop-";
+    private static final String SHOP_RINGS =
+            "select p.id, p.name, p.price, p.rarity, p.asset_url, p.display_order, p.active from shop_products p"
+                    + " join shop_categories c on c.id = p.category_id where c.name ilike '%ring%' and p.price >= 1";
+    private volatile long shopSyncedAt = 0;
+
+    /**
+     * Copies the admin's ring products into cp_rings (so proposals, ring boxes
+     * and prices all work the same way) at most every 20 seconds. Rings taken
+     * out of the Shop stop being sold here too; ones people already have stay.
+     */
+    void syncShopRings() {
+        long now = System.currentTimeMillis();
+        if (now - shopSyncedAt < 20_000) return;
+        shopSyncedAt = now;
+        try {
+            jdbc.update("insert into cp_rings (id, name, price, rarity, image_url, sort_order, active)"
+                    + " select 'shop-' || x.id, left(x.name, 60), x.price::bigint, initcap(lower(x.rarity)), x.asset_url, 100 + x.display_order, x.active from (" + SHOP_RINGS + ") x"
+                    + " on conflict (id) do update set name = excluded.name, price = excluded.price, rarity = excluded.rarity,"
+                    + " image_url = excluded.image_url, sort_order = excluded.sort_order, active = excluded.active");
+            jdbc.update("update cp_rings r set active = false where r.id like 'shop-%' and r.active"
+                    + " and not exists (select 1 from (" + SHOP_RINGS + ") x where 'shop-' || x.id = r.id and x.active)");
+        } catch (Exception e) {
+            log.warn("Couldn't copy the Shop's rings into CP: {}", e.getMessage());
+        }
+    }
+
+    /** Sync right now (after the admin changes rings, and in tests). */
+    void syncShopRingsNow() {
+        shopSyncedAt = 0;
+        syncShopRings();
+    }
+
+    private static boolean isShopRing(String ringId) {
+        return ringId != null && ringId.startsWith(SHOP_PREFIX);
+    }
+
+    private static long shopId(String ringId) {
+        try {
+            return Long.parseLong(ringId.substring(SHOP_PREFIX.length()));
+        } catch (RuntimeException e) {
+            throw notFound("That ring isn't on sale");
+        }
+    }
+
     public List<Map<String, Object>> rings() {
-        return jdbc.queryForList("select id, name, price, rarity, image_url as \"imageUrl\", sort_order as \"sortOrder\" from cp_rings where active order by sort_order, price");
+        syncShopRings();
+        List<Map<String, Object>> list = jdbc.queryForList("select id, name, price, rarity, image_url as \"imageUrl\", sort_order as \"sortOrder\" from cp_rings where active order by sort_order, price");
+        // Pictures uploaded in the admin panel live on this server behind signed links
+        for (Map<String, Object> r : list) {
+            Object u = r.get("imageUrl");
+            if (u instanceof String s && s.startsWith("/uploads/")) r.put("imageUrl", com.panchayat.backend.admin.media.MediaUrls.link(s));
+        }
+        return list;
     }
 
     public Map<String, Integer> bag(Long me) {
+        syncShopRings();
         Map<String, Integer> out = new LinkedHashMap<>();
         jdbc.query("select b.ring_id, b.quantity from cp_ring_bag b join cp_rings r on r.id = b.ring_id where b.user_id = ? and b.quantity > 0 order by r.sort_order",
                 rs -> {
                     out.put(rs.getString(1), rs.getInt(2));
+                }, me);
+        // Rings bought in the Shop (admin's ring products) are in the same Bag
+        jdbc.query("select 'shop-' || i.product_id, i.quantity from user_shop_items i join cp_rings r on r.id = 'shop-' || i.product_id where i.user_id = ? and i.quantity > 0 order by r.sort_order",
+                rs -> {
+                    out.merge(rs.getString(1), rs.getInt(2), Integer::sum);
                 }, me);
         return out;
     }
@@ -170,11 +233,15 @@ public class CpService {
 
     @Transactional
     public Map<String, Object> accept(Long me, Long proposalId) {
+        // Lock the two people first, then the proposal: every accept takes its locks
+        // in the same order, so two accepts sharing a person wait instead of deadlocking
+        List<Map<String, Object>> peek = jdbc.queryForList("select from_id, to_id from cp_proposals where id = ?", proposalId);
+        if (peek.isEmpty()) throw notFound("That proposal doesn't exist");
+        lockUsers(num(peek.get(0).get("from_id")), num(peek.get(0).get("to_id")));
         Map<String, Object> p = lockProposal(proposalId);
         long from = num(p.get("from_id")), to = num(p.get("to_id"));
         if (to != me) throw forbidden("Only the person it was sent to can accept this");
         if (!"PENDING".equals(p.get("status"))) throw conflict("This proposal is no longer open");
-        lockUsers(from, to);
         if (liveCouple(to) != null) throw conflict("You already have a CP");
         if (liveCouple(from) != null) throw conflict(nameOf(from) + " already has a CP");
         Ring r = ring((String) p.get("ring_id"));
@@ -201,6 +268,8 @@ public class CpService {
             notify(ot, "PROPOSAL_CANCELLED", null, oid, me);
         }
         notify(from, "PROPOSAL_ACCEPTED", cid, proposalId, me);
+        String toName = jdbc.query("select full_name from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, to);
+        sarpanch.notifySafely(from, "CP_ACCEPTED", Map.of("name", toName == null ? "Your partner" : toName), "cp:" + cid + ":accepted");
         return couple(cid);
     }
 
@@ -441,6 +510,11 @@ public class CpService {
         jdbc.update("delete from cp_members where couple_id = ?", cid);
         notify(num(c.get("user_a")), "CP_ENDED", cid, null, me);
         notify(num(c.get("user_b")), "CP_ENDED", cid, null, me);
+        long ua = num(c.get("user_a")), ub = num(c.get("user_b"));
+        for (long[] pair : new long[][]{{ua, ub}, {ub, ua}}) {
+            String other = jdbc.query("select full_name from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, pair[1]);
+            sarpanch.notifySafely(pair[0], "CP_ENDED", Map.of("name", other == null ? "your partner" : other), "cp:" + cid + ":ended:" + pair[0]);
+        }
         return Map.of("ended", true, "coupleId", String.valueOf(cid));
     }
 
@@ -512,17 +586,29 @@ public class CpService {
 
     private Ring ring(String id) {
         if (id == null || id.isBlank()) throw bad("Choose a ring");
+        if (isShopRing(id)) syncShopRings();
         List<Ring> l = jdbc.query("select id, name, price from cp_rings where id = ? and active", (rs, i) -> new Ring(rs.getString(1), rs.getString(2), rs.getLong(3)), id);
         if (l.isEmpty()) throw notFound("That ring isn't on sale");
         return l.get(0);
     }
 
     private void addToBag(long userId, String ringId, int n) {
+        if (isShopRing(ringId)) {
+            jdbc.update("insert into user_shop_items (user_id, product_id, quantity) values (?, ?, ?)"
+                    + " on conflict (user_id, product_id) do update set quantity = user_shop_items.quantity + excluded.quantity, last_bought_at = now()",
+                    userId, shopId(ringId), n);
+            return;
+        }
         jdbc.update("insert into cp_ring_bag (user_id, ring_id, quantity) values (?, ?, ?) on conflict (user_id, ring_id) do update set quantity = cp_ring_bag.quantity + excluded.quantity",
                 userId, ringId, n);
     }
 
     private void takeFromBag(long userId, String ringId) {
+        if (isShopRing(ringId)) {
+            if (jdbc.update("update user_shop_items set quantity = quantity - 1 where user_id = ? and product_id = ? and quantity > 0", userId, shopId(ringId)) == 0)
+                throw conflict("Buy a ring first");
+            return;
+        }
         if (jdbc.update("update cp_ring_bag set quantity = quantity - 1 where user_id = ? and ring_id = ? and quantity > 0", userId, ringId) == 0)
             throw conflict("Buy a ring first");
     }

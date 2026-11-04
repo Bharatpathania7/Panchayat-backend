@@ -28,6 +28,10 @@ import java.util.*;
  */
 @Service
 public class MomentService {
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.progress.tasks.DailyTaskService dailyTasks;
+
 
     public static final int MAX_PHOTOS = 9;
     public static final long MAX_PHOTO = 10L * 1024 * 1024;
@@ -40,6 +44,10 @@ public class MomentService {
     private final SimpMessagingTemplate messaging;
     private final ObjectMapper json = new ObjectMapper();
 
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.user.service.UserProfileService profiles;
+
     public MomentService(JdbcTemplate jdbc, AdminMediaService media, SimpMessagingTemplate messaging) {
         this.jdbc = jdbc;
         this.media = media;
@@ -48,6 +56,7 @@ public class MomentService {
 
     @Transactional
     public Map<String, Object> post(Long me, String body, String visibility, List<MultipartFile> files) {
+        dailyTasks.track(me, "POST_MOMENT", 1);
         String text = body == null ? "" : body.strip();
         if (text.length() > 1000) throw bad("A Moment can be up to 1000 characters.");
         List<MultipartFile> list = files == null ? List.of() : files.stream().filter(f -> f != null && !f.isEmpty()).toList();
@@ -222,6 +231,8 @@ public class MomentService {
         author.put("publicId", PublicIds.user(uid));
         author.put("name", r.get("full_name"));
         author.put("avatarUrl", MediaUrls.link((String) r.get("avatar_url")));
+        // What they wear: VIP status, frame, badge, name font and worn rewards (as on their profile)
+        author.putAll(looks(uid));
         m.put("author", author);
         m.put("body", r.get("body"));
         List<Map<String, Object>> files = new ArrayList<>();
@@ -246,6 +257,35 @@ public class MomentService {
         m.put("mine", uid == me);
         m.put("at", ((Timestamp) r.get("created_at")).toInstant().toString());
         return m;
+    }
+
+    /** Each author's equipped look, kept for a minute so a feed of 15 posts asks once per person. */
+    private final java.util.concurrent.ConcurrentHashMap<Long, Object[]> lookCache = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private Map<String, Object> looks(long uid) {
+        Object[] hit = lookCache.get(uid);
+        if (hit != null && System.currentTimeMillis() - (Long) hit[0] < 60_000) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> cached = (Map<String, Object>) hit[1];
+            return cached;
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        try {
+            var p = profiles.getPublicProfile(uid);
+            out.put("vipActive", p.vipActive());
+            out.put("vipLevel", p.vipLevel());
+            out.put("badgeUrl", p.badgeUrl());
+            out.put("frameUrl", p.frameUrl());
+            out.put("nameFont", p.nameFont());
+            out.put("rewardEffects", p.rewardEffects());
+            out.put("charmPoints", p.charmPoints());
+            out.put("level", p.level());
+        } catch (RuntimeException e) {
+            // A profile that can't be read just shows the plain avatar
+        }
+        lookCache.put(uid, new Object[]{System.currentTimeMillis(), out});
+        if (lookCache.size() > 2000) lookCache.clear();
+        return out;
     }
 
     private String nameOf(Long id) {

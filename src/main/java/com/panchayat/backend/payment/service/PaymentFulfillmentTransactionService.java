@@ -22,6 +22,10 @@ import java.time.Instant;
 
 @Service
 public class PaymentFulfillmentTransactionService {
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.sarpanch.SarpanchService sarpanch;
+
 
     private final PaymentTransactionRepository paymentRepository;
     private final UserRepository userRepository;
@@ -192,5 +196,32 @@ public class PaymentFulfillmentTransactionService {
         payment.setVerifiedAt(Instant.now());
 
         paymentRepository.save(payment);
+
+        // Sarpanch: once, after this commit (eventKey stops PayU retries sending it twice)
+        String amount = payment.getAmount().stripTrailingZeros().toPlainString();
+        if (payment.getPurpose() == Purpose.COIN_PACK) {
+            long total = payment.getPurchasedCoins() + payment.getPurchasedBonusCoins();
+            sarpanch.notifySafely(userId, "COINS_BOUGHT",
+                    java.util.Map.of("amount", amount, "coins", String.format("%,d", total), "orderRef", txnId),
+                    "payment:" + txnId + ":success");
+        } else if (payment.getPurpose() == Purpose.RED_PACKET) {
+            RedPacketProduct product = redPacketProductRepository.findById(payment.getProductId()).orElse(null);
+            sarpanch.notifySafely(userId, "RED_PACKET_BOUGHT",
+                    java.util.Map.of("amount", amount, "packetName", product == null ? "red packet" : product.getName(),
+                            "coins", product == null || product.getCoinValue() == null ? "" : String.format("%,d", product.getCoinValue()), "orderRef", txnId),
+                    "payment:" + txnId + ":success");
+        }
+    }
+
+    /** PayU confirmed the payment failed: mark it FAILED (only from PENDING) and tell the buyer once. */
+    @Transactional
+    public void markFailed(String txnId) {
+        PaymentTransaction payment = paymentRepository.findByTxnIdForUpdate(txnId).orElse(null);
+        if (payment == null || payment.getStatus() != Status.PENDING) return;
+        payment.setStatus(Status.FAILED);
+        paymentRepository.save(payment);
+        sarpanch.notifySafely(payment.getUserId(), "PAYMENT_FAILED",
+                java.util.Map.of("amount", payment.getAmount().stripTrailingZeros().toPlainString(), "orderRef", txnId),
+                "payment:" + txnId + ":failed");
     }
 }

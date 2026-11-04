@@ -77,11 +77,69 @@ public class ChatSocialService {
 
     /** Blocks and DMs: throws when this message must not be sent. */
     public void checkCanSend(Long conversationId, Long senderId) {
+        Boolean system = jdbc.query("select system_conversation from chat_conversations where id = ?", rs -> rs.next() ? rs.getBoolean(1) : Boolean.FALSE, conversationId);
+        if (Boolean.TRUE.equals(system)) throw forbidden("You can't reply to Sarpanch");
         if (isGroup(conversationId)) return;
         Long other = otherOf(conversationId, senderId);
         if (other == null) return;
         if (blocked(senderId, other)) throw forbidden("You blocked this person. Unblock them to send messages.");
         if (blocked(other, senderId)) throw forbidden("You can't message this person.");
+        // Message requests: friends (mutual follow) chat freely
+        if (friends(senderId, other)) {
+            jdbc.update("update chat_conversation_participants set request_state = 'ACCEPTED' where conversation_id = ? and request_state <> 'ACCEPTED'", conversationId);
+            return;
+        }
+        String mine = requestState(conversationId, senderId);
+        if (!"ACCEPTED".equals(mine)) {
+            // Replying to a request accepts it
+            jdbc.update("update chat_conversation_participants set request_state = 'ACCEPTED' where conversation_id = ? and user_id = ?", conversationId, senderId);
+            return;
+        }
+        if (!"ACCEPTED".equals(requestState(conversationId, other))) {
+            Integer sent = jdbc.queryForObject("select count(*) from chat_messages where conversation_id = ? and sender_user_id = ? and deleted_at is null",
+                    Integer.class, conversationId, senderId);
+            if (sent != null && sent >= 1) {
+                String name = jdbc.queryForObject("select coalesce(full_name, 'They') from users where id = ?", String.class, other);
+                throw forbidden("Your message request is waiting. You can send more once " + name + " accepts it or you become friends.");
+            }
+        }
+    }
+
+    /** Two people who follow each other. */
+    public boolean friends(Long a, Long b) {
+        Integer n = jdbc.queryForObject("select count(*) from user_follows f join user_follows g on g.follower_id = f.followee_id and g.followee_id = f.follower_id where f.follower_id = ? and f.followee_id = ?",
+                Integer.class, a, b);
+        return n != null && n > 0;
+    }
+
+    public String requestState(Long conversationId, Long userId) {
+        List<String> l = jdbc.queryForList("select request_state from chat_conversation_participants where conversation_id = ? and user_id = ?", String.class, conversationId, userId);
+        return l.isEmpty() ? "ACCEPTED" : l.get(0);
+    }
+
+    /** A new direct chat: if they aren't friends, it's a request for the receiver. */
+    public void markNewDirectChat(Long conversationId, Long starter, Long receiver) {
+        if (!friends(starter, receiver)) {
+            jdbc.update("update chat_conversation_participants set request_state = 'PENDING' where conversation_id = ? and user_id = ?", conversationId, receiver);
+        }
+    }
+
+    /** Accept a message request: it moves to your chats. */
+    @Transactional
+    public Map<String, Object> acceptRequest(Long conversationId, Long me) {
+        if (!isMember(conversationId, me)) throw forbidden("You're not in this chat.");
+        jdbc.update("update chat_conversation_participants set request_state = 'ACCEPTED' where conversation_id = ? and user_id = ?", conversationId, me);
+        Long other = otherOf(conversationId, me);
+        if (other != null) users.findById(other).ifPresent(u -> send(u.getEmail(), "/queue/chat.events", Map.of("type", "REQUEST_ACCEPTED", "conversationId", String.valueOf(conversationId))));
+        return Map.of("conversationId", String.valueOf(conversationId), "requestState", "ACCEPTED");
+    }
+
+    /** Delete a message request: it leaves your list; they can't send more until you're friends. */
+    @Transactional
+    public Map<String, Object> declineRequest(Long conversationId, Long me) {
+        if (!isMember(conversationId, me)) throw forbidden("You're not in this chat.");
+        jdbc.update("update chat_conversation_participants set request_state = 'DECLINED' where conversation_id = ? and user_id = ? and request_state = 'PENDING'", conversationId, me);
+        return Map.of("conversationId", String.valueOf(conversationId), "requestState", requestState(conversationId, me));
     }
 
     private Long otherOf(Long conversationId, Long me) {

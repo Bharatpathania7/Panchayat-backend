@@ -39,6 +39,10 @@ import java.util.concurrent.TimeUnit;
  */
 @Service
 public class JackarooService {
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.progress.tasks.DailyTaskService dailyTasks;
+
 
     private static final Logger log = LoggerFactory.getLogger(JackarooService.class);
     public static final int TURN_SECONDS = 25;
@@ -78,8 +82,17 @@ public class JackarooService {
         State s = new State();
         s.players.add(player(me, 0));
         s.last = "Table open. Waiting for players…";
-        Long id = jdbc.queryForObject("insert into room_games (room_id, game, created_by, state) values (?, 'JACKAROO', ?, ?::jsonb) returning id",
-                Long.class, roomId, me, json.writeValueAsString(s));
+        // A short code to share: friends join the table with it
+        Long id = null;
+        for (int attempt = 0; id == null && attempt < 5; attempt++) {
+            try {
+                id = jdbc.queryForObject("insert into room_games (room_id, game, created_by, state, code) values (?, 'JACKAROO', ?, ?::jsonb, ?) returning id",
+                        Long.class, roomId, me, json.writeValueAsString(s), com.panchayat.backend.social.invites.InviteService.code(6));
+            } catch (org.springframework.dao.DuplicateKeyException clash) {
+                // the same code twice: pick another
+            }
+        }
+        if (id == null) throw conflict("Couldn't open a table. Try again.");
         broadcast(id);
         return view(id, me);
     }
@@ -135,6 +148,7 @@ public class JackarooService {
                     List<Long> winners = g.s.players.stream().filter(q -> q.team == g.s.winnerTeam && !q.left).map(q -> q.userId).toList();
                     afterCommit(() -> winners.forEach(u -> exp.add(u, "GAME", com.panchayat.backend.progress.service.ExpService.GAME_WIN)));
                 }
+                g.s.players.forEach(q -> dailyTasks.track(q.userId, "PLAY_GAME", 1));
             } else if (JackarooEngine.current(g.s) == x) {
                 // Pass the turn on
                 int n = g.s.players.size();
@@ -157,7 +171,7 @@ public class JackarooService {
         if (!"WAITING".equals(g.status)) throw conflict("This game already started.");
         if (g.createdBy != me) throw forbidden("Only the one who opened the table can start.");
         int n = g.s.players.size();
-        if (n != 2 && n != 4) throw conflict("Jackaroo needs 2 or 4 players. Now: " + n + ".");
+        if (n != 2 && n != 4) throw conflict("Ludo needs 2 or 4 players. Now: " + n + ".");
         if (n == 2 && g.s.players.get(0).seat % 2 == g.s.players.get(1).seat % 2) {
             // 2 players sit opposite each other
             g.s.players.sort(Comparator.comparingInt(p -> p.seat));
@@ -211,6 +225,7 @@ public class JackarooService {
             // Game win EXP for the winning team
             List<Long> winners = g.s.players.stream().filter(p -> p.team == g.s.winnerTeam && !p.left).map(p -> p.userId).toList();
             afterCommit(() -> winners.forEach(u -> exp.add(u, "GAME", com.panchayat.backend.progress.service.ExpService.GAME_WIN)));
+            g.s.players.forEach(q -> dailyTasks.track(q.userId, "PLAY_GAME", 1));
         }
         save(g, "PLAYING".equals(g.status) ? Instant.now().plusSeconds(TURN_SECONDS) : null);
     }
@@ -270,6 +285,7 @@ public class JackarooService {
         Map<String, Object> v = new LinkedHashMap<>();
         v.put("id", String.valueOf(g.id));
         v.put("roomId", String.valueOf(g.roomId));
+        v.put("code", g.code);
         v.put("status", g.status);
         v.put("createdBy", String.valueOf(g.createdBy));
         v.put("version", g.version);
@@ -335,6 +351,7 @@ public class JackarooService {
         long roomId;
         long createdBy;
         String status;
+        String code;
         int version;
         Instant turnEndsAt;
         State s;
@@ -355,6 +372,7 @@ public class JackarooService {
             r.roomId = rs.getLong("room_id");
             r.createdBy = rs.getLong("created_by");
             r.status = rs.getString("status");
+            r.code = rs.getString("code");
             r.version = rs.getInt("version");
             Timestamp t = rs.getTimestamp("turn_ends_at");
             r.turnEndsAt = t == null ? null : t.toInstant();

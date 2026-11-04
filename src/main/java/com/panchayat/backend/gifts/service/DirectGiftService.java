@@ -29,6 +29,14 @@ import java.util.regex.Pattern;
  */
 @Service
 public class DirectGiftService {
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.progress.tasks.DailyTaskService dailyTasks;
+
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.vip.service.VipGrowthService vipGrowth;
+
 
     private static final Pattern REQUEST_ID = Pattern.compile("^[A-Za-z0-9-]{8,64}$");
     private static final Set<String> CONTEXTS = Set.of("PROFILE", "TAG", "CP", "MOMENT", "CHAT");
@@ -105,9 +113,9 @@ public class DirectGiftService {
         tags.addIntimacy(senderId, receiverId, coins);
         couples.onGift(senderId, receiverId, coins);
         rewards.onSpend(senderId, coins);
-        if (coins >= 100) {
-            jdbc.update("update users set vip_points = vip_points + ? where id = ? and vip_active and (vip_expires_at is null or vip_expires_at > now())", coins / 100, senderId);
-        }
+        // VIP growth, with the level-up reward notice
+        vipGrowth.onSpend(senderId, coins);
+        dailyTasks.track(senderId, "SEND_GIFT", 1);
         int charmFactor = LocalDate.now(ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
         jdbc.update("update users set charm_points = charm_points + ? where id = ?", coins * charmFactor / 5, receiverId);
 

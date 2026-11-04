@@ -82,6 +82,21 @@ class CpIntegrationTests {
         jdbc.update("delete from cp_couples where user_a in (" + in + ") or user_b in (" + in + ")");
         jdbc.update("delete from coin_transactions where user_id in (" + in + ")");
         jdbc.update("delete from coin_wallets where user_id in (" + in + ")");
+        // Sarpanch messages (CP accepted / ended) made chats for them
+        try {
+            Thread.sleep(500); // let after-commit messages land first
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+        String convs = "select conversation_id from chat_conversation_participants where user_id in (" + in + ")";
+        jdbc.update("delete from chat_message_receipts where message_id in (select id from chat_messages where conversation_id in (" + convs + "))");
+        jdbc.update("delete from chat_messages where conversation_id in (" + convs + ")");
+        java.util.List<Long> convIds = jdbc.queryForList(convs, Long.class);
+        if (!convIds.isEmpty()) {
+            String ci = String.join(",", convIds.stream().map(String::valueOf).toList());
+            jdbc.update("delete from chat_conversation_participants where conversation_id in (" + ci + ")");
+            jdbc.update("delete from chat_conversations where id in (" + ci + ")");
+        }
         jdbc.update("delete from users where id in (" + in + ")");
     }
 
@@ -138,7 +153,9 @@ class CpIntegrationTests {
         long u = user("Buyer", 5_000);
         Res rings = get(u, "/api/v1/cp/rings");
         assertEquals(200, rings.status());
-        assertEquals(8, ((List<?>) rings.body()).size());
+        // The 8 built-in rings, plus any the admin added to the Shop
+        List<?> ids = ((List<?>) rings.body()).stream().map(r -> ((Map<?, ?>) r).get("id")).toList();
+        assertTrue(ids.containsAll(List.of("phool-kali", "moti-seep", "laal-bel", "titli-rani", "gulabi-dil", "taara-boond", "samundar-lehar", "chand-titli")), ids.toString());
         Res r = call(u, "POST", "/api/v1/cp/rings/moti-seep/buy", null);
         assertEquals(200, r.status());
         assertEquals(5_000 - 1_999, balance(u));
@@ -150,6 +167,43 @@ class CpIntegrationTests {
         assertEquals("Not enough coins", poor.message());
         assertEquals(5_000 - 1_999, balance(u));
         assertEquals(0, bag(u, "chand-titli"));
+    }
+
+    @Test
+    void ringsAddedInTheAdminShopWorkInCp() {
+        Long category = jdbc.queryForObject("select id from shop_categories where name ilike '%ring%' order by id limit 1", Long.class);
+        Long product = jdbc.queryForObject("insert into shop_products (category_id, name, price, rarity, asset_url) values (?, ?, 4321, 'EPIC', 'https://example.com/night-elf.png') returning id",
+                Long.class, category, "Test elf ring " + run);
+        String id = "shop-" + product;
+        try {
+            long a = user("Ira", 20_000), b = user("Jai", 0);
+            cp.syncShopRingsNow();
+            List<?> rings = (List<?>) get(a, "/api/v1/cp/rings").body();
+            assertTrue(rings.stream().anyMatch(r -> id.equals(((Map<?, ?>) r).get("id"))), "the admin's ring is in the CP catalogue");
+            // Bought in the Shop: it's in the CP bag
+            jdbc.update("insert into user_shop_items (user_id, product_id, quantity) values (?, ?, 1)", a, product);
+            assertEquals(1, get(a, "/api/v1/cp/me/rings").map().get(id));
+            // Propose with it; decline gives it back to the Shop bag
+            Res p = call(a, "POST", "/api/v1/cp/proposals", Map.of("toUserId", b, "ringId", id));
+            assertEquals(200, p.status(), p.message());
+            assertEquals(0, jdbc.queryForObject("select quantity from user_shop_items where user_id = ? and product_id = ?", Integer.class, a, product));
+            call(b, "POST", "/api/v1/cp/proposals/" + p.map().get("id") + "/decline", null);
+            assertEquals(1, jdbc.queryForObject("select quantity from user_shop_items where user_id = ? and product_id = ?", Integer.class, a, product));
+            // Buy one through CP and get together with it: love = its price
+            assertEquals(200, call(a, "POST", "/api/v1/cp/rings/" + id + "/buy", null).status());
+            assertEquals(20_000 - 4_321, balance(a));
+            Res p2 = call(a, "POST", "/api/v1/cp/proposals", Map.of("toUserId", b, "ringId", id));
+            Res c = call(b, "POST", "/api/v1/cp/proposals/" + p2.map().get("id") + "/accept", null);
+            assertEquals(200, c.status(), c.message());
+            assertEquals(id, c.map().get("ring"));
+            assertEquals(4_321, ((Number) c.map().get("love")).intValue());
+        } finally {
+            jdbc.update("delete from cp_couples where ring_id = ?", id);
+            jdbc.update("delete from cp_proposals where ring_id = ?", id);
+            jdbc.update("delete from user_shop_items where product_id = ?", product);
+            jdbc.update("delete from cp_rings where id = ?", id);
+            jdbc.update("delete from shop_products where id = ?", product);
+        }
     }
 
     @Test

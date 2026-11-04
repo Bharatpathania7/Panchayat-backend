@@ -39,6 +39,14 @@ import java.util.regex.Pattern;
  */
 @Service
 public class RoomGiftService {
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.progress.tasks.DailyTaskService dailyTasks;
+
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.vip.service.VipGrowthService vipGrowth;
+
 
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.jdbc.core.JdbcTemplate charmJdbc;
@@ -161,10 +169,9 @@ public class RoomGiftService {
         couples.onGift(senderId, receiverId, coins);
         // Spend rewards: coins spent count towards random and guaranteed rewards (same transaction)
         if (!fromBag) rewards.onSpend(senderId, coins);
-        if (!fromBag && coins >= 100) {
-        // VIP growth ("God Points"): while VIP, every 100 coins spent adds 1 point
-        charmJdbc.update("update users set vip_points = vip_points + ? where id = ? and vip_active and (vip_expires_at is null or vip_expires_at > now())", coins / 100, senderId);
-        }
+        // VIP growth ("God Points"): while VIP, every 100 coins spent adds 1 point (and a level-up shows the rewards)
+        if (!fromBag) vipGrowth.onSpend(senderId, coins);
+        dailyTasks.track(senderId, "SEND_GIFT", 1);
         // The receiver's charm: 1 per 5 coins, double on Saturdays and Sundays (India time), like the rankings
         int charmFactor = java.time.LocalDate.now(BOARD_ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
         charmJdbc.update("update users set charm_points = charm_points + ? where id = ?", coins * charmFactor / 5, receiverId);

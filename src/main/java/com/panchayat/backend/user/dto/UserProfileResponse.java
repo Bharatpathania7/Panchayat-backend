@@ -44,6 +44,9 @@ public record UserProfileResponse(
         Long publicId,
 
         // CP: { coupleId, partnerUserId, partnerName, partnerAvatarUrl, ringId, blessings } or null
-        java.util.Map<String, Object> cp
+        java.util.Map<String, Object> cp,
+
+        // Gift-set pieces you wear: { frame?, bubble?, entry?, page? } → set id
+        java.util.Map<String, Object> giftSetWear
 ) {
 }

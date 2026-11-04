@@ -32,6 +32,10 @@ import java.util.regex.Pattern;
 @Service
 public class ShopPurchaseService {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.vip.service.VipGrowthService vipGrowth;
+
+
     private static final Pattern REQUEST_ID = Pattern.compile("^[A-Za-z0-9-]{8,64}$");
     private static final int MAX_QUANTITY = 99;
 
@@ -87,7 +91,7 @@ public class ShopPurchaseService {
         // Shop spending counts towards random and guaranteed rewards too
         rewards.onSpend(userId, coins);
         // VIP growth ("God Points"): while VIP, every 100 coins spent adds 1 point
-        if (coins >= 100) jdbc.update("update users set vip_points = vip_points + ? where id = ? and vip_active and (vip_expires_at is null or vip_expires_at > now())", coins / 100, userId);
+        vipGrowth.onSpend(userId, coins);
 
         long balance = wallet.getBalance(userId);
         afterCommit(() -> walletPush.pushBalance(userId, "SHOP_PURCHASE", -coins));

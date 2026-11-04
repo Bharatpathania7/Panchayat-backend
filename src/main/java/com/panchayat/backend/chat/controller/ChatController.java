@@ -35,6 +35,9 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/chat")
 public class ChatController {
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.sarpanch.SarpanchService sarpanch;
+
 
     @org.springframework.beans.factory.annotation.Autowired
     private com.panchayat.backend.chat.service.ChatSocialService chatSocial;
@@ -150,10 +153,12 @@ public class ChatController {
                         )
                 );
 
+        java.util.Map<Long, java.util.Map<String, Object>> extras = sarpanch.extras(
+                messages.getContent().stream().filter(m -> m.getMessageType() == ChatMessageType.SYSTEM).map(ChatMessage::getId).toList());
         return messages.map(message -> {
             String text = null;
 
-            if (message.getMessageType() == ChatMessageType.TEXT) {
+            if (message.getMessageType() == ChatMessageType.TEXT || message.getMessageType() == ChatMessageType.SYSTEM) {
                 text = messageService.decryptMessageForParticipant(
                         authenticatedUserId,
                         conversationId,
@@ -161,7 +166,8 @@ public class ChatController {
                 );
             }
 
-            return ChatMessageResponse.from(message, text);
+            ChatMessageResponse r = ChatMessageResponse.from(message, text);
+            return message.getMessageType() == ChatMessageType.SYSTEM ? r.withSystem(extras.get(message.getId())) : r;
         });
     }
 

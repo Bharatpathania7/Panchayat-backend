@@ -86,6 +86,18 @@ public class ChatSocialController {
         return social.setMuted(id, me(auth), body.value());
     }
 
+    /** Accept a message request (it moves to your chats). */
+    @PostMapping("/api/v1/chat/conversations/{id:[0-9]+}/accept")
+    public Map<String, Object> acceptRequest(@PathVariable Long id, Authentication auth) {
+        return social.acceptRequest(id, me(auth));
+    }
+
+    /** Delete a message request. */
+    @PostMapping("/api/v1/chat/conversations/{id:[0-9]+}/decline")
+    public Map<String, Object> declineRequest(@PathVariable Long id, Authentication auth) {
+        return social.declineRequest(id, me(auth));
+    }
+
     @GetMapping("/api/v1/chat/blocks")
     public List<Map<String, Object>> blocks(Authentication auth) {
         return social.blocks(me(auth));

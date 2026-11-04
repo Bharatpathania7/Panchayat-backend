@@ -66,7 +66,7 @@ public final class JackarooEngine {
 
     public static void start(State s) {
         int n = s.players.size();
-        if (n != 2 && n != 4) throw new IllegalStateException("Jackaroo needs 2 or 4 players.");
+        if (n != 2 && n != 4) throw new IllegalStateException("Ludo needs 2 or 4 players.");
         s.players.sort(Comparator.comparingInt(p -> p.seat));
         for (int i = 0; i < n; i++) {
             Player p = s.players.get(i);

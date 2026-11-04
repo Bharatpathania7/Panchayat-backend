@@ -45,9 +45,9 @@ public class SearchController {
 
         // People: exact ID first, then names
         List<Map<String, Object>> users = jdbc.query(
-                "select id, public_id, full_name, avatar_url, gender, vip_active, vip_level from users"
-                        + " where (public_id = ? or (? and full_name ilike ?)) and full_name is not null"
-                        + " order by (public_id = ?) desc, full_name limit " + LIMIT,
+                "select id, coalesce(display_public_id, public_id) as public_id, full_name, avatar_url, gender, vip_active, vip_level, official from users"
+                        + " where (public_id = ? or display_public_id = ? or (? and full_name ilike ?)) and full_name is not null"
+                        + " order by official desc, (public_id = ? or display_public_id = ?) desc, full_name limit " + LIMIT,
                 (rs, i) -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", rs.getLong("id"));
@@ -56,9 +56,10 @@ public class SearchController {
                     m.put("avatarUrl", rs.getString("avatar_url"));
                     m.put("gender", rs.getString("gender"));
                     m.put("vipLevel", rs.getBoolean("vip_active") ? rs.getObject("vip_level") : null);
+                    m.put("official", rs.getBoolean("official"));
                     return m;
                 },
-                code == null ? -1L : code, code == null, like, code == null ? -1L : code);
+                code == null ? -1L : code, rawId(term), code == null, like, code == null ? -1L : code, rawId(term));
 
         // Rooms: an exact room ID (private ones too, so a shared ID always resolves), then live public rooms by name
         List<Long> roomIds = jdbc.queryForList(
@@ -74,5 +75,11 @@ public class SearchController {
         out.put("users", users);
         out.put("rooms", roomList);
         return out;
+    }
+
+    /** Any plain number (the official account's short ID is 8 digits). */
+    private static long rawId(String term) {
+        String t = term == null ? "" : term.trim();
+        return t.matches("^\\d{4,12}$") ? Long.parseLong(t) : -1L;
     }
 }
