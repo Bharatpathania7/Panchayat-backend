@@ -151,9 +151,10 @@ public class CpService {
         }
     }
 
+    /** Every ring: onSale = sold now (admin shop rings); the rest are only shown to people who own them. */
     public List<Map<String, Object>> rings() {
         syncShopRings();
-        List<Map<String, Object>> list = jdbc.queryForList("select id, name, price, rarity, image_url as \"imageUrl\", sort_order as \"sortOrder\" from cp_rings where active order by sort_order, price");
+        List<Map<String, Object>> list = jdbc.queryForList("select id, name, price, rarity, image_url as \"imageUrl\", sort_order as \"sortOrder\", active as \"onSale\" from cp_rings order by active desc, sort_order, price");
         // Pictures uploaded in the admin panel live on this server behind signed links
         for (Map<String, Object> r : list) {
             Object u = r.get("imageUrl");
@@ -207,7 +208,7 @@ public class CpService {
         if (liveCouple(to) != null) throw conflict(nameOf(to) + " already has a CP");
         if (count("select count(*) from cp_proposals where from_id = ? and status = 'PENDING'", me) > 0)
             throw conflict("You already have a proposal waiting. Cancel it first");
-        Ring r = ring(ringId);
+        Ring r = ring(ringId, true);
         String msg = clean(message, 120, "Your message can be up to 120 characters");
         takeFromBag(me, r.id);
         Long id;
@@ -244,7 +245,7 @@ public class CpService {
         if (!"PENDING".equals(p.get("status"))) throw conflict("This proposal is no longer open");
         if (liveCouple(to) != null) throw conflict("You already have a CP");
         if (liveCouple(from) != null) throw conflict(nameOf(from) + " already has a CP");
-        Ring r = ring((String) p.get("ring_id"));
+        Ring r = ring((String) p.get("ring_id"), true);
         Long cid = jdbc.queryForObject(
                 "insert into cp_couples (user_a, user_b, ring_id, love, message) values (?, ?, ?, 0, ?) returning id",
                 Long.class, from, to, r.id, p.get("message"));
@@ -371,7 +372,7 @@ public class CpService {
             if (again != null) return again;
         }
         Long cid = requireCouple(me);
-        Ring r = ring(ringId);
+        Ring r = ring(ringId, src.equals("BAG"));
         if (src.equals("BAG")) takeFromBag(me, r.id);
         else debit(me, r.price, "CP_RING_BOX", "cp:" + cid, idemKey, "Ring " + r.name + " for CP " + cid);
         jdbc.update("insert into cp_couple_rings (couple_id, ring_id, added_by) values (?, ?, ?)", cid, r.id, me);
@@ -584,10 +585,16 @@ public class CpService {
     record Ring(String id, String name, long price) {
     }
 
+    /** A ring that is on sale (for buying). */
     private Ring ring(String id) {
+        return ring(id, false);
+    }
+
+    /** retiredOk: also rings no longer sold (ones people already own in their bag). */
+    private Ring ring(String id, boolean retiredOk) {
         if (id == null || id.isBlank()) throw bad("Choose a ring");
         if (isShopRing(id)) syncShopRings();
-        List<Ring> l = jdbc.query("select id, name, price from cp_rings where id = ? and active", (rs, i) -> new Ring(rs.getString(1), rs.getString(2), rs.getLong(3)), id);
+        List<Ring> l = jdbc.query("select id, name, price from cp_rings where id = ?" + (retiredOk ? "" : " and active"), (rs, i) -> new Ring(rs.getString(1), rs.getString(2), rs.getLong(3)), id);
         if (l.isEmpty()) throw notFound("That ring isn't on sale");
         return l.get(0);
     }

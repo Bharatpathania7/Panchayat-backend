@@ -73,6 +73,14 @@ class CpIntegrationTests {
     @BeforeAll
     void check() {
         assertTrue(port > 0);
+        // The built-in rings are retired in production (only admin shop rings are sold);
+        // these tests use them as fixed test rings, so they're switched on for the run
+        jdbc.update("update cp_rings set active = true where id not like 'shop-%'");
+    }
+
+    @AfterAll
+    void retireBuiltInRingsAgain() {
+        jdbc.update("update cp_rings set active = false where id not like 'shop-%'");
     }
 
     @AfterAll
