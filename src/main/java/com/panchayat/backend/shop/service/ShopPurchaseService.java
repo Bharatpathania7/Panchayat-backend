@@ -86,6 +86,8 @@ public class ShopPurchaseService {
                 userId, p.getId(), qty);
         // Shop spending counts towards random and guaranteed rewards too
         rewards.onSpend(userId, coins);
+        // VIP growth ("God Points"): while VIP, every 100 coins spent adds 1 point
+        if (coins >= 100) jdbc.update("update users set vip_points = vip_points + ? where id = ? and vip_active and (vip_expires_at is null or vip_expires_at > now())", coins / 100, userId);
 
         long balance = wallet.getBalance(userId);
         afterCommit(() -> walletPush.pushBalance(userId, "SHOP_PURCHASE", -coins));

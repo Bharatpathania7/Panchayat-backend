@@ -18,6 +18,9 @@ import java.util.Map;
  *   GET    /api/v1/tags/me
  *   GET    /api/v1/tags/user/{userId}
  *   DELETE /api/v1/tags/{tagId}
+ *   PUT    /api/v1/tags/{tagId}          { relation?, nickname?, theme? }   either person
+ *   GET    /api/v1/tags/me/slots         { used, slots, max }
+ *   GET    /api/v1/tags/user/{id}/slots
  */
 @RestController
 @RequestMapping("/api/v1/tags")
@@ -40,6 +43,26 @@ public class UserTagController {
     public List<Map<String, Object>> of(@PathVariable Long userId, Authentication auth) {
         me(auth);
         return tags.list(userId);
+    }
+
+    public record Customize(String relation, String nickname, String theme) {
+    }
+
+    @PutMapping("/{tagId:[0-9]+}")
+    public Map<String, Object> customize(@PathVariable Long tagId, @RequestBody Customize body, Authentication auth) {
+        if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Nothing to change");
+        return tags.customize(tagId, me(auth), body.relation(), body.nickname(), body.theme());
+    }
+
+    @GetMapping("/me/slots")
+    public Map<String, Object> mySlots(Authentication auth) {
+        return tags.slots(me(auth));
+    }
+
+    @GetMapping("/user/{userId:[0-9]+}/slots")
+    public Map<String, Object> slotsOf(@PathVariable Long userId, Authentication auth) {
+        me(auth);
+        return tags.slots(userId);
     }
 
     @DeleteMapping("/{tagId:[0-9]+}")

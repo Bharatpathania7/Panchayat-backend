@@ -129,9 +129,9 @@ public class ChatSocialService {
     }
 
     private List<Map<String, Object>> members(Long conversationId) {
-        Set<String> online = onlineEmails();
+        Set<String> online = visibleOnlineEmails();
         return jdbc.query(
-                "select p.user_id, p.role, p.joined_at, u.full_name, u.avatar_url, u.email, u.last_seen_at"
+                "select p.user_id, p.role, p.joined_at, u.full_name, u.avatar_url, u.email, case when u.hide_online then null else u.last_seen_at end as last_seen_at"
                         + " from chat_conversation_participants p join users u on u.id = p.user_id"
                         + " where p.conversation_id = ?"
                         + " order by case p.role when 'OWNER' then 0 when 'ADMIN' then 1 else 2 end, p.joined_at",
@@ -273,9 +273,9 @@ public class ChatSocialService {
         List<Long> list = ids == null ? List.of() : ids.stream().filter(Objects::nonNull).distinct().limit(200).toList();
         Map<String, Object> out = new LinkedHashMap<>();
         if (list.isEmpty()) return out;
-        Set<String> online = onlineEmails();
+        Set<String> online = visibleOnlineEmails();
         String in = String.join(",", Collections.nCopies(list.size(), "?"));
-        jdbc.query("select id, email, last_seen_at from users where id in (" + in + ")", rs -> {
+        jdbc.query("select id, email, case when hide_online then null else last_seen_at end as last_seen_at from users where id in (" + in + ")", rs -> {
             String email = rs.getString("email");
             out.put(String.valueOf(rs.getLong("id")), Map.of(
                     "online", email != null && online.contains(email.toLowerCase(Locale.ROOT)),
@@ -325,6 +325,8 @@ public class ChatSocialService {
                 boolean online = connected || onlineEmails().contains(p.getName().toLowerCase(Locale.ROOT));
                 Instant now = Instant.now();
                 if (!online) jdbc.update("update users set last_seen_at = ? where id = ?", Timestamp.from(now), u.getId());
+                // People who hide their status never show as online
+                if (Boolean.TRUE.equals(jdbc.queryForObject("select hide_online from users where id = ?", Boolean.class, u.getId()))) return;
                 Object payload = Map.of("userId", String.valueOf(u.getId()), "online", online, "lastSeenAt", now.toString());
                 messaging.convertAndSend("/topic/presence", payload);
             });
@@ -378,6 +380,27 @@ public class ChatSocialService {
         } catch (Exception e) {
             log.debug("Chat push failed: {}", e.getMessage());
         }
+    }
+
+    /** Emails of people who chose to hide their online status (Privacy). */
+    public Set<String> hiddenEmails() {
+        return new HashSet<>(jdbc.queryForList("select lower(email) from users where hide_online and email is not null", String.class));
+    }
+
+    /** Online people, minus those who hide it: what other people may see. */
+    public Set<String> visibleOnlineEmails() {
+        Set<String> out = onlineEmails();
+        if (!out.isEmpty()) out.removeAll(hiddenEmails());
+        return out;
+    }
+
+    /** Tells everyone whether this person shows as online right now (after a privacy change). */
+    public void announcePresence(User u) {
+        if (u == null || u.getEmail() == null) return;
+        String email = u.getEmail().toLowerCase(Locale.ROOT);
+        boolean hidden = hiddenEmails().contains(email);
+        boolean online = !hidden && onlineEmails().contains(email);
+        messaging.convertAndSend("/topic/presence", (Object) Map.of("userId", String.valueOf(u.getId()), "online", online, "lastSeenAt", hidden ? "" : Instant.now().toString()));
     }
 
     public Set<String> onlineEmails() {

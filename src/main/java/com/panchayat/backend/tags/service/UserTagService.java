@@ -18,13 +18,52 @@ import java.util.*;
 @Service
 public class UserTagService {
 
-    public static final int TAG_SLOTS = 6;
+    /** Everyone gets BASE_SLOTS; each VIP level adds one, up to MAX_SLOTS. */
+    public static final int BASE_SLOTS = 5;
+    public static final int MAX_SLOTS = 12;
+    public static final Set<String> THEMES = Set.of("rose", "gold", "ocean", "violet", "emerald", "sunset", "midnight");
     public static final Set<String> RELATIONS = Set.of("brosis", "besties", "bro", "confidant", "apprentice", "sibling");
 
     private final UserTagRepository tags;
+    private final org.springframework.jdbc.core.JdbcTemplate jdbc;
 
-    public UserTagService(UserTagRepository tags) {
+    public UserTagService(UserTagRepository tags, org.springframework.jdbc.core.JdbcTemplate jdbc) {
         this.tags = tags;
+        this.jdbc = jdbc;
+    }
+
+    /** How many BFF tags this person can hold: 5, plus 1 per VIP level while VIP, up to 12. */
+    public int slotsFor(Long userId) {
+        Integer vip = jdbc.queryForObject(
+                "select case when vip_active and (vip_expires_at is null or vip_expires_at > now()) then coalesce(vip_level, 0) else 0 end from users where id = ?",
+                Integer.class, userId);
+        return Math.min(MAX_SLOTS, BASE_SLOTS + Math.max(0, vip == null ? 0 : vip));
+    }
+
+    public Map<String, Object> slots(Long userId) {
+        return Map.of("used", tags.countFor(userId), "slots", slotsFor(userId), "max", MAX_SLOTS);
+    }
+
+    /** Either person can change the relation, the pet name and the theme of their tag. */
+    @Transactional
+    public Map<String, Object> customize(Long tagId, Long userId, String relation, String nickname, String theme) {
+        UserTag t = tags.findById(tagId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "That tag doesn't exist"));
+        if (!t.involves(userId)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "That isn't your tag");
+        if (relation != null) {
+            if (!RELATIONS.contains(relation)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pick one of the tag types");
+            t.setRelation(relation);
+        }
+        if (nickname != null) {
+            String n = nickname.trim().replaceAll("\\s+", " ");
+            if (n.length() > 24) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pet names can be up to 24 characters");
+            t.setNickname(n.isEmpty() ? null : n);
+        }
+        if (theme != null) {
+            if (!theme.isEmpty() && !THEMES.contains(theme)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pick one of the themes");
+            t.setTheme(theme.isEmpty() ? null : theme);
+        }
+        return toMap(tags.save(t));
     }
 
     /** What happened when a BFF round closed. */
@@ -43,11 +82,10 @@ public class UserTagService {
         String rel = RELATIONS.contains(relation) ? relation : "besties";
         Optional<UserTag> existing = tags.findPairForUpdate(Math.min(winner, item), Math.max(winner, item));
         if (existing.isPresent()) {
-            existing.get().addIntimacy(volume);
-            tags.save(existing.get());
+            // The bidding gifts were already counted as intimacy when they were sent (RoomGiftService)
             return FormResult.EXISTING;
         }
-        if (tags.countFor(winner) >= TAG_SLOTS || tags.countFor(item) >= TAG_SLOTS) return FormResult.FULL;
+        if (tags.countFor(winner) >= slotsFor(winner) || tags.countFor(item) >= slotsFor(item)) return FormResult.FULL;
         try {
             String decl = declaration == null || declaration.isBlank() ? null : declaration.trim();
             if (decl != null && decl.length() > 80) decl = decl.substring(0, 80);
@@ -94,6 +132,8 @@ public class UserTagService {
         m.put("roomName", t.getRoomName());
         m.put("declaration", t.getDeclaration());
         m.put("createdAt", t.getCreatedAt());
+        m.put("nickname", t.getNickname());
+        m.put("theme", t.getTheme());
         return m;
     }
 }

@@ -32,5 +32,8 @@ public record PublicUserProfileResponse(
         java.util.Map<String, java.util.Map<String, Object>> rewardEffects,
 
         // The 7-digit ID people see and search by
-        Long publicId
+        Long publicId,
+
+        // CP: { coupleId, partnerUserId, partnerName, partnerAvatarUrl, ringId, blessings } or null
+        java.util.Map<String, Object> cp
 ) {}

@@ -45,6 +45,14 @@ public class UserTag {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
+    /** A pet name the pair chose (shown on the tag), up to 24 characters. */
+    @Column(length = 24)
+    private String nickname;
+
+    /** Colour theme for the tag card and chip. */
+    @Column(length = 20)
+    private String theme;
+
     protected UserTag() {
     }
 
@@ -74,6 +82,11 @@ public class UserTag {
     public String getRoomName() { return roomName; }
     public String getDeclaration() { return declaration; }
     public Instant getCreatedAt() { return createdAt; }
+    public String getNickname() { return nickname; }
+    public String getTheme() { return theme; }
+    public void setNickname(String nickname) { this.nickname = nickname; }
+    public void setTheme(String theme) { this.theme = theme; }
+    public void setRelation(String relation) { this.relation = relation; }
 
     public void addIntimacy(long points) {
         this.intimacy = Math.addExact(this.intimacy, Math.max(0, points));

@@ -28,6 +28,37 @@ public class VoiceRoomChatService {
 
     private static final int MAX_MESSAGE_LENGTH = 2000;
     private static final int MAX_HISTORY_SIZE = 100;
+    /** Photo messages are stored as this marker + the file's path (inside the encrypted text). */
+    private static final String IMAGE_MARK = "img:";
+    private static final long MAX_IMAGE_BYTES = 8L * 1024 * 1024;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.admin.media.AdminMediaService media;
+
+    /** A photo in the room chat: saved on this server, sent as a message with an imageUrl. */
+    @Transactional
+    public VoiceRoomChatMessageResponse sendImageForPrincipal(Long roomId, org.springframework.web.multipart.MultipartFile file, String authenticatedEmail) {
+        User user = userRepository.findByEmailIgnoreCase(authenticatedEmail == null ? "" : authenticatedEmail.trim())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authenticated user not found."));
+        if (file == null || file.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose a photo.");
+        if (file.getSize() > MAX_IMAGE_BYTES) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Photos can be up to 8 MB.");
+        // Check the room and that you're in it before saving anything
+        validateRoomId(roomId);
+        verifyActiveRoom(roomId);
+        verifyJoinedParticipant(roomId, user.getId());
+        VoiceRoom photoRoom = roomRepository.findById(roomId).orElseThrow();
+        if (com.panchayat.backend.rooms.service.RoomSettingsJson.flag(photoRoom.getSettings(), "noImages")
+                && !photoRoom.getOwnerId().equals(user.getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "The owner turned off photos in this room.");
+        }
+        var up = media.upload(file, "roomchat", java.util.Set.of("PNG", "JPG", "JPEG"));
+        try {
+            return toResponse(saveMessage(roomId, IMAGE_MARK + up.url(), user, true), user.getId());
+        } catch (RuntimeException e) {
+            media.delete(up.url(), up.format());
+            throw e;
+        }
+    }
 
     private final VoiceRoomChatMessageRepository messageRepository;
     private final VoiceRoomRepository roomRepository;
@@ -101,6 +132,16 @@ public class VoiceRoomChatService {
             String messageText,
             User user
     ) {
+        return saveMessage(roomId, messageText, user, false);
+    }
+
+    /** image: the text is IMAGE_MARK + a saved photo's path (only from sendImageForPrincipal). */
+    private VoiceRoomChatMessage saveMessage(
+            Long roomId,
+            String messageText,
+            User user,
+            boolean image
+    ) {
         validateRoomId(roomId);
 
         if (messageText == null || messageText.isBlank()) {
@@ -110,7 +151,8 @@ public class VoiceRoomChatService {
             );
         }
 
-        String normalizedMessage = messageText.trim();
+        // trim() also drops control characters, so typed text can never pass for a photo message
+        String normalizedMessage = image ? messageText : messageText.trim();
 
         if (normalizedMessage.length() > MAX_MESSAGE_LENGTH) {
             throw new ResponseStatusException(
@@ -243,13 +285,19 @@ public class VoiceRoomChatService {
                 message.getEncryptionKeyVersion()
         );
 
+        String imageUrl = null;
+        if (plaintext != null && plaintext.startsWith(IMAGE_MARK)) {
+            imageUrl = com.panchayat.backend.admin.media.MediaUrls.link(plaintext.substring(IMAGE_MARK.length()));
+            plaintext = "";
+        }
         return new VoiceRoomChatMessageResponse(
                 message.getId(),
                 message.getRoomId(),
                 message.getSenderUserId(),
                 plaintext,
                 message.getCreatedAt(),
-                message.getSenderUserId().equals(authenticatedUserId)
+                message.getSenderUserId().equals(authenticatedUserId),
+                imageUrl
         );
     }
 
@@ -321,7 +369,9 @@ public class VoiceRoomChatService {
             Long senderUserId,
             String message,
             Instant createdAt,
-            boolean ownMessage
+            boolean ownMessage,
+            /* A photo message: a signed link to the photo (message is then empty). */
+            String imageUrl
     ) {
     }
 }

@@ -43,6 +43,9 @@ public class RoomGiftService {
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.jdbc.core.JdbcTemplate charmJdbc;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.cp.CpService couples;
+
 
     private static final Pattern REQUEST_ID = Pattern.compile("^[A-Za-z0-9-]{8,64}$");
     private static final int MAX_COUNT = 9999;
@@ -154,8 +157,14 @@ public class RoomGiftService {
         rooms.addPoints(roomId, points);
         // Gifts between two tagged people grow their tag (same transaction)
         tags.addIntimacy(senderId, receiverId, coins);
+        // Gifts between CP partners add love
+        couples.onGift(senderId, receiverId, coins);
         // Spend rewards: coins spent count towards random and guaranteed rewards (same transaction)
         if (!fromBag) rewards.onSpend(senderId, coins);
+        if (!fromBag && coins >= 100) {
+        // VIP growth ("God Points"): while VIP, every 100 coins spent adds 1 point
+        charmJdbc.update("update users set vip_points = vip_points + ? where id = ? and vip_active and (vip_expires_at is null or vip_expires_at > now())", coins / 100, senderId);
+        }
         // The receiver's charm: 1 per 5 coins, double on Saturdays and Sundays (India time), like the rankings
         int charmFactor = java.time.LocalDate.now(BOARD_ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
         charmJdbc.update("update users set charm_points = charm_points + ? where id = ?", coins * charmFactor / 5, receiverId);

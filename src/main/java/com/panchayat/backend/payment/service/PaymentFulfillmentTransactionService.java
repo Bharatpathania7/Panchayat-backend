@@ -30,6 +30,9 @@ public class PaymentFulfillmentTransactionService {
     private final UserRedPacketInventoryRepository inventoryRepository;
     private final CoinWalletService coinWalletService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.progress.service.ExpService exp;
+
     public PaymentFulfillmentTransactionService(
             PaymentTransactionRepository paymentRepository,
             UserRepository userRepository,
@@ -125,6 +128,22 @@ public class PaymentFulfillmentTransactionService {
                     "PAYMENT:" + txnId,
                     description
             );
+            // Coin packs give Active Level EXP (big packs a lot at once)
+            // After commit: this transaction holds the user's row lock, and EXP takes it in its own transaction
+            final long expCoins = totalCoins;
+            final Long expUser = userId;
+            Runnable giveExp = () -> exp.add(expUser, "PURCHASE", com.panchayat.backend.progress.service.ExpService.purchaseExp(expCoins));
+            if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+                org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                        new org.springframework.transaction.support.TransactionSynchronization() {
+                            @Override
+                            public void afterCommit() {
+                                giveExp.run();
+                            }
+                        });
+            } else {
+                giveExp.run();
+            }
 
         } else if (payment.getPurpose() == Purpose.RED_PACKET) {
 

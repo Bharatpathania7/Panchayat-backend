@@ -42,6 +42,20 @@ public class VoiceRoomChatController {
         return chatService.getRecentMessages(roomId, limit);
     }
 
+    /** A photo in the room chat (multipart "file": PNG or JPG, up to 8 MB). */
+    @PostMapping(value = "/image", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public VoiceRoomChatMessageResponse sendImage(@PathVariable Long roomId,
+                                                  @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+                                                  Authentication auth) {
+        if (auth == null || auth.getName() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first");
+        }
+        VoiceRoomChatMessageResponse response = chatService.sendImageForPrincipal(roomId, file, auth.getName());
+        Object payload = response;
+        messagingTemplate.convertAndSend("/topic/voice-rooms/" + roomId + "/chat", payload);
+        return response;
+    }
+
     @PostMapping
     public VoiceRoomChatMessageResponse send(@PathVariable Long roomId, @RequestBody SendRequest body, Authentication auth) {
         if (auth == null || auth.getName() == null) {

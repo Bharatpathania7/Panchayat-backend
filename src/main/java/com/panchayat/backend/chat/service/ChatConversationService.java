@@ -154,7 +154,7 @@ public class ChatConversationService {
         if (userId == null || userId <= 0) {
             throw new IllegalArgumentException("Valid user ID is required.");
         }
-        java.util.Set<String> online = chatSocial.onlineEmails();
+        java.util.Set<String> online = chatSocial.visibleOnlineEmails();
         return participantRepository.findByUserId(userId)
                 .stream()
                 .map(participant -> {

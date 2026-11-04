@@ -111,11 +111,11 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     /** Private queues the app listens on; Spring delivers them only to their own user. */
     private static final Pattern OWN_QUEUE =
-            Pattern.compile("^/user/queue/(chat|wallet|rewards|chat\\.typing|chat\\.events)$");
+            Pattern.compile("^/user/queue/(chat|wallet|rewards|notify|game|cp|chat\\.typing|chat\\.events)$");
 
     /** A room's live topics other than its chat. */
     private static final Pattern ROOM_TOPIC =
-            Pattern.compile("^/topic/voice-rooms/(\\d+)/(state|info|gifts|media|pk|auction)$");
+            Pattern.compile("^/topic/voice-rooms/(\\d+)/(state|info|gifts|media|pk|auction|redpacket|game|emote)$");
 
     /**
      * Who may listen to what:
@@ -130,7 +130,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         String destination = accessor.getDestination();
         if (destination == null) return false;
         if (OWN_QUEUE.matcher(destination).matches()) return true;
-        if ("/topic/presence".equals(destination)) return true;
+        if ("/topic/presence".equals(destination) || "/topic/redpackets".equals(destination)) return true;
 
         Matcher chat = VOICE_CHAT_TOPIC.matcher(destination);
         Matcher topic = ROOM_TOPIC.matcher(destination);
