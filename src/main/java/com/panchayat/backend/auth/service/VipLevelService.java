@@ -11,18 +11,19 @@ public class VipLevelService {
     private static final int MIN_VIP_LEVEL = 1;
     private static final int MAX_VIP_LEVEL = 11;
 
+    /** Growth points for each VIP level (10x the first version: levels take ten times more). */
     private static final long[] VIP_POINT_THRESHOLDS = {
-            0L,          // VIP 1
-            1_000L,     // VIP 2
-            5_000L,     // VIP 3
-            25_000L,    // VIP 4
-            60_000L,    // VIP 5
-            140_000L,   // VIP 6
-            300_000L,   // VIP 7
-            600_000L,   // VIP 8
-            1_080_000L, // VIP 9
-            2_000_000L, // VIP 10
-            4_800_000L  // VIP 11
+            0L,           // VIP 1
+            10_000L,      // VIP 2
+            50_000L,      // VIP 3
+            250_000L,     // VIP 4
+            600_000L,     // VIP 5
+            1_400_000L,   // VIP 6
+            3_000_000L,   // VIP 7
+            6_000_000L,   // VIP 8
+            10_800_000L,  // VIP 9
+            20_000_000L,  // VIP 10
+            48_000_000L   // VIP 11
     };
 
     /**
