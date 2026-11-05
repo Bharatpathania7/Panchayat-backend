@@ -28,6 +28,27 @@ public class AdminGiftController {
         this.service = service;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate announceJdbc;
+
+    /** Gift ids whose sending is announced to the whole server. */
+    @GetMapping("/announce")
+    public List<String> announced() {
+        return announceJdbc.queryForList("select id from gifts where announce order by id", String.class);
+    }
+
+    public record AnnounceRequest(Boolean announce) {
+    }
+
+    /** Switch the server-wide notification for one gift on or off. */
+    @PutMapping("/{id}/announce")
+    public Map<String, Object> setAnnounce(@PathVariable String id, @RequestBody AnnounceRequest body) {
+        boolean on = body != null && Boolean.TRUE.equals(body.announce());
+        int n = announceJdbc.update("update gifts set announce = ? where id = ?", on, id);
+        if (n == 0) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "That gift doesn't exist.");
+        return Map.of("id", id, "announce", on);
+    }
+
     @GetMapping
     public List<Map<String, Object>> list() {
         return service.list().stream().map(AdminGiftController::view).toList();

@@ -121,7 +121,7 @@ public class RoomGiftService {
         if (!"ACTIVE".equals(room.getStatus())) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Voice room is not available");
         }
-        if (senderId.equals(receiverId)) throw bad("You can't send a gift to yourself");
+        // Self-gifting is allowed (it doesn't count toward guard, tags or CP)
         if (participants.findByRoomIdAndUserIdAndStatus(roomId, senderId, "JOINED").isEmpty()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Join the room to send gifts");
         }

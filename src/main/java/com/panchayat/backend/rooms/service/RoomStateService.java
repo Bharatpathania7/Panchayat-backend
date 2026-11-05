@@ -127,6 +127,19 @@ public class RoomStateService {
                 .filter(b -> b.isActive(now));
     }
 
+    /** How many people sit on a seat (on mic) in each live room, from memory (no database). */
+    public Map<Long, Integer> seatedCounts() {
+        Map<Long, Integer> out = new java.util.HashMap<>();
+        rooms.forEach((roomId, live) -> {
+            int n = 0;
+            synchronized (live) {
+                for (Long id : live.seats) if (id != null) n++;
+            }
+            if (n > 0) out.put(roomId, n);
+        });
+        return out;
+    }
+
     public boolean isAdmin(Long roomId, Long userId) {
         return adminRepository.existsByRoomIdAndUserId(roomId, userId);
     }

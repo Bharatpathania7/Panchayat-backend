@@ -41,6 +41,7 @@ public class WelcomeAndReferralController {
     @Autowired @Lazy private CoinWalletService wallet;
     @Autowired @Lazy private WalletPushService walletPush;
     @Autowired @Lazy private SarpanchService sarpanch;
+    @Autowired @Lazy private com.panchayat.backend.rooms.service.RoomStateService roomState;
 
     public WelcomeAndReferralController(JdbcTemplate jdbc, UserRepository users) {
         this.jdbc = jdbc;
@@ -133,6 +134,15 @@ public class WelcomeAndReferralController {
                 rs -> {
                     out.put(String.valueOf(rs.getLong(1)), rs.getLong(2));
                 });
+        return out;
+    }
+
+    /** People on mic (on a seat) in each live room: { roomId: n }. */
+    @GetMapping("/api/v1/voice-rooms/on-mic-counts")
+    public Map<String, Integer> onMicCounts(Authentication auth) {
+        me(auth);
+        Map<String, Integer> out = new LinkedHashMap<>();
+        roomState.seatedCounts().forEach((k, v) -> out.put(String.valueOf(k), v));
         return out;
     }
 

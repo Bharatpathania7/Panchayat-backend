@@ -67,7 +67,7 @@ public class DirectGiftService {
     public Map<String, Object> send(Long senderId, Long receiverId, String giftId, int count, String requestId, String context) {
         if (requestId == null || !REQUEST_ID.matcher(requestId).matches()) throw bad("A request id is required");
         if (receiverId == null || receiverId <= 0) throw bad("Choose who gets the gift");
-        if (senderId.equals(receiverId)) throw bad("You can't send a gift to yourself");
+        // Self-gifting is allowed (it doesn't count toward guard, tags or CP)
         if (count < 1 || count > MAX_COUNT) throw bad("Send between 1 and " + MAX_COUNT + " at a time");
         String ctx = context == null ? "PROFILE" : context.toUpperCase(Locale.ROOT);
         if (!CONTEXTS.contains(ctx)) ctx = "PROFILE";

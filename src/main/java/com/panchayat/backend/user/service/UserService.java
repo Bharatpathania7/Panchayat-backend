@@ -309,7 +309,7 @@ public class UserService {
                 case BADGE -> { } // the badge always follows the VIP level (below)
                 case FRAME -> frameUrl = url;
                 case BUBBLE -> bubbleUrl = url;
-                case ENTRY -> entryAnimationUrl = url;
+                case ENTRY -> { } // profiles don't carry the entry effect (rooms get it from the participant list)
             }
         }
 

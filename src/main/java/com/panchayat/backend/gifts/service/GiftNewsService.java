@@ -11,7 +11,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Server-wide gift news: a big gift (ANNOUNCE_COINS or more, paid with coins)
+ * Server-wide gift news: a gift the admin marked "Server notification" (gifts.announce)
  * is announced to everyone in the app on /topic/gift-news, with the sender's
  * own short message:
  *   { eventId, fromUserId, fromName, fromAvatar, toUserId, toName, toAvatar,
@@ -35,7 +35,10 @@ public class GiftNewsService {
     }
 
     public void announce(RoomGiftService.GiftSent g, String message) {
-        if (g == null || g.fromBag() || g.coins() < ANNOUNCE_COINS) return;
+        // Only gifts the admin switched on ("Server notification") go to everyone, whatever the count
+        if (g == null || g.fromBag()) return;
+        Boolean on = jdbc.query("select announce from gifts where id = ?", rs -> rs.next() ? rs.getBoolean(1) : Boolean.FALSE, g.giftId());
+        if (!Boolean.TRUE.equals(on)) return;
         if (!announced.add(g.eventId())) return;
         if (announced.size() > 5000) announced.clear();
         try {
