@@ -154,14 +154,15 @@ public class FriendService {
      * "Active now" for the chat screen: people you chat with or follow who are
      * online (and show it), each with the room they're in. People in a room first.
      */
+    /**
+     * "Active now" for the chat screen: your friends (you follow each other) who
+     * are online and show it, each with the room they're in. People in a room first.
+     */
     @Transactional(readOnly = true)
     public List<Map<String, Object>> activeNow(Long me, int limit) {
         List<Long> ids = jdbc.queryForList(
-                "select x.user_id from chat_conversation_participants p"
-                        + " join chat_conversations c on c.id = p.conversation_id and coalesce(c.kind, 'DIRECT') = 'DIRECT'"
-                        + " join chat_conversation_participants x on x.conversation_id = p.conversation_id and x.user_id <> p.user_id"
-                        + " where p.user_id = ?"
-                        + " union select followee_id from user_follows where follower_id = ?", Long.class, me, me);
+                "select a.followee_id from user_follows a join user_follows b on b.follower_id = a.followee_id and b.followee_id = a.follower_id"
+                        + " where a.follower_id = ?", Long.class, me);
         Set<String> online = social.visibleOnlineEmails();
         List<Map<String, Object>> out = new ArrayList<>();
         for (Long id : ids) {
@@ -172,32 +173,6 @@ public class FriendService {
             if (Boolean.TRUE.equals(c.get("online"))) out.add(c);
         }
         out.sort(Comparator.comparing((Map<String, Object> p) -> p.get("room") == null));
-        // Then everyone else who is online (people in a room first), so the row is never empty
-        if (out.size() < limit && !online.isEmpty()) {
-            Set<Long> shown = new HashSet<>();
-            out.forEach(c -> shown.add(Long.valueOf(String.valueOf(c.get("userId")))));
-            List<String> emails = new ArrayList<>(online);
-            if (emails.size() > 500) emails = emails.subList(0, 500);
-            String in = String.join(",", Collections.nCopies(emails.size(), "?"));
-            List<Object> args = new ArrayList<>(emails);
-            args.add(me);
-            args.add(me);
-            args.add(me);
-            List<Long> others = jdbc.queryForList("select u.id from users u where lower(u.email) in (" + in + ") and u.id <> ? and not coalesce(u.official, false)"
-                    + " and not exists (select 1 from user_blocks b where (b.blocker_id = ? and b.blocked_id = u.id) or (b.blocker_id = u.id and b.blocked_id = ?))"
-                    + " order by u.last_seen_at desc nulls last limit 100", Long.class, args.toArray());
-            List<Map<String, Object>> more = new ArrayList<>();
-            for (Long id : others) {
-                if (shown.contains(id)) continue;
-                Map<String, Object> c = card(id, online, true);
-                if (Boolean.TRUE.equals(c.get("online"))) more.add(c);
-            }
-            more.sort(Comparator.comparing((Map<String, Object> p) -> p.get("room") == null));
-            for (Map<String, Object> c : more) {
-                if (out.size() >= limit) break;
-                out.add(c);
-            }
-        }
         return out.size() > limit ? new ArrayList<>(out.subList(0, limit)) : out;
     }
 
