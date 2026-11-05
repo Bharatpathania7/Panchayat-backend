@@ -284,6 +284,7 @@ public class JackarooService {
     private Map<String, Object> publicView(Row g) {
         Map<String, Object> v = new LinkedHashMap<>();
         v.put("id", String.valueOf(g.id));
+        v.put("game", "JACKAROO");
         v.put("roomId", String.valueOf(g.roomId));
         v.put("code", g.code);
         v.put("status", g.status);

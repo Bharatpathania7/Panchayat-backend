@@ -210,7 +210,7 @@ public class FriendService {
 
     private static String label(String game) {
         return switch (game == null ? "" : game.toUpperCase(Locale.ROOT)) {
-            case "JACKAROO" -> "Ludo";
+            case "JACKAROO" -> "Jackaroo";
             case "LUDO" -> "Ludo";
             default -> game;
         };

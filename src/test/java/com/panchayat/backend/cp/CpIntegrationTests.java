@@ -274,7 +274,8 @@ class CpIntegrationTests {
         assertEquals("phool-kali", c.get("ring"));
         assertEquals(List.of("phool-kali"), c.get("rings"));
         assertEquals(999, ((Number) c.get("love")).intValue());
-        assertEquals(2, ((Number) c.get("level")).intValue());
+        // Harder CP levels: 999 love is still level 1; level 2 needs 1,314
+        assertEquals(1, ((Number) c.get("level")).intValue());
         assertEquals(1314, ((Number) c.get("nextLevelLove")).intValue());
         assertEquals("Will you?", c.get("message"));
         assertNull(c.get("endRequest"));

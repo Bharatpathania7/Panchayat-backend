@@ -61,8 +61,27 @@ public class GiftsReceivedController {
                     m.put("coins", rs.getLong("c"));
                     top.add(m);
                 }, uid);
+        List<Map<String, Object>> recent = new ArrayList<>();
+        jdbc.query("select e.id, e.sender_id, u.full_name, u.avatar_url, e.gift_id, e.gift_count, e.coins, coalesce(e.charm, e.coins / 5) as charm, e.created_at, e.context, v.name as room"
+                        + " from room_gift_events e join users u on u.id = e.sender_id left join voice_rooms v on v.id = e.room_id"
+                        + " where e.receiver_id = ? order by e.created_at desc limit 50",
+                rs -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", String.valueOf(rs.getLong("id")));
+                    m.put("fromUserId", String.valueOf(rs.getLong("sender_id")));
+                    m.put("fromName", rs.getString("full_name"));
+                    m.put("fromAvatarUrl", MediaUrls.link(rs.getString("avatar_url")));
+                    m.put("giftId", rs.getString("gift_id"));
+                    m.put("count", rs.getInt("gift_count"));
+                    m.put("coins", rs.getLong("coins"));
+                    m.put("charm", rs.getLong("charm"));
+                    m.put("roomName", rs.getString("room"));
+                    m.put("at", rs.getTimestamp("created_at").toInstant().toString());
+                    recent.add(m);
+                }, uid);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("userId", String.valueOf(uid));
+        out.put("recent", recent);
         out.put("totalGifts", totals[0]);
         out.put("totalCoins", totals[1]);
         out.put("gifts", gifts);

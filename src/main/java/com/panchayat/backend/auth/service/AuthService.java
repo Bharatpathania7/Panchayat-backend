@@ -24,6 +24,9 @@ import java.util.Locale;
 @Service
 public class AuthService {
     @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate welcomeJdbc;
+
+    @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.sarpanch.SarpanchService sarpanch;
 
@@ -225,7 +228,11 @@ public class AuthService {
         user.setProfileCompleted(true);
 
         User saved = userRepository.save(user);
-        if (firstTime) sarpanch.notifySafely(saved.getId(), "WELCOME", java.util.Map.of("name", fullName), "welcome:" + saved.getId());
+        if (firstTime) {
+            // New user: Sarpanch's welcome red packet of 50,000 coins, opened from the message
+            welcomeJdbc.update("update users set welcome_gift_offered = true where id = ?", saved.getId());
+            sarpanch.notifySafely(saved.getId(), "WELCOME_GIFT", java.util.Map.of("name", fullName), "welcome:" + saved.getId());
+        }
         return saved;
     }
 

@@ -174,7 +174,10 @@ public class RoomGiftService {
         dailyTasks.track(senderId, "SEND_GIFT", 1);
         // The receiver's charm: 1 per 5 coins, double on Saturdays and Sundays (India time), like the rankings
         int charmFactor = java.time.LocalDate.now(BOARD_ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
-        charmJdbc.update("update users set charm_points = charm_points + ? where id = ?", coins * charmFactor / 5, receiverId);
+        long charm = coins * charmFactor / 5;
+        charmJdbc.update("update users set charm_points = charm_points + ? where id = ?", charm, receiverId);
+        // The same number counts as the sender's Guard for the receiver (Guard list)
+        charmJdbc.update("update room_gift_events set charm = ? where request_id = ?", charm, requestId);
         long roomPoints = rooms.findById(roomId).map(VoiceRoom::getPoints).orElse(0L);
         GiftSent result = toResult(saved, roomPoints, wallet.getBalance(senderId), requestId);
 

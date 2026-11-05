@@ -117,7 +117,10 @@ public class DirectGiftService {
         vipGrowth.onSpend(senderId, coins);
         dailyTasks.track(senderId, "SEND_GIFT", 1);
         int charmFactor = LocalDate.now(ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
-        jdbc.update("update users set charm_points = charm_points + ? where id = ?", coins * charmFactor / 5, receiverId);
+        long charm = coins * charmFactor / 5;
+        jdbc.update("update users set charm_points = charm_points + ? where id = ?", charm, receiverId);
+        // The same number counts as the sender's Guard for the receiver (Guard list)
+        jdbc.update("update room_gift_events set charm = ? where request_id = ?", charm, requestId);
 
         long balance = wallet.getBalance(senderId);
         String senderName = jdbc.queryForObject("select coalesce(full_name, 'Someone') from users where id = ?", String.class, senderId);

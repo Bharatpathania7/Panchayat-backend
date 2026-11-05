@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit;
  * Grab: each person in the room may grab up to MAX_GRABS times during the
  * rain. Each grab takes a random share of what's left, at most twice the
  * average share still left (the classic fair split), so the pot lasts the
- * whole rain and nobody drains it alone. The sender can't grab their own.
+ * whole rain and nobody drains it alone. The sender can loot it too.
  * End: when the rain is over, everyone's grabs are paid into their wallet in
  * one go, and whatever nobody grabbed goes back to the sender.
  *
@@ -106,24 +106,14 @@ public class RoomRedPacketService {
         Boolean busy = jdbc.queryForObject("select exists (select 1 from room_red_packets where room_id = ? and not settled)", Boolean.class, roomId);
         if (Boolean.TRUE.equals(busy)) throw conflict("Wait for this red packet rain to finish.");
 
-        // A packet from the Bag of that size if there is one, otherwise coins
+        // Red packets are only sent from the Bag (bought in the Shop); coins can't be used directly
         List<Long> bag = jdbc.queryForList(
                 "select i.id from user_red_packet_inventory i join red_packet_products p on p.id = i.red_packet_product_id"
                         + " where i.user_id = ? and p.coin_value = ? and i.quantity > 0 order by i.id limit 1 for update of i",
                 Long.class, senderId, amount);
-        String paidWith;
-        if (!bag.isEmpty()) {
-            jdbc.update("update user_red_packet_inventory set quantity = quantity - 1, updated_at = now() where id = ?", bag.get(0));
-            paidWith = "BAG";
-        } else {
-            try {
-                wallet.debit(senderId, amount, "RED_PACKET_SENT", "room:" + roomId,
-                        "rp-drop:" + UUID.randomUUID(), "Red packet of " + amount + " in room " + roomId);
-            } catch (IllegalStateException e) {
-                throw conflict("Not enough coins. Recharge to drop this red packet.");
-            }
-            paidWith = "COINS";
-        }
+        if (bag.isEmpty()) throw conflict("You don't have this red packet. Buy it in the Shop first; it goes to your Bag.");
+        jdbc.update("update user_red_packet_inventory set quantity = quantity - 1, updated_at = now() where id = ?", bag.get(0));
+        String paidWith = "BAG";
 
         Instant now = Instant.now();
         Instant rainAt = now.plusSeconds(delaySeconds);
@@ -160,7 +150,7 @@ public class RoomRedPacketService {
         Instant endAt = ((Timestamp) p.get("end_at")).toInstant();
         Instant now = Instant.now();
 
-        if (userId.equals(((Number) p.get("sender_id")).longValue())) throw conflict("You can't grab your own red packet.");
+        // The sender can loot their own packet too, like everyone else in the room
         if (participants.findByRoomIdAndUserIdAndStatus(roomId, userId, "JOINED").isEmpty()) throw forbidden("Join the room to grab.");
         if (now.isBefore(rainAt)) throw conflict("It hasn't started raining yet.");
         long mine = mine(packetId, userId);

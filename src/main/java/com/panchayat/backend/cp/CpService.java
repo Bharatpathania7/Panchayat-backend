@@ -64,7 +64,8 @@ public class CpService {
 
     private static final Logger log = LoggerFactory.getLogger(CpService.class);
 
-    public static final long[] LOVE_LEVELS = {0, 520, 1_314, 5_200, 13_140, 52_000, 131_400, 520_000};
+    /** Love needed for each CP level (made harder: about 2.5x the first version). */
+    public static final long[] LOVE_LEVELS = {0, 1_314, 5_200, 13_140, 52_000, 131_400, 520_000, 1_314_000};
     public static final int BLESS_COST = 99;
     public static final int BLESS_LOVE = 99;
     public static final int BLESS_PER_DAY = 10;

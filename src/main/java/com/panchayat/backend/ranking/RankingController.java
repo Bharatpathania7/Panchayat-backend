@@ -26,7 +26,7 @@ import java.util.*;
  *            Saturdays and Sundays (India time), the same rule as the app
  *   wealth – coins spent on gifts (Bag gifts cost nothing, so they don't count)
  *   room   – room points earned from gifts in each room
- * period: today, yesterday, week (since Monday), month, total. India time.
+ * period: today, yesterday, week (since Monday), month, year (since 1 January), total. India time.
  * Answers the top 50 and where you stand.
  */
 @RestController
@@ -136,8 +136,9 @@ public class RankingController {
             case "yesterday" -> new Instant[]{today.minusDays(1).atStartOfDay(IST).toInstant(), today.atStartOfDay(IST).toInstant()};
             case "week" -> new Instant[]{today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).atStartOfDay(IST).toInstant(), end};
             case "month" -> new Instant[]{today.withDayOfMonth(1).atStartOfDay(IST).toInstant(), end};
+            case "year" -> new Instant[]{today.withDayOfYear(1).atStartOfDay(IST).toInstant(), end};
             case "total" -> new Instant[]{Instant.EPOCH, end};
-            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "period must be today, yesterday, week, month or total");
+            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "period must be today, yesterday, week, month, year or total");
         };
     }
 

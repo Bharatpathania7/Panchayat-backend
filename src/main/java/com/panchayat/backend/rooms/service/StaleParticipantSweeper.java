@@ -53,6 +53,28 @@ public class StaleParticipantSweeper {
         worker.shutdownNow();
     }
 
+    /**
+     * Game rooms (made from the Ludo / Jackaroo lobby: "<name>'s Ludo table") are live
+     * only while someone is in them: once everyone has left, the room closes (and its
+     * game ends), so it no longer shows in Rooms. Checked every minute.
+     */
+    private void closeEmptyGameTables() {
+        List<Long> ids = jdbc.queryForList(
+                "select v.id from voice_rooms v where v.status = 'ACTIVE' and (v.name like '%Ludo table' or v.name like '%Jackaroo table')"
+                        + " and v.created_at < now() - interval '1 minute'"
+                        + " and not exists (select 1 from voice_room_participants p where p.room_id = v.id and p.status = 'JOINED')"
+                        + " limit 50", Long.class);
+        for (Long id : ids) {
+            if (jdbc.update("update voice_rooms set status = 'CLOSED' where id = ? and status = 'ACTIVE'", id) == 0) continue;
+            jdbc.update("update room_games set status = 'CANCELLED', updated_at = now() where room_id = ? and status in ('WAITING','PLAYING')", id);
+            try {
+                roomState.onRoomClosed(id);
+            } catch (Exception e) {
+                log.debug("Closed table room {} not announced: {}", id, e.getMessage());
+            }
+        }
+    }
+
     void sweep() {
         try {
             Set<String> online = social.onlineEmails();
@@ -84,6 +106,7 @@ public class StaleParticipantSweeper {
             }
             // Forget rows that are gone or back online
             misses.keySet().retainAll(seen);
+            closeEmptyGameTables();
         } catch (Exception e) {
             log.debug("Room sweep failed: {}", e.getMessage());
         }

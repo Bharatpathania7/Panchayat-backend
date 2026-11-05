@@ -44,7 +44,7 @@ public class GuardController {
         Long uid = "me".equals(who) ? me : parse(who);
         Map<Long, Map<String, Object>> by = new LinkedHashMap<>();
         // Gifts: charm is coins ÷ 5
-        jdbc.query("select sender_id, sum(coins) / 5 as charm from room_gift_events where receiver_id = ? and sender_id <> ? group by sender_id",
+        jdbc.query("select sender_id, sum(coalesce(charm, coins / 5)) as charm from room_gift_events where receiver_id = ? and sender_id <> ? group by sender_id",
                 rs -> {
                     row(by, rs.getLong(1)).put("giftCharm", rs.getLong(2));
                 }, uid, uid);
