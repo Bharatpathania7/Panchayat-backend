@@ -113,6 +113,13 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
     private static final Pattern OWN_QUEUE =
             Pattern.compile("^/user/queue/(chat|wallet|rewards|notify|game|cp|chat\\.typing|chat\\.events)$");
 
+    /** A Ludo table and its chat: /topic/ludo/{gameId} and /topic/ludo/{gameId}/chat. */
+    private static final Pattern LUDO_TOPIC =
+            Pattern.compile("^/topic/ludo/(\\d+)(/chat)?$");
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate ludoJdbc;
+
     /** A room's live topics other than its chat. */
     private static final Pattern ROOM_TOPIC =
             Pattern.compile("^/topic/voice-rooms/(\\d+)/(state|info|gifts|media|pk|auction|redpacket|game|emote)$");
@@ -134,12 +141,22 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
         Matcher chat = VOICE_CHAT_TOPIC.matcher(destination);
         Matcher topic = ROOM_TOPIC.matcher(destination);
+        Matcher ludo = LUDO_TOPIC.matcher(destination);
         boolean isChat = chat.matches();
-        if (!isChat && !topic.matches()) return false;
+        boolean isLudo = ludo.matches();
+        if (!isChat && !isLudo && !topic.matches()) return false;
 
         Long roomId;
         try {
-            roomId = parseId(isChat ? chat.group(1) : topic.group(1));
+            if (isLudo) {
+                // A Ludo table follows its room: its chat needs you in the room, like room chat
+                Long gameId = parseId(ludo.group(1));
+                roomId = ludoJdbc.query("select room_id from room_games where id = ? and game = 'LUDO'", rs -> rs.next() ? rs.getLong(1) : null, gameId);
+                if (roomId == null) return false;
+                if (ludo.group(2) != null) isChat = true;
+            } else {
+                roomId = parseId(isChat ? chat.group(1) : topic.group(1));
+            }
         } catch (IllegalArgumentException e) {
             return false;
         }
