@@ -77,7 +77,7 @@ public class JackarooService {
     @Transactional
     public Map<String, Object> open(Long roomId, Long me) {
         requireInRoom(roomId, me);
-        List<Long> open = jdbc.queryForList("select id from room_games where room_id = ? and status in ('WAITING','PLAYING')", Long.class, roomId);
+        List<Long> open = jdbc.queryForList("select id from room_games where room_id = ? and game = 'JACKAROO' and status in ('WAITING','PLAYING')", Long.class, roomId);
         if (!open.isEmpty()) return view(open.get(0), me);
         State s = new State();
         s.players.add(player(me, 0));
@@ -233,7 +233,7 @@ public class JackarooService {
     /** Turns that ran out of time: the server plays for them. */
     private void timeouts() {
         try {
-            List<Long> due = jdbc.queryForList("select id from room_games where status = 'PLAYING' and turn_ends_at < now() limit 20", Long.class);
+            List<Long> due = jdbc.queryForList("select id from room_games where game = 'JACKAROO' and status = 'PLAYING' and turn_ends_at < now() limit 20", Long.class);
             for (Long id : due) {
                 try {
                     tx.executeWithoutResult(t -> {
@@ -258,10 +258,10 @@ public class JackarooService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> current(Long roomId, Long me) {
-        List<Long> open = jdbc.queryForList("select id from room_games where room_id = ? and status in ('WAITING','PLAYING') order by id desc limit 1", Long.class, roomId);
+        List<Long> open = jdbc.queryForList("select id from room_games where room_id = ? and game = 'JACKAROO' and status in ('WAITING','PLAYING') order by id desc limit 1", Long.class, roomId);
         if (open.isEmpty()) {
             // The game that just ended stays visible for a minute (the winner screen)
-            open = jdbc.queryForList("select id from room_games where room_id = ? and status = 'FINISHED' and updated_at > now() - interval '1 minute' order by id desc limit 1", Long.class, roomId);
+            open = jdbc.queryForList("select id from room_games where room_id = ? and game = 'JACKAROO' and status = 'FINISHED' and updated_at > now() - interval '1 minute' order by id desc limit 1", Long.class, roomId);
         }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("game", open.isEmpty() ? null : view(open.get(0), me));
@@ -366,7 +366,7 @@ public class JackarooService {
     }
 
     private Row load(Long id, boolean forUpdate) {
-        List<Row> l = jdbc.query("select * from room_games where id = ?" + (forUpdate ? " for update" : ""), (rs, i) -> {
+        List<Row> l = jdbc.query("select * from room_games where id = ? and game = 'JACKAROO'" + (forUpdate ? " for update" : ""), (rs, i) -> {
             Row r = new Row();
             r.id = rs.getLong("id");
             r.roomId = rs.getLong("room_id");
