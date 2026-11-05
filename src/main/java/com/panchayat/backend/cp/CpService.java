@@ -258,6 +258,7 @@ public class CpService {
         jdbc.update("insert into cp_couple_rings (couple_id, ring_id, added_by) values (?, ?, ?)", cid, r.id, from);
         jdbc.update("update cp_proposals set status = 'ACCEPTED', answered_at = now() where id = ?", proposalId);
         addLove(cid, r.price);
+        ringCharm(from, to, r);
         // Every other pending proposal to or from either of them is over; rings go back
         for (Map<String, Object> o : jdbc.queryForList(
                 "select id, from_id, to_id, ring_id from cp_proposals where status = 'PENDING' and (from_id in (?, ?) or to_id in (?, ?)) for update",
@@ -377,6 +378,7 @@ public class CpService {
         else debit(me, r.price, "CP_RING_BOX", "cp:" + cid, idemKey, "Ring " + r.name + " for CP " + cid);
         jdbc.update("insert into cp_couple_rings (couple_id, ring_id, added_by) values (?, ?, ?)", cid, r.id, me);
         addLove(cid, r.price);
+        ringCharm(me, partner(cid, me), r);
         notify(partner(cid, me), "RING_ADDED", cid, null, me);
         Map<String, Object> out = couple(cid);
         if (src.equals("BUY")) remember(me, idemKey, out);
@@ -531,6 +533,14 @@ public class CpService {
     }
 
     /** Adds love, records it for the ranking, and tells both partners on a level-up. */
+    /** A ring gives the person who receives it charm, like a gift (price ÷ 5), and counts for their Guard list. */
+    private void ringCharm(long fromId, long toId, Ring r) {
+        long charm = Math.max(0, r.price / 5);
+        if (charm == 0 || fromId == toId) return;
+        jdbc.update("update users set charm_points = charm_points + ? where id = ?", charm, toId);
+        jdbc.update("insert into cp_ring_charm (from_id, to_id, ring_id, charm) values (?, ?, ?, ?)", fromId, toId, r.id, charm);
+    }
+
     void addLove(long coupleId, long amount) {
         if (amount <= 0) return;
         List<Map<String, Object>> r = jdbc.queryForList("update cp_couples set love = love + ? where id = ? returning love, user_a, user_b", amount, coupleId);

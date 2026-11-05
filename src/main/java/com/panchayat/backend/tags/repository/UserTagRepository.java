@@ -21,4 +21,8 @@ public interface UserTagRepository extends JpaRepository<UserTag, Long> {
 
     @Query("SELECT COUNT(t) FROM UserTag t WHERE t.userA = :userId OR t.userB = :userId")
     long countFor(@Param("userId") Long userId);
+
+    /** How many tags of this type someone has (each person can hold one of each type). */
+    @Query("SELECT COUNT(t) FROM UserTag t WHERE (t.userA = :userId OR t.userB = :userId) AND t.relation = :relation")
+    long countOfType(@Param("userId") Long userId, @Param("relation") String relation);
 }

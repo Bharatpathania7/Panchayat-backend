@@ -320,12 +320,19 @@ public class UserProfileService {
             }
 
             switch (cosmetic.getCosmeticType()) {
-                case BADGE -> badgeUrl = url;
+                case BADGE -> { } // the badge always follows the VIP level (below)
                 case FRAME -> frameUrl = url;
                 case BUBBLE -> bubbleUrl = url;
                 case ENTRY -> entryAnimationUrl = url;
             }
         }
+
+        // The VIP badge is not worn by choice: it is always the badge of your current VIP level
+        // (or the closest level below that has one uploaded)
+        List<String> badge = jdbcForStats.queryForList(
+                "select secure_url from vip_cosmetics where cosmetic_type = 'BADGE' and vip_level <= ? and secure_url is not null order by vip_level desc limit 1",
+                String.class, vipLevel);
+        badgeUrl = badge.isEmpty() ? null : badge.get(0);
 
         return new VipDetails(
                 true,

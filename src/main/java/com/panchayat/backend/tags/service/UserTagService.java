@@ -52,6 +52,11 @@ public class UserTagService {
         if (!t.involves(userId)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "That isn't your tag");
         if (relation != null) {
             if (!RELATIONS.contains(relation)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pick one of the tag types");
+            // One tag of each type per person
+            if (!relation.equals(t.getRelation())
+                    && (tags.countOfType(t.getUserA(), relation) > 0 || tags.countOfType(t.getUserB(), relation) > 0)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "One of you already has a " + label(relation) + " tag. Each person can have one tag of each type.");
+            }
             t.setRelation(relation);
         }
         if (nickname != null) {
@@ -67,7 +72,25 @@ public class UserTagService {
     }
 
     /** What happened when a BFF round closed. */
-    public enum FormResult { NEW, EXISTING, FULL }
+    public enum FormResult { NEW, EXISTING, FULL, TAKEN }
+
+    /** Does this person already hold a tag of this type (with anyone)? */
+    @Transactional(readOnly = true)
+    public boolean hasType(Long userId, String relation) {
+        return tags.countOfType(userId, relation) > 0;
+    }
+
+    public static String label(String relation) {
+        return switch (relation == null ? "" : relation) {
+            case "brosis" -> "Bro and sis";
+            case "besties" -> "Besties";
+            case "bro" -> "Bro";
+            case "confidant" -> "Confidant";
+            case "apprentice" -> "Apprentice";
+            case "sibling" -> "Sibling";
+            default -> "this";
+        };
+    }
 
     public static String tokenFor(long giftVolume) {
         if (giftVolume >= 5000) return "cottage";
@@ -86,6 +109,8 @@ public class UserTagService {
             return FormResult.EXISTING;
         }
         if (tags.countFor(winner) >= slotsFor(winner) || tags.countFor(item) >= slotsFor(item)) return FormResult.FULL;
+        // One tag of each type per person
+        if (tags.countOfType(winner, rel) > 0 || tags.countOfType(item, rel) > 0) return FormResult.TAKEN;
         try {
             String decl = declaration == null || declaration.isBlank() ? null : declaration.trim();
             if (decl != null && decl.length() > 80) decl = decl.substring(0, 80);

@@ -23,6 +23,9 @@ public class GiftSetWearController {
     public static final Map<String, String> SETS = Map.of("storm-guardian", "storm-guardian");
     private static final List<String> PIECES = List.of("frame", "bubble", "entry", "page");
 
+    /** Gift sets (Storm Guardian) give no frame, bubble, entry or profile page effect. */
+    public static final boolean GIFT_SET_COSMETICS = false;
+
     private final JdbcTemplate jdbc;
     private final UserRepository users;
     private final ObjectMapper json = new ObjectMapper();
@@ -37,6 +40,11 @@ public class GiftSetWearController {
         if (auth == null || auth.getName() == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Please sign in again.");
         Long me = users.findByEmailIgnoreCase(auth.getName())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Only user accounts can wear sets.")).getId();
+        // Gift sets no longer give cosmetics: nothing is saved, and anything worn is cleared
+        if (!GIFT_SET_COSMETICS) {
+            jdbc.update("update users set gift_set_wear = null where id = ?", me);
+            return Map.of("giftSetWear", Map.of());
+        }
         Map<String, Object> out = new LinkedHashMap<>();
         for (String piece : PIECES) {
             Object v = body == null ? null : body.get(piece);
@@ -54,6 +62,7 @@ public class GiftSetWearController {
 
     /** What someone wears (for profile responses). */
     public static Map<String, Object> read(JdbcTemplate jdbc, Long userId) {
+        if (!GIFT_SET_COSMETICS) return Map.of();
         String raw = jdbc.query("select gift_set_wear from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, userId);
         if (raw == null || raw.isBlank()) return Map.of();
         try {

@@ -83,6 +83,11 @@ public class VipCosmeticEquipmentService {
             );
         }
 
+        // The VIP badge isn't worn by choice: it always follows your VIP level
+        if ("BADGE".equals(String.valueOf(cosmetic.getCosmeticType()))) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "Your VIP badge changes automatically with your VIP level.");
+        }
+
         // Reuse the existing slot for this cosmetic type.
         // This replaces the previously equipped cosmetic of the same type.
         UserEquippedCosmetic equipped = equippedRepository

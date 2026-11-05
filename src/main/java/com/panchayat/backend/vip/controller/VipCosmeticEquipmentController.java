@@ -85,4 +85,20 @@ public class VipCosmeticEquipmentController {
 
         return user.getId();
     }
+
+    // Clear answers instead of a 500: the app shows these messages as they are
+    @org.springframework.web.bind.annotation.ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public org.springframework.http.ResponseEntity<java.util.Map<String, String>> status(org.springframework.web.server.ResponseStatusException e) {
+        return org.springframework.http.ResponseEntity.status(e.getStatusCode()).body(java.util.Map.of("message", e.getReason() == null ? "That didn't work" : e.getReason()));
+    }
+
+    @org.springframework.web.bind.annotation.ExceptionHandler(IllegalArgumentException.class)
+    public org.springframework.http.ResponseEntity<java.util.Map<String, String>> bad(IllegalArgumentException e) {
+        return org.springframework.http.ResponseEntity.badRequest().body(java.util.Map.of("message", e.getMessage() == null ? "That isn't valid" : e.getMessage()));
+    }
+
+    @org.springframework.web.bind.annotation.ExceptionHandler(IllegalStateException.class)
+    public org.springframework.http.ResponseEntity<java.util.Map<String, String>> conflict(IllegalStateException e) {
+        return org.springframework.http.ResponseEntity.status(409).body(java.util.Map.of("message", e.getMessage() == null ? "That can't be done right now" : e.getMessage()));
+    }
 }
