@@ -68,6 +68,7 @@ jobs:
           JAR_PATH: ${{ vars.BACKEND_JAR_PATH || '/opt/panchayat-deploy/backend/app.jar' }}
           BACKEND_PORT: ${{ vars.BACKEND_PORT || '8082' }}
           DB_NAME: ${{ vars.BACKEND_DB_NAME || 'panchayat_db' }}
+          DB_PORT: ${{ vars.BACKEND_DB_PORT || '5432' }}
         run: |
           set -euo pipefail
           [ -n "$SERVICE" ] || { echo "Set the repository variable BACKEND_SERVICE (the systemd service name)."; exit 1; }
@@ -79,6 +80,6 @@ jobs:
           scp -i "$HOME/.ssh/deploy_key" -P "$PORT" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
             "$JAR" deploy/remote-deploy-backend.sh "$USER_NAME@$HOST:$REMOTE_TMP/"
           $SSH "$USER_NAME@$HOST" \
-            "SERVICE='$SERVICE' JAR_PATH='$JAR_PATH' BACKEND_PORT='$BACKEND_PORT' DB_NAME='$DB_NAME' \
+            "SERVICE='$SERVICE' JAR_PATH='$JAR_PATH' BACKEND_PORT='$BACKEND_PORT' DB_NAME='$DB_NAME' DB_PORT='$DB_PORT' \
              NEW_JAR='$REMOTE_TMP/panchayat-backend-0.0.1-SNAPSHOT.jar' NEW_SHA='$SHA' COMMIT='$GITHUB_SHA' \
              bash $REMOTE_TMP/remote-deploy-backend.sh; rc=\$?; rm -rf $REMOTE_TMP; exit \$rc"

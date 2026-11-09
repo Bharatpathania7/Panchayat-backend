@@ -4,11 +4,12 @@
 # restarts only the Panchayat backend service. Puts the old jar back if the new one doesn't come up.
 #
 # Expects (set by the workflow): SERVICE, JAR_PATH, BACKEND_PORT, DB_NAME, NEW_JAR, NEW_SHA, COMMIT.
-# Optional: SKIP_DB_BACKUP=1.
+# Optional: DB_PORT (default 5432: the port of the PostgreSQL cluster the backend uses), SKIP_DB_BACKUP=1.
 set -euo pipefail
 
 : "${SERVICE:?}" "${JAR_PATH:?}" "${BACKEND_PORT:?}" "${NEW_JAR:?}" "${NEW_SHA:?}"
 DB_NAME="${DB_NAME:-panchayat_db}"
+DB_PORT="${DB_PORT:-5432}"
 STAMP="$(date +%F-%H%M%S)"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/panchayat-backups}"
 KEEP_JARS=5
@@ -46,13 +47,13 @@ if [ "${SKIP_DB_BACKUP:-0}" = 1 ]; then
 else
   mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR"
   DUMP="$BACKUP_DIR/${DB_NAME}-${STAMP}.dump"
-  if (cd /tmp && as_postgres pg_dump -Fc "$DB_NAME") > "$DUMP" && [ -s "$DUMP" ]; then
+  if (cd /tmp && as_postgres pg_dump -p "$DB_PORT" -Fc "$DB_NAME") > "$DUMP" && [ -s "$DUMP" ]; then
     chmod 600 "$DUMP"
     echo "Saved $DUMP ($(du -h "$DUMP" | cut -f1))"
     ls -1t "$BACKUP_DIR"/*.dump 2>/dev/null | tail -n +$((KEEP_DUMPS + 1)) | xargs -r rm -f
   else
     rm -f "$DUMP"
-    fail "The database backup failed, so nothing was changed. (Fix the pg_dump sudo rule, or set SKIP_DB_BACKUP=1 knowingly.)"
+    fail "The database backup failed (database $DB_NAME, port $DB_PORT), so nothing was changed. Check BACKEND_DB_NAME and BACKEND_DB_PORT; set SKIP_DB_BACKUP=1 only knowingly."
   fi
 fi
 
