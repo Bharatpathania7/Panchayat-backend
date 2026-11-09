@@ -89,6 +89,12 @@ public class RoomGiftService {
         this.auction = auction;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private GiftLuckService luck;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private GiftCategoryService categoryRules;
+
     public record GiftSent(String eventId, String roomId, String fromUserId, String toUserId, String giftId,
                            int count, long coins, long earned, long roomPoints, String requestId,
                            Instant at, long senderBalance, boolean fromBag) {
@@ -106,6 +112,8 @@ public class RoomGiftService {
         if (receiverId == null || receiverId <= 0) throw bad("Choose who gets the gift");
         if (count < 1 || count > MAX_COUNT) throw bad("Send between 1 and " + MAX_COUNT + " at a time");
         long price = GiftCatalog.price(giftId).orElseThrow(() -> bad("That gift isn't on sale"));
+        // VIP gifts need VIP; CP gifts go only to your CP partner
+        categoryRules.check(giftId, senderId, receiverId);
 
         // A retry of a send that already went through: same answer, no new charge
         Optional<RoomGiftEvent> done = events.findByRequestId(requestId);
@@ -166,7 +174,7 @@ public class RoomGiftService {
         // Gifts between two tagged people grow their tag (same transaction)
         tags.addIntimacy(senderId, receiverId, coins);
         // Gifts between CP partners add love
-        couples.onGift(senderId, receiverId, coins);
+        couples.onGift(senderId, receiverId, coins, giftId, count, requestId);
         // Spend rewards: coins spent count towards random and guaranteed rewards (same transaction)
         if (!fromBag) rewards.onSpend(senderId, coins);
         // VIP growth ("God Points"): while VIP, every 100 coins spent adds 1 point (and a level-up shows the rewards)
@@ -174,7 +182,9 @@ public class RoomGiftService {
         dailyTasks.track(senderId, "SEND_GIFT", 1);
         // The receiver's charm: 1 per 5 coins, double on Saturdays and Sundays (India time), like the rankings
         int charmFactor = java.time.LocalDate.now(BOARD_ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
-        long charm = coins * charmFactor / 5;
+        long charm = luck.charm(giftId, count, coins, charmFactor);
+        // Lucky coins on top of the gift: 80,000 to 2,00,000, more than the gift cost
+        luck.bonus(senderId, receiverId, coins, fromBag, requestId, ref);
         charmJdbc.update("update users set charm_points = charm_points + ? where id = ?", charm, receiverId);
         // The same number counts as the sender's Guard for the receiver (Guard list)
         charmJdbc.update("update room_gift_events set charm = ? where request_id = ?", charm, requestId);

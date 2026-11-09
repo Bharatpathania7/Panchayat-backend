@@ -30,6 +30,15 @@ public class GiftCatalogController {
                 () -> catalog.onSale().stream().map(GiftCatalogController::view).toList());
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.gifts.service.GiftCategoryService categories;
+
+    /** The category tabs in the gift panel, in order, with who can send each (NORMAL, VIP, CP). */
+    @GetMapping("/api/v1/gifts/categories")
+    public ResponseEntity<String> categories() {
+        return cache.respond("gifts", "categories", Duration.ofSeconds(30), () -> categories.list());
+    }
+
     private static Map<String, Object> view(GiftDefinition g) {
         Map<String, Object> m = new java.util.LinkedHashMap<>();
         m.put("id", g.getId());

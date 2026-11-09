@@ -2,6 +2,7 @@
         package com.panchayat.backend.auth.SecurityConfig;
 
 import com.panchayat.backend.admin.auth.entity.AdminAccount;
+import com.panchayat.backend.admin.users.AccountBanService;
 import com.panchayat.backend.admin.auth.repository.AdminAccountRepository;
 import com.panchayat.backend.auth.entity.Role;
 import com.panchayat.backend.auth.entity.User;
@@ -39,6 +40,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtService jwtService;
     private final UserRepository userRepository;
     private final AdminAccountRepository adminAccountRepository;
+    private final AccountBanService bans;
 
     private static final Set<String> ADMIN_ROLES = Set.of(
             "ADMIN",
@@ -49,8 +51,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     public JwtAuthenticationFilter(
             JwtService jwtService,
             UserRepository userRepository,
-            AdminAccountRepository adminAccountRepository
+            AdminAccountRepository adminAccountRepository,
+            AccountBanService bans
     ) {
+        this.bans = bans;
         this.jwtService = jwtService;
         this.userRepository = userRepository;
         this.adminAccountRepository = adminAccountRepository;
@@ -108,6 +112,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             if (SecurityContextHolder.getContext().getAuthentication() == null) {
 
                 if ("USER".equals(accountType)) {
+
+                    // A banned or suspended account is refused outright, with the reason
+                    AccountBanService.Ban ban = bans.activeBan(accountId);
+                    if (ban != null) {
+                        SecurityContextHolder.clearContext();
+                        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                        response.setContentType("application/json;charset=UTF-8");
+                        response.getWriter().write("{\"status\":403,\"error\":\"ACCOUNT_SUSPENDED\",\"permanent\":" + ban.permanent()
+                                + ",\"until\":" + (ban.until() == null ? "null" : "\"" + ban.until() + "\"")
+                                + ",\"message\":\"" + ban.message().replace("\\", "\\\\").replace("\"", "\\\"") + "\"}");
+                        return;
+                    }
 
                     authenticateUser(request, accountId);
 

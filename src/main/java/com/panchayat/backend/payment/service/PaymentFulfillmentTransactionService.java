@@ -37,6 +37,9 @@ public class PaymentFulfillmentTransactionService {
     @org.springframework.beans.factory.annotation.Autowired
     private com.panchayat.backend.progress.service.ExpService exp;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.vip.VipService vip;
+
     public PaymentFulfillmentTransactionService(
             PaymentTransactionRepository paymentRepository,
             UserRepository userRepository,
@@ -184,6 +187,15 @@ public class PaymentFulfillmentTransactionService {
             inventory.setQuantity(quantity);
             inventoryRepository.saveAndFlush(inventory);
 
+        } else if (payment.getPurpose() == Purpose.VIP) {
+
+            Integer days = payment.getPurchasedVipDays();
+            if (days == null || days <= 0) {
+                throw new IllegalStateException("Invalid purchased VIP snapshot");
+            }
+            // From today if the VIP had ended, else on top of the days left
+            vip.extend(userId, days);
+
         } else {
             throw new IllegalStateException(
                     "Unsupported payment purpose: "
@@ -209,6 +221,11 @@ public class PaymentFulfillmentTransactionService {
             sarpanch.notifySafely(userId, "RED_PACKET_BOUGHT",
                     java.util.Map.of("amount", amount, "packetName", product == null ? "red packet" : product.getName(),
                             "coins", product == null || product.getCoinValue() == null ? "" : String.format("%,d", product.getCoinValue()), "orderRef", txnId),
+                    "payment:" + txnId + ":success");
+        } else if (payment.getPurpose() == Purpose.VIP) {
+            java.time.Instant until = vip.expiry(userId);
+            sarpanch.notifySafely(userId, "VIP_ACTIVATED",
+                    java.util.Map.of("level", String.valueOf(vip.vipLevel(userId)), "date", com.panchayat.backend.sarpanch.SarpanchService.formatDate(until)),
                     "payment:" + txnId + ":success");
         }
     }

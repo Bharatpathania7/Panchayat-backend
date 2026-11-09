@@ -46,13 +46,16 @@ public class RefreshTokenService {
     private final UserRepository userRepository;
     private final JwtService jwtService;
     private final Duration lifetime;
+    private final com.panchayat.backend.admin.users.AccountBanService bans;
 
     public RefreshTokenService(
             RefreshTokenRepository repository,
             UserRepository userRepository,
             JwtService jwtService,
+            com.panchayat.backend.admin.users.AccountBanService bans,
             @Value("${app.jwt.refresh-days:30}") long refreshDays
     ) {
+        this.bans = bans;
         this.repository = repository;
         this.userRepository = userRepository;
         this.jwtService = jwtService;
@@ -62,6 +65,8 @@ public class RefreshTokenService {
     /** The response for a successful sign-in: a new access token and a new session. */
     @Transactional
     public AuthResponse signIn(User user, String message) {
+        var ban = bans.activeBan(user.getId());
+        if (ban != null) throw com.panchayat.backend.admin.users.AccountBanService.refusal(ban);
         String accessToken = jwtService.generateToken(user.getId(), user.getEmail());
         String refreshToken = issue(user.getId());
         return new AuthResponse(

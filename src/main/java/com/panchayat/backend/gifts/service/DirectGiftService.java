@@ -63,6 +63,12 @@ public class DirectGiftService {
         this.rewards = rewards;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private GiftLuckService luck;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private GiftCategoryService categoryRules;
+
     @Transactional
     public Map<String, Object> send(Long senderId, Long receiverId, String giftId, int count, String requestId, String context) {
         if (requestId == null || !REQUEST_ID.matcher(requestId).matches()) throw bad("A request id is required");
@@ -72,6 +78,7 @@ public class DirectGiftService {
         String ctx = context == null ? "PROFILE" : context.toUpperCase(Locale.ROOT);
         if (!CONTEXTS.contains(ctx)) ctx = "PROFILE";
         long price = GiftCatalog.price(giftId).orElseThrow(() -> bad("That gift isn't on sale"));
+        categoryRules.check(giftId, senderId, receiverId);
 
         // A retry of a send that already went through: same answer, no new charge
         List<Map<String, Object>> done = jdbc.queryForList(
@@ -111,13 +118,14 @@ public class DirectGiftService {
                 Long.class, senderId, receiverId, giftId, count, coins, earned, requestId, ctx);
 
         tags.addIntimacy(senderId, receiverId, coins);
-        couples.onGift(senderId, receiverId, coins);
+        couples.onGift(senderId, receiverId, coins, giftId, count, requestId);
         rewards.onSpend(senderId, coins);
         // VIP growth, with the level-up reward notice
         vipGrowth.onSpend(senderId, coins);
         dailyTasks.track(senderId, "SEND_GIFT", 1);
         int charmFactor = LocalDate.now(ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
-        long charm = coins * charmFactor / 5;
+        long charm = luck.charm(giftId, count, coins, charmFactor);
+        luck.bonus(senderId, receiverId, coins, false, requestId, ref);
         jdbc.update("update users set charm_points = charm_points + ? where id = ?", charm, receiverId);
         // The same number counts as the sender's Guard for the receiver (Guard list)
         jdbc.update("update room_gift_events set charm = ? where request_id = ?", charm, requestId);

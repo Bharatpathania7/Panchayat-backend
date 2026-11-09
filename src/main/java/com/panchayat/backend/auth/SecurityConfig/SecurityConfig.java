@@ -108,7 +108,8 @@ public class SecurityConfig {
                         // Gifts on sale (managed from the admin panel).
                         .requestMatchers(
                                 HttpMethod.GET,
-                                "/api/v1/gifts"
+                                "/api/v1/gifts",
+                                "/api/v1/gifts/categories"
                         ).permitAll()
 
                         // Public shop GET endpoints.

@@ -80,8 +80,19 @@ public class PaymentTransaction {
     @Column(name = "purchased_bonus_coins")
     private Long purchasedBonusCoins;
 
+    @Column(name = "purchased_vip_days")
+    private Integer purchasedVipDays;
+
     @Column(name = "verified_at")
     private Instant verifiedAt;
+
+    public Integer getPurchasedVipDays() {
+        return purchasedVipDays;
+    }
+
+    public void setPurchasedVipDays(Integer purchasedVipDays) {
+        this.purchasedVipDays = purchasedVipDays;
+    }
 
     @PrePersist
     protected void onCreate() {

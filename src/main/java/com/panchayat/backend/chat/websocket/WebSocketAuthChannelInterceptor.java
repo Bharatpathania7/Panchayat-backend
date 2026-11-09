@@ -36,13 +36,16 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
     private final UserRepository userRepository;
     private final VoiceRoomRepository voiceRoomRepository;
     private final VoiceRoomParticipantRepository participantRepository;
+    private final com.panchayat.backend.admin.users.AccountBanService bans;
 
     public WebSocketAuthChannelInterceptor(
             JwtService jwtService,
             UserRepository userRepository,
             VoiceRoomRepository voiceRoomRepository,
-            VoiceRoomParticipantRepository participantRepository
+            VoiceRoomParticipantRepository participantRepository,
+            com.panchayat.backend.admin.users.AccountBanService bans
     ) {
+        this.bans = bans;
         this.jwtService = jwtService;
         this.userRepository = userRepository;
         this.voiceRoomRepository = voiceRoomRepository;
@@ -212,6 +215,10 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
             throw new IllegalArgumentException(
                     "Invalid WebSocket user identity."
             );
+        }
+
+        if (bans.activeBan(userId) != null) {
+            throw new IllegalArgumentException("This account is suspended.");
         }
 
         UsernamePasswordAuthenticationToken authentication =

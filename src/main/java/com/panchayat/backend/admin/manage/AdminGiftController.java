@@ -49,6 +49,77 @@ public class AdminGiftController {
         return Map.of("id", id, "announce", on);
     }
 
+    /** Fixed charm per gift (gift id to charm); a gift not listed uses 1 charm per 5 coins. */
+    @GetMapping("/charm")
+    public Map<String, Long> charms() {
+        Map<String, Long> m = new java.util.LinkedHashMap<>();
+        announceJdbc.query("select id, charm from gifts where charm is not null", rs -> {
+            m.put(rs.getString(1), rs.getLong(2));
+        });
+        return m;
+    }
+
+    public record CharmRequest(Long charm) {
+    }
+
+    /** Set the fixed charm a gift gives its receiver (empty = back to 1 per 5 coins). */
+    @PutMapping("/{id}/charm")
+    public Map<String, Object> setCharm(@PathVariable String id, @RequestBody CharmRequest body) {
+        Long c = body == null ? null : body.charm();
+        if (c != null && (c < 0 || c > 100_000_000L)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Charm must be 0 or more.");
+        int n = announceJdbc.update("update gifts set charm = ? where id = ?", c, id);
+        if (n == 0) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "That gift doesn't exist.");
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("id", id);
+        out.put("charm", c);
+        return out;
+    }
+
+    /** Charm a gift earns a CP couple when partners send it to each other (gift id to Charm); not listed = 1 per 10 coins. */
+    @GetMapping("/cp-charm")
+    public Map<String, Long> cpCharms() {
+        Map<String, Long> m = new java.util.LinkedHashMap<>();
+        announceJdbc.query("select id, cp_charm from gifts where cp_charm is not null", rs -> {
+            m.put(rs.getString(1), rs.getLong(2));
+        });
+        return m;
+    }
+
+    @PutMapping("/{id}/cp-charm")
+    public Map<String, Object> setCpCharm(@PathVariable String id, @RequestBody CharmRequest body) {
+        Long c = body == null ? null : body.charm();
+        if (c != null && (c < 0 || c > 100_000_000L)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Charm must be 0 or more.");
+        int n = announceJdbc.update("update gifts set cp_charm = ? where id = ?", c, id);
+        if (n == 0) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "That gift doesn't exist.");
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("id", id);
+        out.put("cpCharm", c);
+        return out;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.gifts.service.GiftCategoryService categoryService;
+
+    /** Gift categories (name and kind: NORMAL, VIP gifts, CP gifts). */
+    @GetMapping("/categories")
+    public List<Map<String, Object>> categories() {
+        return categoryService.list();
+    }
+
+    public record CategoryRequest(String name, String kind) {
+    }
+
+    @PostMapping("/categories")
+    public Map<String, Object> addCategory(@RequestBody CategoryRequest b) {
+        return categoryService.create(b == null ? null : b.name(), b == null ? null : b.kind());
+    }
+
+    @DeleteMapping("/categories/{name}")
+    public Map<String, Object> deleteCategory(@PathVariable String name) {
+        categoryService.delete(name);
+        return Map.of("deleted", name);
+    }
+
     @GetMapping
     public List<Map<String, Object>> list() {
         return service.list().stream().map(AdminGiftController::view).toList();

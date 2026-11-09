@@ -34,8 +34,10 @@ public class AdminUsersController {
 
     private final JdbcTemplate jdbc;
     private final SimpUserRegistry online;
+    private final AccountBanService bans;
 
-    public AdminUsersController(JdbcTemplate jdbc, SimpUserRegistry online) {
+    public AdminUsersController(JdbcTemplate jdbc, SimpUserRegistry online, AccountBanService bans) {
+        this.bans = bans;
         this.jdbc = jdbc;
         this.online = online;
     }
@@ -94,11 +96,12 @@ public class AdminUsersController {
             }
             case "vip" -> where.add("u.vip_active and (u.vip_expires_at is null or u.vip_expires_at > now())");
             case "new" -> where.add("u.created_at >= now() - interval '7 days'");
+            case "banned" -> where.add("(u.ban_permanent or u.banned_until > now())");
             case "all" -> {
                 // everyone
             }
             default -> throw new org.springframework.web.server.ResponseStatusException(
-                    org.springframework.http.HttpStatus.BAD_REQUEST, "filter must be all, online, vip or new");
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "filter must be all, online, vip, new or banned");
         }
         String w = where.isEmpty() ? "" : " where " + String.join(" and ", where);
         Long total = jdbc.queryForObject("select count(*) from users u" + w, Long.class, args.toArray());
@@ -107,7 +110,7 @@ public class AdminUsersController {
         pageArgs.add((long) p * s);
         List<Map<String, Object>> rows = jdbc.query(
                 "select u.id, u.public_id, u.full_name, u.email, u.gender, u.avatar_url, u.level, u.created_at, u.profile_completed,"
-                        + " u.vip_active, u.vip_level, u.vip_expires_at,"
+                        + " u.vip_active, u.vip_level, u.vip_expires_at, u.ban_permanent, u.banned_until, u.ban_reason,"
                         + " coalesce(w.balance, 0) as coins,"
                         + " (select max(a.at) from (" + ACTIVITY + ") a where a.user_id = u.id) as last_active,"
                         + " exists (select 1 from voice_room_participants vp where vp.user_id = u.id and vp.status = 'JOINED') as in_room"
@@ -132,6 +135,13 @@ public class AdminUsersController {
                     r.put("lastActiveAt", ts(rs.getTimestamp("last_active")));
                     r.put("online", email != null && onlineNow.contains(email.toLowerCase(Locale.ROOT)));
                     r.put("inRoom", rs.getBoolean("in_room"));
+                    Timestamp bannedUntil = rs.getTimestamp("banned_until");
+                    boolean permanent = rs.getBoolean("ban_permanent");
+                    boolean banned = permanent || (bannedUntil != null && bannedUntil.toInstant().isAfter(Instant.now()));
+                    r.put("banned", banned);
+                    r.put("banPermanent", banned && permanent);
+                    r.put("bannedUntil", banned && !permanent ? ts(bannedUntil) : null);
+                    r.put("banReason", banned ? rs.getString("ban_reason") : null);
                     return r;
                 }, pageArgs.toArray());
         long t = total == null ? 0 : total;
@@ -142,6 +152,26 @@ public class AdminUsersController {
         out.put("totalElements", t);
         out.put("totalPages", (t + s - 1) / s);
         return out;
+    }
+
+    public record BanRequest(Integer days, String reason) {
+    }
+
+    /** Ban an account: permanent when days is empty, otherwise a suspension for that many days. */
+    @PostMapping("/{id:[0-9]+}/ban")
+    public Map<String, Object> ban(@PathVariable Long id, @RequestBody BanRequest body, org.springframework.security.core.Authentication auth) {
+        AccountBanService.Ban b = bans.ban(id, body.days(), body.reason(), auth == null ? null : auth.getName());
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("banned", true);
+        m.put("permanent", b.permanent());
+        m.put("until", b.until());
+        return m;
+    }
+
+    @PostMapping("/{id:[0-9]+}/unban")
+    public Map<String, Object> unban(@PathVariable Long id, org.springframework.security.core.Authentication auth) {
+        bans.unban(id, auth == null ? null : auth.getName());
+        return Map.of("banned", false);
     }
 
     /** People with the app open: their live connection's name is their email. */

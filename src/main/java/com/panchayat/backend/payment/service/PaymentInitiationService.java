@@ -30,14 +30,17 @@ public class PaymentInitiationService {
     private final RedPacketProductRepository redPacketProductRepository;
     private final PayUClientService payUClientService;
     private final PayUProperties payUProperties;
+    private final com.panchayat.backend.vip.VipService vipService;
 
     public PaymentInitiationService(
             PaymentTransactionRepository transactionRepository,
             CoinPackService coinPackService,
             RedPacketProductRepository redPacketProductRepository,
             PayUClientService payUClientService,
-            PayUProperties payUProperties
+            PayUProperties payUProperties,
+            com.panchayat.backend.vip.VipService vipService
     ) {
+        this.vipService = vipService;
         this.transactionRepository = transactionRepository;
         this.coinPackService = coinPackService;
         this.redPacketProductRepository = redPacketProductRepository;
@@ -69,6 +72,7 @@ public class PaymentInitiationService {
         BigDecimal amount;
         String productName;
         CoinPack selectedCoinPack = null;
+        Integer vipDays = null;
 
         switch (request.getPurpose()) {
             case COIN_PACK -> {
@@ -92,10 +96,13 @@ public class PaymentInitiationService {
                 productName = product.getName();
             }
 
-            case VIP -> throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "VIP payment is not configured yet"
-            );
+            case VIP -> {
+                // The plan (days and price) is the one set in the admin panel
+                com.panchayat.backend.vip.VipService.Plan plan = vipService.activePlan(request.getProductId());
+                amount = plan.price();
+                productName = plan.name();
+                vipDays = plan.days();
+            }
 
             default -> throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -124,6 +131,8 @@ public class PaymentInitiationService {
         transaction.setProductId(request.getProductId());
         transaction.setAmount(amount);
         transaction.setStatus(PaymentTransaction.Status.PENDING);
+
+        transaction.setPurchasedVipDays(vipDays);
 
         // Snapshot the purchased reward at checkout creation time.
         // Later admin changes to the Coin Pack won't alter this purchase.

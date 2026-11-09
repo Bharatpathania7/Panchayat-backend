@@ -20,14 +20,15 @@ import java.util.Set;
 @Service
 public class AdminGiftService {
 
-    public static final Set<String> CATEGORIES = Set.of("Popular", "Cute", "Romantic", "Celebration", "Royal", "Legendary");
     private static final long MAX_PRICE = 100_000_000L;
 
     private final GiftDefinitionRepository gifts;
     private final AdminMediaService media;
     private final GiftCatalogService catalog;
+    private final com.panchayat.backend.gifts.service.GiftCategoryService categories;
 
-    public AdminGiftService(GiftDefinitionRepository gifts, AdminMediaService media, GiftCatalogService catalog) {
+    public AdminGiftService(GiftDefinitionRepository gifts, AdminMediaService media, GiftCatalogService catalog, com.panchayat.backend.gifts.service.GiftCategoryService categories) {
+        this.categories = categories;
         this.gifts = gifts;
         this.media = media;
         this.catalog = catalog;
@@ -172,10 +173,8 @@ public class AdminGiftService {
         return p;
     }
 
-    private static String category(String c) {
-        String v = c == null ? "" : c.trim();
-        for (String ok : CATEGORIES) if (ok.equalsIgnoreCase(v)) return ok;
-        throw bad("Category must be one of " + String.join(", ", CATEGORIES.stream().sorted().toList()) + ".");
+    private String category(String c) {
+        return categories.canonical(c);
     }
 
     private static int order(int o) {

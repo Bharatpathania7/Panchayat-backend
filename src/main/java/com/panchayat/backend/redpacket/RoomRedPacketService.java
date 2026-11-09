@@ -49,7 +49,7 @@ public class RoomRedPacketService {
 
     private static final Logger log = LoggerFactory.getLogger(RoomRedPacketService.class);
     public static final int RAIN_SECONDS = 15;
-    public static final int MAX_GRABS = 10;
+    public static final int MAX_GRABS = 40;
     private static final Set<Integer> DELAYS = Set.of(10, 30, 60, 180);
     private static final Set<String> COVERS = Set.of("red", "royal", "maharaja", "genda", "mor");
 
@@ -227,6 +227,7 @@ public class RoomRedPacketService {
         jdbc.update("update room_red_packets set settled = true, refunded = ?, coins_left = 0 where id = ?", left, id);
         Map<String, Object> view = view(id, "ENDED", null, null);
         view.put("refunded", left);
+        view.put("top", topLooters(paid));
         afterCommit(() -> {
             broadcast(roomId, view);
             paid.forEach((uid, coins) -> walletPush.pushBalance(uid, "RED_PACKET_GRAB", coins));
@@ -239,6 +240,28 @@ public class RoomRedPacketService {
     /** How many shares a pot splits into: about one per 250 coins, between 40 and 300 (enough to tap through the whole rain). */
     static int shares(long amount) {
         return (int) Math.max(40, Math.min(300, amount / 250));
+    }
+
+    /** The five who looted the most coins from this red packet: name and coins, biggest first. */
+    private List<Map<String, Object>> topLooters(Map<Long, Long> paid) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        paid.entrySet().stream()
+                .sorted(Map.Entry.<Long, Long>comparingByValue().reversed())
+                .limit(5)
+                .forEach(e -> {
+                    String name;
+                    try {
+                        name = jdbc.queryForObject("select full_name from users where id = ?", String.class, e.getKey());
+                    } catch (Exception ex) {
+                        name = null;
+                    }
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("userId", String.valueOf(e.getKey()));
+                    row.put("name", name == null || name.isBlank() ? "Someone" : name);
+                    row.put("coins", e.getValue());
+                    out.add(row);
+                });
+        return out;
     }
 
     private long mine(Long packetId, Long userId) {

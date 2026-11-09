@@ -232,8 +232,11 @@ public class AuthService {
             // New user: Sarpanch's welcome red packet of 50,000 coins, opened from the message
             welcomeJdbc.update("update users set welcome_gift_offered = true where id = ?", saved.getId());
             // Every new user gets 3 days of free VIP 1 (then they can buy VIP)
-            welcomeJdbc.update("update users set vip_active = true, vip_level = greatest(coalesce(vip_level, 0), 1), vip_expires_at = now() + interval '3 days'"
-                    + " where id = ? and not (vip_active and vip_expires_at is not null and vip_expires_at > now())", saved.getId());
+            // (how many days is set in the admin panel: VIP management)
+            welcomeJdbc.update("update users set vip_active = true, vip_level = greatest(coalesce(vip_level, 0), 1),"
+                    + " vip_expires_at = now() + (coalesce((select free_trial_days from vip_settings where id = 1), 3) * interval '1 day')"
+                    + " where id = ? and coalesce((select free_trial_days from vip_settings where id = 1), 3) > 0"
+                    + " and not (vip_active and vip_expires_at is not null and vip_expires_at > now())", saved.getId());
             sarpanch.notifySafely(saved.getId(), "WELCOME_GIFT", java.util.Map.of("name", fullName), "welcome:" + saved.getId());
         }
         return saved;

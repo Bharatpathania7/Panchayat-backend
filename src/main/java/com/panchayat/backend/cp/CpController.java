@@ -101,6 +101,11 @@ public class CpController {
         return orNull(cp.of(userId));
     }
 
+    @GetMapping("/api/v1/cp/me/charm-history")
+    public List<Map<String, Object>> charmHistory(@RequestParam(defaultValue = "all") String filter, @RequestParam(defaultValue = "50") int limit, Authentication auth) {
+        return cp.charmHistory(me(auth), filter, limit);
+    }
+
     @GetMapping("/api/v1/cp/ranking")
     public List<Map<String, Object>> ranking(@RequestParam(defaultValue = "today") String period, @RequestParam(defaultValue = "50") int limit, Authentication auth) {
         me(auth);

@@ -65,7 +65,9 @@ public class CpService {
     private static final Logger log = LoggerFactory.getLogger(CpService.class);
 
     /** Love needed for each CP level (made harder: about 2.5x the first version). */
-    public static final long[] LOVE_LEVELS = {0, 1_314, 5_200, 13_140, 52_000, 131_400, 520_000, 1_314_000};
+    public static final long[] LOVE_LEVELS = {0, 5_000, 15_000, 35_000, 75_000, 150_000, 250_000, 400_000, 600_000, 1_000_000};
+    /** Coins per Charm when a gift has no Charm set in the admin panel. */
+    public static final long COINS_PER_CHARM = 10;
     public static final int BLESS_COST = 99;
     public static final int BLESS_LOVE = 99;
     public static final int BLESS_PER_DAY = 10;
@@ -258,7 +260,6 @@ public class CpService {
         }
         jdbc.update("insert into cp_couple_rings (couple_id, ring_id, added_by) values (?, ?, ?)", cid, r.id, from);
         jdbc.update("update cp_proposals set status = 'ACCEPTED', answered_at = now() where id = ?", proposalId);
-        addLove(cid, r.price);
         ringCharm(from, to, r);
         // Every other pending proposal to or from either of them is over; rings go back
         for (Map<String, Object> o : jdbc.queryForList(
@@ -346,7 +347,24 @@ public class CpService {
                 from = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
                 to = today;
             }
-            default -> throw bad("period must be today, yesterday or week");
+            case "month" -> {
+                from = today.withDayOfMonth(1);
+                to = today;
+            }
+            case "all" -> {
+                List<Map<String, Object>> top = jdbc.queryForList("select id, love from cp_couples where ended_at is null and love > 0 order by love desc, id limit ?", Math.max(1, Math.min(limit, 100)));
+                List<Map<String, Object>> res = new ArrayList<>();
+                int n = 1;
+                for (Map<String, Object> t : top) {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("rank", n++);
+                    m.put("love", num(t.get("love")));
+                    m.put("couple", couple(num(t.get("id"))));
+                    res.add(m);
+                }
+                return res;
+            }
+            default -> throw bad("period must be today, yesterday, week, month or all");
         }
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select d.couple_id, sum(d.love) as gained from cp_love_daily d join cp_couples c on c.id = d.couple_id"
@@ -378,7 +396,6 @@ public class CpService {
         if (src.equals("BAG")) takeFromBag(me, r.id);
         else debit(me, r.price, "CP_RING_BOX", "cp:" + cid, idemKey, "Ring " + r.name + " for CP " + cid);
         jdbc.update("insert into cp_couple_rings (couple_id, ring_id, added_by) values (?, ?, ?)", cid, r.id, me);
-        addLove(cid, r.price);
         ringCharm(me, partner(cid, me), r);
         notify(partner(cid, me), "RING_ADDED", cid, null, me);
         Map<String, Object> out = couple(cid);
@@ -428,8 +445,7 @@ public class CpService {
         if (count("select count(*) from cp_blessings where couple_id = ? and user_id = ? and created_at >= ?", coupleId, me, Timestamp.from(dayStart)) >= BLESS_PER_DAY)
             throw new ResponseStatusException(HttpStatus.CONFLICT, "You can bless a CP up to " + BLESS_PER_DAY + " times a day");
         debit(me, BLESS_COST, "CP_BLESSING", "cp:" + coupleId, idemKey, "Blessing for CP " + coupleId);
-        Long bid = jdbc.queryForObject("insert into cp_blessings (couple_id, user_id, love) values (?, ?, ?) returning id", Long.class, coupleId, me, BLESS_LOVE);
-        addLove(coupleId, BLESS_LOVE);
+        Long bid = jdbc.queryForObject("insert into cp_blessings (couple_id, user_id, love) values (?, ?, ?) returning id", Long.class, coupleId, me, 0);
         notify(a, "BLESSED", coupleId, null, me);
         notify(b, "BLESSED", coupleId, null, me);
         Map<String, Object> out = new LinkedHashMap<>();
@@ -524,13 +540,60 @@ public class CpService {
 
     /* ================= love from gifts ================= */
 
-    /** A gift between the two partners (either way) adds 1 love per coin. Runs in the gift's transaction. */
-    public void onGift(Long from, Long to, long coins) {
+    /**
+     * A gift between the two partners (either way) adds Charm to their shared balance: the gift's own
+     * Charm (set in the admin panel) times how many, else 1 per 10 coins. Nothing else gives CP Charm.
+     * Runs in the gift's transaction; a request id counts once.
+     */
+    public void onGift(Long from, Long to, long coins, String giftId, int count, String requestId) {
         if (from == null || to == null || from.equals(to) || coins <= 0) return;
         List<Long> l = jdbc.queryForList(
                 "select a.couple_id from cp_members a join cp_members b on b.couple_id = a.couple_id where a.user_id = ? and b.user_id = ?",
                 Long.class, from, to);
-        if (!l.isEmpty()) addLove(l.get(0), coins);
+        if (l.isEmpty()) return;
+        Long fixed = jdbc.query("select cp_charm from gifts where id = ?", rs -> {
+            if (!rs.next()) return null;
+            long v = rs.getLong(1);
+            return rs.wasNull() ? null : v;
+        }, giftId);
+        long charm = fixed != null ? fixed * count : coins / COINS_PER_CHARM;
+        if (charm <= 0) return;
+        int logged = jdbc.update("insert into cp_charm_log (couple_id, sender_id, receiver_id, gift_id, gift_count, coins, charm, request_id)"
+                + " values (?, ?, ?, ?, ?, ?, ?, ?) on conflict do nothing", l.get(0), from, to, giftId, count, coins, charm, requestId);
+        if (logged == 0) return; // this gift was already counted
+        addLove(l.get(0), charm);
+    }
+
+    /** The Charm-earning gifts of my couple: filter all, sent (by me) or received (by me). */
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> charmHistory(Long me, String filter, int limit) {
+        Long cid = requireCouple(me);
+        String f = filter == null ? "all" : filter.toLowerCase(Locale.ROOT);
+        String where = switch (f) {
+            case "sent" -> " and l.sender_id = " + me;
+            case "received" -> " and l.receiver_id = " + me;
+            case "all" -> "";
+            default -> throw bad("filter must be all, sent or received");
+        };
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "select l.id, l.sender_id, l.receiver_id, l.gift_id, l.gift_count, l.coins, l.charm, l.created_at, g.name as gift_name"
+                        + " from cp_charm_log l left join gifts g on g.id = l.gift_id where l.couple_id = ?" + where
+                        + " order by l.id desc limit ?", cid, Math.max(1, Math.min(limit, 100)));
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> r : rows) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", String.valueOf(r.get("id")));
+            m.put("senderId", String.valueOf(r.get("sender_id")));
+            m.put("receiverId", String.valueOf(r.get("receiver_id")));
+            m.put("giftId", r.get("gift_id"));
+            m.put("giftName", r.get("gift_name") == null ? r.get("gift_id") : r.get("gift_name"));
+            m.put("count", r.get("gift_count"));
+            m.put("coins", num(r.get("coins")));
+            m.put("charm", num(r.get("charm")));
+            m.put("at", ((Timestamp) r.get("created_at")).toInstant().toString());
+            out.add(m);
+        }
+        return out;
     }
 
     /** Adds love, records it for the ranking, and tells both partners on a level-up. */
@@ -549,6 +612,9 @@ public class CpService {
         long after = num(r.get(0).get("love"));
         jdbc.update("insert into cp_love_daily (couple_id, day, love) values (?, ?, ?) on conflict (couple_id, day) do update set love = cp_love_daily.love + excluded.love",
                 coupleId, LocalDate.now(ZONE), amount);
+        for (int lv = level(after - amount) + 1; lv <= level(after); lv++) {
+            jdbc.update("insert into cp_badge_unlocks (couple_id, level) values (?, ?) on conflict do nothing", coupleId, lv);
+        }
         if (level(after) > level(after - amount)) {
             notify(num(r.get(0).get("user_a")), "LEVEL_UP", coupleId, null, null);
             notify(num(r.get(0).get("user_b")), "LEVEL_UP", coupleId, null, null);
@@ -685,6 +751,17 @@ public class CpService {
         m.put("rings", jdbc.queryForList("select ring_id from cp_couple_rings where couple_id = ? order by id", String.class, cid));
         m.put("since", ((Timestamp) c.get("since")).toInstant().toString());
         m.put("love", love);
+        m.put("charm", love);
+        Map<String, String> unlocks = new LinkedHashMap<>();
+        unlocks.put("1", ((Timestamp) c.get("since")).toInstant().toString());
+        jdbc.query("select level, unlocked_at from cp_badge_unlocks where couple_id = ? order by level", rs -> {
+            unlocks.put(String.valueOf(rs.getInt(1)), rs.getTimestamp(2).toInstant().toString());
+        }, cid);
+        m.put("unlocks", unlocks);
+        jdbc.query("select count(*), coalesce(sum(coins), 0) from cp_charm_log where couple_id = ?", rs -> {
+            m.put("giftCount", rs.getLong(1));
+            m.put("giftCoins", rs.getLong(2));
+        }, cid);
         m.put("level", level(love));
         m.put("nextLevelLove", nextLevelLove(love));
         m.put("message", c.get("message"));
