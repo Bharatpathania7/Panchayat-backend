@@ -187,7 +187,7 @@ public class RoomGiftService {
         int charmFactor = java.time.LocalDate.now(BOARD_ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
         long charm = luck.charm(giftId, count, coins, charmFactor);
         // Lucky coins on top of the gift: 60,000 to 2,00,000, more than the gift cost
-        long luckyCoins = luck.bonus(senderId, receiverId, coins, fromBag, requestId, ref);
+        long luckyCoins = luck.bonus(senderId, receiverId, giftId, count, coins, fromBag, requestId, ref);
         charmJdbc.update("update users set charm_points = charm_points + ? where id = ?", charm, receiverId);
         // The same number counts as the sender's Guard for the receiver (Guard list)
         charmJdbc.update("update room_gift_events set charm = ? where request_id = ?", charm, requestId);

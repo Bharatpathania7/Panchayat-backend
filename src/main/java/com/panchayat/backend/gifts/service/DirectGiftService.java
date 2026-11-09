@@ -125,7 +125,7 @@ public class DirectGiftService {
         dailyTasks.track(senderId, "SEND_GIFT", 1);
         int charmFactor = LocalDate.now(ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
         long charm = luck.charm(giftId, count, coins, charmFactor);
-        long luckyCoins = luck.bonus(senderId, receiverId, coins, false, requestId, ref);
+        long luckyCoins = luck.bonus(senderId, receiverId, giftId, count, coins, false, requestId, ref);
         jdbc.update("update users set charm_points = charm_points + ? where id = ?", charm, receiverId);
         // The same number counts as the sender's Guard for the receiver (Guard list)
         jdbc.update("update room_gift_events set charm = ? where request_id = ?", charm, requestId);

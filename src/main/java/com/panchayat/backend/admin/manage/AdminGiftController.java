@@ -50,6 +50,48 @@ public class AdminGiftController {
     }
 
     /** Fixed charm per gift (gift id to charm); a gift not listed uses 1 charm per 5 coins. */
+    /** Per gift: how much Charm and how many lucky coins it triggers, each as a min and max (a random number in between). */
+    @GetMapping("/triggers")
+    public Map<String, Map<String, Long>> triggers() {
+        Map<String, Map<String, Long>> m = new java.util.LinkedHashMap<>();
+        announceJdbc.query("select id, charm_min, charm_max, coin_min, coin_max from gifts where charm_min is not null or coin_min is not null", rs -> {
+            Map<String, Long> t = new java.util.LinkedHashMap<>();
+            t.put("charmMin", (Long) rs.getObject(2));
+            t.put("charmMax", (Long) rs.getObject(3));
+            t.put("coinMin", (Long) rs.getObject(4));
+            t.put("coinMax", (Long) rs.getObject(5));
+            m.put(rs.getString(1), t);
+        });
+        return m;
+    }
+
+    public record TriggerRequest(Long charmMin, Long charmMax, Long coinMin, Long coinMax) {
+    }
+
+    /** Both of a pair, or neither (empty = the default). The max can't be below the min. */
+    @PutMapping("/{id}/triggers")
+    public Map<String, Object> setTriggers(@PathVariable String id, @RequestBody TriggerRequest b) {
+        Long cMin = b == null ? null : b.charmMin(), cMax = b == null ? null : b.charmMax();
+        Long kMin = b == null ? null : b.coinMin(), kMax = b == null ? null : b.coinMax();
+        checkPair("Charm", cMin, cMax);
+        checkPair("Lucky coins", kMin, kMax);
+        int n = announceJdbc.update("update gifts set charm_min = ?, charm_max = ?, coin_min = ?, coin_max = ? where id = ?", cMin, cMax, kMin, kMax, id);
+        if (n == 0) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "That gift doesn't exist.");
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("id", id);
+        out.put("charmMin", cMin);
+        out.put("charmMax", cMax);
+        out.put("coinMin", kMin);
+        out.put("coinMax", kMax);
+        return out;
+    }
+
+    private static void checkPair(String what, Long min, Long max) {
+        if ((min == null) != (max == null)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, what + ": fill in both the minimum and the maximum, or leave both empty.");
+        if (min == null) return;
+        if (min < 0 || max < min || max > 1_000_000_000L) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, what + ": the maximum must be at least the minimum (0 or more).");
+    }
+
     @GetMapping("/charm")
     public Map<String, Long> charms() {
         Map<String, Long> m = new java.util.LinkedHashMap<>();
