@@ -159,12 +159,18 @@ public class VoiceRoomService {
     // LIST PUBLIC ROOMS
     // --------------------------------------------------
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate parivarJdbc;
+
     @Transactional(readOnly = true)
     public List<VoiceRoomResponse> getPublicRooms() {
 
+        // Parivar voice rooms are only for their members: not in the public list
+        java.util.Set<Long> familyRooms = new java.util.HashSet<>(parivarJdbc.queryForList("select id from voice_rooms where parivar_id is not null and status = 'ACTIVE'", Long.class));
         return voiceRoomRepository
                 .findByStatusAndIsPrivateFalseOrderByCreatedAtDesc("ACTIVE")
                 .stream()
+                .filter(r -> !familyRooms.contains(r.getId()))
                 .map(VoiceRoomResponse::from)
                 .toList();
     }
@@ -340,6 +346,12 @@ public class VoiceRoomService {
                     HttpStatus.NOT_FOUND,
                     "Voice room is not available"
             );
+        }
+
+        // A Parivar room: only members of that Parivar come in
+        Long familyId = parivarJdbc.query("select parivar_id from voice_rooms where id = ?", rs -> rs.next() ? (Long) rs.getObject(1) : null, roomId);
+        if (familyId != null && parivarJdbc.queryForObject("select count(*) from parivar_members where parivar_id = ? and user_id = ?", Long.class, familyId, user.getId()) == 0) {
+            throw new AccessDeniedException("Only members of this Parivar can join this room");
         }
 
         // Private rooms are currently owner-only.

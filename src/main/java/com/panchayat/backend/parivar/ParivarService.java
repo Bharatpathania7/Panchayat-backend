@@ -32,7 +32,7 @@ public class ParivarService {
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     /** Public Parivar ID shown to people = 4,000,000 + internal id. */
     public static final long CODE_BASE = 4_000_000L;
-    public static final List<String> PERMS = List.of("EDIT_PROFILE", "EDIT_ANNOUNCEMENT", "ACCEPT_APPLICATIONS", "REMOVE_MEMBERS", "APPOINT_DEPUTY", "APPOINT_ADMIN", "MANAGE_TREASURY", "MANAGE_SETTINGS");
+    public static final List<String> PERMS = List.of("EDIT_PROFILE", "EDIT_ANNOUNCEMENT", "ACCEPT_APPLICATIONS", "REMOVE_MEMBERS", "APPOINT_DEPUTY", "APPOINT_ADMIN", "MANAGE_TREASURY", "MANAGE_SETTINGS", "USE_STEAL", "MANAGE_STEAL", "MANAGE_BARRIER", "MANAGE_GACHA", "MANAGE_CHESTS", "MANAGE_VOICE");
     private static final List<String> ROLE_RANK = List.of("MEMBER", "ADMIN", "DEPUTY", "LEADER");
 
     private final JdbcTemplate jdbc;
@@ -51,11 +51,11 @@ public class ParivarService {
         return jdbc.queryForMap("select * from parivar_settings where id = 1");
     }
 
-    private static boolean b(Object o) {
+    static boolean b(Object o) {
         return Boolean.TRUE.equals(o);
     }
 
-    private static long l(Object o) {
+    static long l(Object o) {
         return o == null ? 0 : ((Number) o).longValue();
     }
 
@@ -110,21 +110,21 @@ public class ParivarService {
 
     /* ======================= small helpers ======================= */
 
-    private void lockUser(Long userId) {
+    void lockUser(Long userId) {
         jdbc.queryForObject("select pg_advisory_xact_lock(?)", Object.class, 7_000_000_000L + userId);
     }
 
-    private Long myParivarId(Long userId) {
+    Long myParivarId(Long userId) {
         List<Long> l = jdbc.queryForList("select m.parivar_id from parivar_members m join parivars p on p.id = m.parivar_id where m.user_id = ? and p.status = 'ACTIVE'", Long.class, userId);
         return l.isEmpty() ? null : l.get(0);
     }
 
-    private String roleOf(Long parivarId, Long userId) {
+    String roleOf(Long parivarId, Long userId) {
         List<String> l = jdbc.queryForList("select role from parivar_members where parivar_id = ? and user_id = ?", String.class, parivarId, userId);
         return l.isEmpty() ? null : l.get(0);
     }
 
-    private boolean can(Long parivarId, Long userId, String perm) {
+    boolean can(Long parivarId, Long userId, String perm) {
         String role = roleOf(parivarId, userId);
         if (role == null) return false;
         if (role.equals("LEADER")) return true;
@@ -132,39 +132,52 @@ public class ParivarService {
         return !a.isEmpty() && Boolean.TRUE.equals(a.get(0));
     }
 
-    private void require(Long parivarId, Long userId, String perm) {
+    void require(Long parivarId, Long userId, String perm) {
         if (!can(parivarId, userId, perm)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You don't have permission to do this in this Parivar.");
     }
 
-    private static int rank(String role) {
+    static int rank(String role) {
         return ROLE_RANK.indexOf(role);
     }
 
-    private Map<String, Object> activeParivar(Long id) {
+    Map<String, Object> activeParivar(Long id) {
         List<Map<String, Object>> l = jdbc.queryForList("select * from parivars where id = ? and status = 'ACTIVE'", id);
         if (l.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That Parivar doesn't exist.");
         return l.get(0);
     }
 
-    private int capacity(int level) {
+    int capacity(int level) {
         Integer c = jdbc.query("select capacity from parivar_levels where level = ?", rs -> rs.next() ? rs.getInt(1) : null, level);
         return c == null ? 20 : c;
     }
 
-    private long memberCount(Long parivarId) {
+    long memberCount(Long parivarId) {
         return l(jdbc.queryForObject("select count(*) from parivar_members where parivar_id = ?", Long.class, parivarId));
     }
 
-    private Timestamp weekStart() {
+    Timestamp weekStart() {
         return Timestamp.from(LocalDate.now(IST).with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).atStartOfDay(IST).toInstant());
     }
 
-    private static ResponseStatusException bad(String m) {
+    static ResponseStatusException bad(String m) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, m);
     }
 
-    private static ResponseStatusException conflict(String m) {
+    static ResponseStatusException conflict(String m) {
         return new ResponseStatusException(HttpStatus.CONFLICT, m);
+    }
+
+    /** Move coins into (+) or out of (-) the treasury, never below zero; every move is written to the funds ledger. Returns the new balance. */
+    long changeFunds(Long parivarId, Long userId, long delta, String kind, String ref) {
+        List<Long> after = jdbc.queryForList("update parivars set funds = funds + ? where id = ? and funds + ? >= 0 returning funds", Long.class, delta, parivarId, delta);
+        if (after.isEmpty()) throw conflict("The Parivar doesn't have enough funds.");
+        jdbc.update("insert into parivar_funds_ledger (parivar_id, user_id, delta, balance_after, kind, ref) values (?, ?, ?, ?, ?, ?)", parivarId, userId, delta, after.get(0), kind, ref);
+        return after.get(0);
+    }
+
+    /** A line in the family chat from the system (level ups, big wins, Chori, chests...). */
+    void system(Long parivarId, String text) {
+        jdbc.update("insert into parivar_chat (parivar_id, user_id, kind, text) values (?, null, 'SYSTEM', ?)", parivarId, text.length() > 500 ? text.substring(0, 500) : text);
     }
 
     /* ======================= create ======================= */
@@ -580,7 +593,7 @@ public class ParivarService {
 
     /* ======================= activity ======================= */
 
-    private void activity(Long parivarId, Long userId, Long otherId, String kind, long exp, long coins, String label, String ref) {
+    void activity(Long parivarId, Long userId, Long otherId, String kind, long exp, long coins, String label, String ref) {
         jdbc.update("insert into parivar_activity (parivar_id, user_id, other_id, kind, exp, coins, label, ref) values (?, ?, ?, ?, ?, ?, ?, ?) on conflict do nothing", parivarId, userId, otherId, kind, exp, coins, label, ref);
     }
 
@@ -609,7 +622,7 @@ public class ParivarService {
     }
 
     /** Adds EXP to the Parivar and the member's contribution, and levels the Parivar up when it passes a threshold. */
-    private void addExp(Long id, Long userId, long exp) {
+    void addExp(Long id, Long userId, long exp) {
         if (exp <= 0) return;
         Long total = jdbc.queryForObject("update parivars set exp = exp + ? where id = ? returning exp", Long.class, exp, id);
         jdbc.update("update parivar_members set contribution = contribution + ? where parivar_id = ? and user_id = ?", exp, id, userId);
@@ -618,6 +631,7 @@ public class ParivarService {
         if (lvl != null && cur != null && lvl > cur) {
             jdbc.update("update parivars set level = ? where id = ?", lvl, id);
             activity(id, userId, null, "LEVEL", 0, 0, "The Parivar reached level " + lvl, null);
+            system(id, "🎉 The Parivar reached level " + lvl + "!");
         }
     }
 
