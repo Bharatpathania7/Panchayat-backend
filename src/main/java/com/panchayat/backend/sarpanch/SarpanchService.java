@@ -204,6 +204,17 @@ public class SarpanchService {
         });
     }
 
+    /** send() that never breaks the caller and is saved in a transaction of its own, after the caller committed. */
+    public void sendSafely(Long userId, Message m, String eventKey) {
+        afterCommit(() -> {
+            try {
+                txNew.executeWithoutResult(s -> send(userId, m, eventKey));
+            } catch (Exception e) {
+                log.warn("Sarpanch message not sent: {}", e.getMessage());
+            }
+        });
+    }
+
     public static String formatDate(Instant at) {
         return at == null ? "" : DATE.format(at);
     }

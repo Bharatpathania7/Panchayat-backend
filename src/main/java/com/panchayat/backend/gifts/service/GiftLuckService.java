@@ -62,24 +62,84 @@ public class GiftLuckService {
         return l.isEmpty() ? new Triggers(null, null, null, null, null) : l.get(0);
     }
 
-    /** Chance of a big win (the top third of the range, up to the max) and of a middle win (the middle third). */
-    static final double HIGH_CHANCE = 0.01;
-    static final double MIDDLE_CHANCE = 0.025;
+    /** Chance of a big win (the top third of the range, up to the max) and of a middle win (the middle third): the defaults. */
+    static final double HIGH_CHANCE = 0.02;
+    static final double MIDDLE_CHANCE = 0.0;
+
+    /** Everything the admin sets for lucky coins. */
+    public record Settings(boolean enabled, double chancePercent, long defaultMin, long defaultMax, double highChance, double middleChance, long minGiftCoins, long dailyCap, int pairDailyLimit) {
+    }
+
+    private static final java.time.ZoneId ZONE = java.time.ZoneId.of("Asia/Kolkata");
+
+    public Settings settings() {
+        Settings s = jdbc.query("select lucky_enabled, lucky_chance_percent, lucky_default_min, lucky_default_max, lucky_high_chance, lucky_middle_chance, lucky_min_gift_coins, lucky_daily_cap, lucky_pair_daily_limit from gift_settings where id = 1",
+                rs -> rs.next() ? new Settings(rs.getBoolean(1), rs.getDouble(2), rs.getLong(3), rs.getLong(4), rs.getDouble(5), rs.getDouble(6), rs.getLong(7), rs.getLong(8), rs.getInt(9)) : null);
+        return s != null ? s : new Settings(false, 100, BONUS_MIN, BONUS_MAX, HIGH_CHANCE * 100, MIDDLE_CHANCE * 100, 0, 0, 0);
+    }
+
+    /** Saves the settings the admin sent (missing ones stay as they are). Returns the saved settings. */
+    public Settings save(java.util.Map<String, Object> in) {
+        Settings c = settings();
+        boolean enabled = in.get("enabled") instanceof Boolean b ? b : c.enabled();
+        double chance = num(in.get("chancePercent"), c.chancePercent());
+        long min = (long) num(in.get("defaultMin"), c.defaultMin());
+        long max = (long) num(in.get("defaultMax"), c.defaultMax());
+        double high = num(in.get("highChance"), c.highChance());
+        double mid = num(in.get("middleChance"), c.middleChance());
+        long minGift = (long) num(in.get("minGiftCoins"), c.minGiftCoins());
+        long cap = (long) num(in.get("dailyCap"), c.dailyCap());
+        int pair = (int) num(in.get("pairDailyLimit"), c.pairDailyLimit());
+        if (chance < 0 || chance > 100) throw new IllegalArgumentException("The chance must be between 0 and 100.");
+        if (min < 0 || max < min) throw new IllegalArgumentException("The most lucky coins can't be less than the least.");
+        if (high < 0 || mid < 0 || high + mid > 100) throw new IllegalArgumentException("The big and middle win chances together can't be over 100.");
+        if (minGift < 0 || cap < 0 || pair < 0) throw new IllegalArgumentException("Limits can't be negative (0 means no limit).");
+        jdbc.update("insert into gift_settings (id, lucky_enabled, lucky_chance_percent, lucky_default_min, lucky_default_max, lucky_high_chance, lucky_middle_chance, lucky_min_gift_coins, lucky_daily_cap, lucky_pair_daily_limit) values (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                + " on conflict (id) do update set lucky_enabled = excluded.lucky_enabled, lucky_chance_percent = excluded.lucky_chance_percent, lucky_default_min = excluded.lucky_default_min, lucky_default_max = excluded.lucky_default_max,"
+                + " lucky_high_chance = excluded.lucky_high_chance, lucky_middle_chance = excluded.lucky_middle_chance, lucky_min_gift_coins = excluded.lucky_min_gift_coins, lucky_daily_cap = excluded.lucky_daily_cap, lucky_pair_daily_limit = excluded.lucky_pair_daily_limit",
+                enabled, chance, min, max, high, mid, minGift, cap, pair);
+        return settings();
+    }
+
+    private static double num(Object v, double fallback) {
+        if (v == null) return fallback;
+        if (v instanceof Number n) return n.doubleValue();
+        try {
+            return Double.parseDouble(String.valueOf(v));
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException("Numbers only, please.");
+        }
+    }
+
+    /** Recent payouts and today's totals for the admin panel. */
+    public java.util.Map<String, Object> report() {
+        java.sql.Timestamp start = java.sql.Timestamp.from(java.time.LocalDate.now(ZONE).atStartOfDay(ZONE).toInstant());
+        java.util.Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("todayCount", jdbc.queryForObject("select count(*) from gift_lucky_log where created_at >= ?", Long.class, start));
+        out.put("todayCoins", jdbc.queryForObject("select coalesce(sum(amount), 0) from gift_lucky_log where created_at >= ?", Long.class, start));
+        out.put("recent", jdbc.queryForList("select l.id, l.receiver_id as \"receiverId\", u.full_name as receiver, l.sender_id as \"senderId\", l.gift_id as \"giftId\", l.gift_count as count, l.gift_coins as \"giftCoins\", l.amount, l.created_at as \"createdAt\""
+                + " from gift_lucky_log l left join users u on u.id = l.receiver_id order by l.id desc limit 100"));
+        return out;
+    }
 
     /**
-     * A lucky amount from min to max where small wins are the usual: the range is cut in three. About 1 in 100
-     * lands in the top third (the max is a rare jackpot), about 2 to 3 in 100 in the middle third, and the
-     * rest (about 96 in 100) in the lowest third.
+     * A lucky amount from min to max where small wins are the usual: the range is cut in three. By default 98 in 100
+     * land in the lowest third (a different amount every time) and 2 in 100 in the top third (the max is a rare
+     * jackpot); the admin can also give the middle third a share.
      */
     static long tiered(java.util.Random random, long min, long max) {
+        return tiered(random, min, max, HIGH_CHANCE, MIDDLE_CHANCE);
+    }
+
+    static long tiered(java.util.Random random, long min, long max, double highChance, double middleChance) {
         if (max <= min) return min;
         long third = (max - min) / 3;
         double r = random.nextDouble();
         long lo, hi;
-        if (r < HIGH_CHANCE) {
+        if (r < highChance) {
             lo = min + 2 * third + 1;
             hi = max;
-        } else if (r < HIGH_CHANCE + MIDDLE_CHANCE) {
+        } else if (r < highChance + middleChance) {
             lo = min + third + 1;
             hi = min + 2 * third;
         } else {
@@ -116,36 +176,61 @@ public class GiftLuckService {
 
     /** A random bonus above the gift's price, 60,000 to 2,00,000 (a gift dearer than that gets a little more than its price). */
     long roll(long coins) {
-        long lo = Math.max(BONUS_MIN, coins + 1);
-        if (lo > BONUS_MAX) return coins + 1 + (long) (random.nextDouble() * (coins / 10 + 1));
-        return tiered(random, lo, BONUS_MAX);
+        return roll(coins, settings());
+    }
+
+    long roll(long coins, Settings st) {
+        long lo = Math.max(st.defaultMin(), coins + 1);
+        if (lo > st.defaultMax()) return coins + 1 + (long) (random.nextDouble() * (coins / 10 + 1));
+        return tiered(random, lo, st.defaultMax(), st.highChance() / 100.0, st.middleChance() / 100.0);
     }
 
     /** Pay the lucky coins to the receiver (same transaction as the gift); returns how many (0 for none). */
     public long bonus(Long senderId, Long receiverId, String giftId, int count, long coins, boolean fromBag, String requestId, String ref) {
         if (fromBag || coins <= 0 || receiverId == null) return 0;
+        // Gifts to yourself never pay lucky coins
+        if (receiverId.equals(senderId)) return 0;
+        Settings st = settings();
         // Lucky coins can be switched off from the admin panel (they are off by default)
-        if (!luckyEnabled()) return 0;
+        if (!st.enabled()) return 0;
+        // Small gifts can be left out, and not every gift has to be lucky
+        if (coins < st.minGiftCoins()) return 0;
+        if (st.chancePercent() < 100 && random.nextDouble() * 100 >= st.chancePercent()) return 0;
         Triggers t = triggers(giftId);
         long bonus;
         if (t.coinMin() != null && t.coinMax() != null) {
             // The admin's range for this gift: a random amount from min to max for each gift sent
             bonus = 0;
-            for (int i = 0; i < count; i++) bonus = Math.addExact(bonus, tiered(random, t.coinMin(), t.coinMax()));
+            for (int i = 0; i < count; i++) bonus = Math.addExact(bonus, tiered(random, t.coinMin(), t.coinMax(), st.highChance() / 100.0, st.middleChance() / 100.0));
         } else {
-            bonus = roll(coins);
+            bonus = roll(coins, st);
+        }
+        // Daily limits (India time), checked while holding a lock on the receiver so two gifts at once can't both slip through
+        jdbc.query("select pg_advisory_xact_lock(?)", rs -> null, 770_000_000_000L + receiverId);
+        java.sql.Timestamp start = java.sql.Timestamp.from(java.time.LocalDate.now(ZONE).atStartOfDay(ZONE).toInstant());
+        if (st.pairDailyLimit() > 0 && senderId != null) {
+            Long fromSender = jdbc.queryForObject("select count(*) from gift_lucky_log where receiver_id = ? and sender_id = ? and created_at >= ?", Long.class, receiverId, senderId, start);
+            if (fromSender != null && fromSender >= st.pairDailyLimit()) return 0;
+        }
+        if (st.dailyCap() > 0) {
+            Long got = jdbc.queryForObject("select coalesce(sum(amount), 0) from gift_lucky_log where receiver_id = ? and created_at >= ?", Long.class, receiverId, start);
+            long left = st.dailyCap() - (got == null ? 0 : got);
+            if (left <= 0) return 0;
+            bonus = Math.min(bonus, left);
         }
         if (bonus <= 0) return 0;
         final long paid = bonus;
         wallet.credit(receiverId, paid, "GIFT_LUCKY_BONUS", ref, "gift:" + requestId + ":lucky", "Lucky coins from a gift");
+        jdbc.update("insert into gift_lucky_log (receiver_id, sender_id, gift_id, gift_count, gift_coins, amount, request_id) values (?, ?, ?, ?, ?, ?, ?) on conflict do nothing", receiverId, senderId, giftId, count, coins, paid, requestId);
         afterCommit(() -> {
             try {
                 walletPush.pushBalance(receiverId, "GIFT_LUCKY_BONUS", paid);
-                sarpanch.send(receiverId, new SarpanchService.Message("Lucky coins!", "🍀 A gift brought you " + String.format("%,d", paid) + " lucky coins.", null, null, null, "REWARD"), "gift-lucky:" + requestId);
             } catch (Exception e) {
-                log.debug("Lucky coins notice not sent: {}", e.getMessage());
+                log.debug("Lucky coins balance push failed: {}", e.getMessage());
             }
         });
+        // One message in the receiver's Sarpanch chat for every lucky payout, saved in its own transaction
+        sarpanch.sendSafely(receiverId, new SarpanchService.Message("Lucky coins!", "A gift brought you " + String.format("%,d", paid) + " lucky coins.", null, null, null, "REWARD"), "gift-lucky:" + requestId);
         return bonus;
     }
 

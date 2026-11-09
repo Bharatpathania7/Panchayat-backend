@@ -152,14 +152,37 @@ public class AdminGiftController {
     /** Lucky coins (random coins to a gift's receiver): on or off. Off by default. */
     @GetMapping("/lucky")
     public Map<String, Object> lucky() {
-        return Map.of("enabled", luckService.luckyEnabled());
+        return luckyMap(luckService.settings());
     }
 
     @PutMapping("/lucky")
-    public Map<String, Object> setLucky(@RequestBody LuckyRequest b) {
-        boolean on = b != null && Boolean.TRUE.equals(b.enabled());
-        luckService.setLuckyEnabled(on);
-        return Map.of("enabled", on);
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public Map<String, Object> setLucky(@RequestBody Map<String, Object> b) {
+        try {
+            return luckyMap(luckService.save(b == null ? Map.of() : b));
+        } catch (IllegalArgumentException e) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+    }
+
+    /** Today's lucky payouts and the latest 100. */
+    @GetMapping("/lucky/log")
+    public Map<String, Object> luckyLog() {
+        return luckService.report();
+    }
+
+    private static Map<String, Object> luckyMap(com.panchayat.backend.gifts.service.GiftLuckService.Settings s) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("enabled", s.enabled());
+        m.put("chancePercent", s.chancePercent());
+        m.put("defaultMin", s.defaultMin());
+        m.put("defaultMax", s.defaultMax());
+        m.put("highChance", s.highChance());
+        m.put("middleChance", s.middleChance());
+        m.put("minGiftCoins", s.minGiftCoins());
+        m.put("dailyCap", s.dailyCap());
+        m.put("pairDailyLimit", s.pairDailyLimit());
+        return m;
     }
 
     @GetMapping("/categories")

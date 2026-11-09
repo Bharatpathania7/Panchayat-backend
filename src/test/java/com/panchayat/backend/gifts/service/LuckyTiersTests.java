@@ -21,9 +21,17 @@ class LuckyTiersTests {
             else if (v <= min + 2 * third) mid++;
             else high++;
         }
-        assertTrue(low * 100.0 / n > 95.0, "low " + low);
-        assertTrue(mid * 100.0 / n > 1.5 && mid * 100.0 / n < 3.5, "mid " + mid);
-        assertTrue(high * 100.0 / n > 0.6 && high * 100.0 / n < 1.4, "high " + high);
+        assertTrue(low * 100.0 / n > 97.0 && low * 100.0 / n < 99.0, "low " + low);
+        assertEquals(0, mid, "mid " + mid);
+        assertTrue(high * 100.0 / n > 1.5 && high * 100.0 / n < 2.5, "high " + high);
+    }
+
+    @Test
+    void coinsDifferFromGiftToGift() {
+        Random r = new Random(11);
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        for (int i = 0; i < 200; i++) seen.add(GiftLuckService.tiered(r, 60_000, 200_000));
+        assertTrue(seen.size() > 150, "only " + seen.size() + " different amounts in 200 gifts");
     }
 
     @Test
