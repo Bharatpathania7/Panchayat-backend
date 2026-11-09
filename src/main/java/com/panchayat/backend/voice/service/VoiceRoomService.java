@@ -13,6 +13,7 @@ import com.panchayat.backend.voice.dto.VoiceRoomParticipantResponse;
 import com.panchayat.backend.vip.entity.UserEquippedCosmetic;
 import com.panchayat.backend.vip.repository.UserEquippedCosmeticRepository;
 import com.panchayat.backend.rooms.service.LiveKitPermissionService;
+import com.panchayat.backend.rooms.service.RoomPresenceService;
 import com.panchayat.backend.rooms.service.RoomStateService;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -53,6 +54,7 @@ public class VoiceRoomService {
     private final RoomStateService roomStateService;
     private final com.panchayat.backend.rooms.service.RoomSettingsService roomSettingsService;
     private final LiveKitPermissionService liveKitPermissionService;
+    private final RoomPresenceService presence;
 
     public VoiceRoomService(
             VoiceRoomRepository voiceRoomRepository,
@@ -64,6 +66,7 @@ public class VoiceRoomService {
             RoomStateService roomStateService,
             com.panchayat.backend.rooms.service.RoomSettingsService roomSettingsService,
             LiveKitPermissionService liveKitPermissionService,
+            RoomPresenceService presence,
             @Value("${livekit.url}") String liveKitUrl,
             @Value("${livekit.api-key}") String liveKitApiKey,
             @Value("${livekit.api-secret}") String liveKitApiSecret) {
@@ -80,6 +83,7 @@ public class VoiceRoomService {
         this.roomStateService = roomStateService;
         this.roomSettingsService = roomSettingsService;
         this.liveKitPermissionService = liveKitPermissionService;
+        this.presence = presence;
     }
 
     /** Runs after the current transaction commits (or now, outside one). */
@@ -229,16 +233,24 @@ public class VoiceRoomService {
 
         List<VoiceRoomParticipant> present = participantRepository
                 .findByRoomIdAndStatusOrderByJoinedAtAsc(roomId, "JOINED");
+        List<Long> presentIds = present.stream().map(VoiceRoomParticipant::getUserId).toList();
         java.util.Map<Long, java.util.Map<String, java.util.Map<String, Object>>> worn =
-                rewardBag.effectsFor(present.stream().map(VoiceRoomParticipant::getUserId).toList());
+                rewardBag.effectsFor(presentIds);
+        // Loaded together: this list is asked for by everyone in the room whenever someone joins or leaves
+        java.util.Map<Long, User> usersById = new java.util.HashMap<>();
+        java.util.Map<Long, List<UserEquippedCosmetic>> equippedByUser = new java.util.HashMap<>();
+        if (!presentIds.isEmpty()) {
+            for (User u : userRepository.findAllById(presentIds)) usersById.put(u.getId(), u);
+            for (UserEquippedCosmetic e : equippedCosmeticRepository.findAllForUsers(presentIds)) {
+                equippedByUser.computeIfAbsent(e.getUser().getId(), k -> new java.util.ArrayList<>()).add(e);
+            }
+        }
 
         return present
                 .stream()
                 .map(participant -> {
 
-                    User participantUser = userRepository
-                            .findById(participant.getUserId())
-                            .orElse(null);
+                    User participantUser = usersById.get(participant.getUserId());
 
                     Integer vipLevel = resolveVipLevel(participantUser);
 
@@ -250,9 +262,7 @@ public class VoiceRoomService {
                     if (participantUser != null) {
 
                         List<UserEquippedCosmetic> equippedCosmetics =
-                                equippedCosmeticRepository.findAllByUser_Id(
-                                        participantUser.getId()
-                                );
+                                equippedByUser.getOrDefault(participantUser.getId(), List.of());
 
                         for (UserEquippedCosmetic equipped : equippedCosmetics) {
 
@@ -295,7 +305,8 @@ public class VoiceRoomService {
                             bubbleUrl,
                             entryAnimationUrl,
                             worn.getOrDefault(participant.getUserId(), java.util.Map.of()),
-                            com.panchayat.backend.common.PublicIds.user(participant.getUserId())
+                            com.panchayat.backend.common.PublicIds.user(participant.getUserId()),
+                            presence.stateOf(roomId, participant.getUserId())
                     );
                 })
                 .toList();
@@ -360,15 +371,6 @@ public class VoiceRoomService {
 
         boolean roomAdmin = roomStateService.isAdmin(roomId, user.getId());
 
-        // Password rooms (the owner and admins don't need it). 423 = locked, so apps
-        // can tell it apart from a kick or ban (403).
-        if (!roomSettingsService.passwordAccepted(room, user.getId(), password)) {
-            throw new ResponseStatusException(
-                    HttpStatus.LOCKED,
-                    "This room needs the right password"
-            );
-        }
-
         // Lock any existing participant records for this user and room.
         List<VoiceRoomParticipant> existingRecords =
                 participantRepository.findForUpdate(roomId, user.getId());
@@ -377,6 +379,19 @@ public class VoiceRoomService {
                 .filter(p -> "JOINED".equals(p.getStatus()))
                 .findFirst()
                 .orElse(null);
+
+        // Password rooms (the owner and admins don't need it). 423 = locked, so apps
+        // can tell it apart from a kick or ban (403). Someone still in the room is
+        // reconnecting: they were let in already (a refresh forgets the password).
+        if (participant == null
+                && !roomSettingsService.passwordAccepted(room, user.getId(), password)) {
+            throw new ResponseStatusException(
+                    HttpStatus.LOCKED,
+                    "This room needs the right password"
+            );
+        }
+
+        boolean arriving = participant == null;
 
         // A new active participant must fit within room capacity.
         if (participant == null) {
@@ -444,8 +459,14 @@ public class VoiceRoomService {
         );
         liveKitPermissionService.rememberTokenGrant(roomId, user.getId(), canPublish);
 
+        // Asking for a token again (reconnecting) restarts the grace period and,
+        // unless they were away long enough to have left, tells nobody:
+        // everyone in the room reloads the participant list on JOINED.
+        presence.touch(roomId, user.getId());
         Long joinedUserId = user.getId();
-        afterCommit(() -> roomStateService.onJoined(roomId, joinedUserId));
+        if (arriving || room.getOwnerId().equals(joinedUserId)) {
+            afterCommit(() -> roomStateService.onJoined(roomId, joinedUserId));
+        }
 
         return new JoinVoiceRoomResponse(
                 liveKitUrl,

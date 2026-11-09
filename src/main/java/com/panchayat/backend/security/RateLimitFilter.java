@@ -6,6 +6,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import com.panchayat.backend.admin.media.MediaUrls;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
@@ -28,6 +29,12 @@ import java.util.regex.Pattern;
  *  - Admin login
  *
  * Normal application APIs are not rate limited by this filter.
+ *
+ * These limits are per IP, and many people on Indian mobile networks share one
+ * public IP (carrier-grade NAT), so they are set for a shared address. The
+ * per-account protections are what stop guessing: 5 codes per email per 10
+ * minutes (AuthController) and a capped number of tries per code (AuthService).
+ * Refresh tokens are long, random and work once, so guessing them isn't the risk.
  *
  * Also refuses request bodies over 1 MB except file uploads (multipart), and
  * links to protected media (/uploads/media/...) without a valid, unexpired
@@ -62,17 +69,19 @@ public class RateLimitFilter extends OncePerRequestFilter {
      * Only authentication endpoints are rate limited.
      */
     private static final List<Rule> RULES = List.of(
-            ip("otp-send", "POST", "^/api/v1/auth/send-otp$", 5, 10 * MIN),
-            ip("otp-verify", "POST", "^/api/v1/auth/verify-otp$", 10, 10 * MIN),
-            ip("google", "POST", "^/api/v1/auth/google$", 20, MIN),
-            ip("refresh", "POST", "^/api/v1/auth/refresh$", 30, MIN),
+            ip("otp-send", "POST", "^/api/v1/auth/send-otp$", 30, 10 * MIN),
+            ip("otp-verify", "POST", "^/api/v1/auth/verify-otp$", 30, 10 * MIN),
+            ip("google", "POST", "^/api/v1/auth/google$", 30, MIN),
+            ip("refresh", "POST", "^/api/v1/auth/refresh$", 120, MIN),
             ip("admin-login", "POST", "^/api/admin/auth/login$", 5, 15 * MIN)
     );
 
     private final RateLimiter limiter;
+    private final MeterRegistry metrics;
 
-    public RateLimitFilter(RateLimiter limiter) {
+    public RateLimitFilter(RateLimiter limiter, MeterRegistry metrics) {
         this.limiter = limiter;
+        this.metrics = metrics;
     }
 
     @Override
@@ -128,6 +137,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
 
         // Only matching authentication endpoints consume rate-limit tokens.
         long wait = 0;
+        String limitedBy = null;
         String ipAddr = req.getRemoteAddr();
 
         for (Rule rule : RULES) {
@@ -141,12 +151,14 @@ public class RateLimitFilter extends OncePerRequestFilter {
                         rule.limit(),
                         rule.windowMs()
                 );
+                limitedBy = rule.name();
 
                 break;
             }
         }
 
         if (wait > 0) {
+            metrics.counter("panchayat.auth.rate_limited", "rule", limitedBy).increment();
             log.info(
                     "Rate limited {} {} for {}",
                     method,

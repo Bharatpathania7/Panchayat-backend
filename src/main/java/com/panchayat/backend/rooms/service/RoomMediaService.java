@@ -78,6 +78,8 @@ public class RoomMediaService {
             if (room.getRoomType() != type) {
                 room.setRoomType(type);
                 roomRepository.save(room);
+                // 10 seats in a voice or Kharidari room, 12 in a YouTube room
+                roomState.onModeChanged(roomId);
             }
             return publish(room, "MODE_CHANGED", actor);
         }

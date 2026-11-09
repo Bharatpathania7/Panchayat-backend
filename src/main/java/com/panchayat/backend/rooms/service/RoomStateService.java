@@ -182,8 +182,34 @@ public class RoomStateService {
     }
 
     /** May this person talk the moment they join? Only the owner (on seat 0). */
+    /**
+     * What a new token should allow. Someone already on a seat keeps talking
+     * rights: a token made for a reconnect must not take them away, because the
+     * correction sent to LiveKit can't land before they have connected.
+     */
     public boolean canPublishOnJoin(VoiceRoom room, Long userId) {
-        return Objects.equals(room.getOwnerId(), userId);
+        if (Objects.equals(room.getOwnerId(), userId)) return true;
+        Live live = rooms.get(room.getId());
+        if (live == null) return false;
+        synchronized (live) {
+            if (seatOf(live, userId) < 0) return false;
+        }
+        Ctx ctx = load(room.getId());
+        synchronized (live) {
+            return mayPublish(ctx, live, userId);
+        }
+    }
+
+    /** Who should be able to talk right now; empty when this room has no live state yet. */
+    public Map<Long, Boolean> desiredPublishers(Long roomId) {
+        Live live = rooms.get(roomId);
+        if (live == null) return Map.of();
+        Ctx ctx = load(roomId);
+        Map<Long, Boolean> out = new HashMap<>();
+        synchronized (live) {
+            for (Long userId : ctx.joined()) out.put(userId, mayPublish(ctx, live, userId));
+        }
+        return out;
     }
 
     // ------------------------------------------------------------------
@@ -619,15 +645,35 @@ public class RoomStateService {
     }
 
     private Live live(Ctx ctx) {
-        return rooms.computeIfAbsent(ctx.room().getId(), id -> {
-            Live l = new Live();
-            l.seats = new Long[seatCount(ctx.room())];
-            return l;
+        Live l = rooms.computeIfAbsent(ctx.room().getId(), id -> {
+            Live fresh = new Live();
+            fresh.seats = new Long[seatCount(ctx.room())];
+            return fresh;
         });
+        // The room changed mode (voice / Kharidari <-> YouTube): the seat count follows
+        int want = seatCount(ctx.room());
+        synchronized (l) {
+            if (l.seats.length != want) l.seats = Arrays.copyOf(l.seats, want);
+        }
+        return l;
     }
 
+    /** Seats are fixed by the room's mode, whatever its size: 10 in a voice or Kharidari room, 12 in a YouTube room. */
+    public static final int SEATS_VOICE = 10;
+    public static final int SEATS_WATCH = 12;
+
     public static int seatCount(VoiceRoom room) {
-        return Math.max(2, Math.min(10, room.getMaxParticipants()));
+        return room.getRoomType() == com.panchayat.backend.voice.entity.VoiceRoomType.WATCH ? SEATS_WATCH : SEATS_VOICE;
+    }
+
+    /** The owner or an admin changed the room's mode: resize the seats and tell the room. People on seats that no longer exist lose them. */
+    public void onModeChanged(Long roomId) {
+        Ctx ctx = load(roomId);
+        Live live = live(ctx);
+        synchronized (live) {
+            reconcile(ctx, live);
+            publish(ctx, live, null);
+        }
     }
 
     /** Drop people who are no longer in the room; put a present owner on seat 0. */
@@ -658,12 +704,14 @@ public class RoomStateService {
 
     /** Talking needs a seat that isn't muted, in an open room. Everyone else: listen only. */
     private void syncMicPermissions(Ctx ctx, Live live) {
-        boolean open = ctx.open();
         for (Long userId : ctx.joined()) {
-            int seat = seatOf(live, userId);
-            boolean can = seat >= 0 && !live.mutedSeats.contains(seat) && (open || ctx.isMod(userId));
-            permissions.setCanPublish(ctx.room().getId(), userId, can);
+            permissions.setCanPublish(ctx.room().getId(), userId, mayPublish(ctx, live, userId));
         }
+    }
+
+    private static boolean mayPublish(Ctx ctx, Live live, Long userId) {
+        int seat = seatOf(live, userId);
+        return seat >= 0 && !live.mutedSeats.contains(seat) && (ctx.open() || ctx.isMod(userId));
     }
 
     private RoomStateResponse snapshot(Ctx ctx, Live live, RoomEvent event) {

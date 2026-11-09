@@ -426,7 +426,7 @@ public class CpService {
         if (me == a || me == b) throw bad("You can't bless your own CP");
         Instant dayStart = LocalDate.now(ZONE).atStartOfDay(ZONE).toInstant();
         if (count("select count(*) from cp_blessings where couple_id = ? and user_id = ? and created_at >= ?", coupleId, me, Timestamp.from(dayStart)) >= BLESS_PER_DAY)
-            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "You can bless a CP up to " + BLESS_PER_DAY + " times a day");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "You can bless a CP up to " + BLESS_PER_DAY + " times a day");
         debit(me, BLESS_COST, "CP_BLESSING", "cp:" + coupleId, idemKey, "Blessing for CP " + coupleId);
         Long bid = jdbc.queryForObject("insert into cp_blessings (couple_id, user_id, love) values (?, ?, ?) returning id", Long.class, coupleId, me, BLESS_LOVE);
         addLove(coupleId, BLESS_LOVE);

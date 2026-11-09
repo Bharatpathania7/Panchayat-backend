@@ -40,3 +40,11 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Backups and old builds stay on this PC, never in git (they can hold user data)
+app.jar*
+*.dump
+*_backup.sql
+*.backup-*
+flyway_history_backup.sql
+/deploy/release/

@@ -14,6 +14,17 @@ public interface UserEquippedCosmeticRepository
 
     List<UserEquippedCosmetic> findAllByUser_Id(Long userId);
 
+    /** Everything these people wear, with the cosmetics loaded in one query. */
+    @org.springframework.data.jpa.repository.Query("""
+            SELECT e
+            FROM UserEquippedCosmetic e
+            JOIN FETCH e.cosmetic
+            WHERE e.user.id IN :userIds
+            """)
+    List<UserEquippedCosmetic> findAllForUsers(
+            @org.springframework.data.repository.query.Param("userIds") java.util.Collection<Long> userIds
+    );
+
     Optional<UserEquippedCosmetic>
     findByUser_IdAndCosmeticType(
             Long userId,

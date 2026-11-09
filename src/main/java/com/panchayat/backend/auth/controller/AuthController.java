@@ -26,15 +26,34 @@ public class AuthController {
     private final AuthService authService;
     private final GoogleAuthService googleAuthService;
     private final RefreshTokenService refreshTokenService;
+    private final com.panchayat.backend.security.RateLimiter limiter;
+    private final io.micrometer.core.instrument.MeterRegistry metrics;
+
+    /** Codes one email address can be sent, whichever IP asks. */
+    private static final int OTP_PER_EMAIL = 5;
+    private static final long OTP_PER_EMAIL_WINDOW_MS = 10 * 60_000L;
 
     public AuthController(
             AuthService authService,
             GoogleAuthService googleAuthService,
-            RefreshTokenService refreshTokenService
+            RefreshTokenService refreshTokenService,
+            com.panchayat.backend.security.RateLimiter limiter,
+            io.micrometer.core.instrument.MeterRegistry metrics
     ) {
         this.authService = authService;
         this.googleAuthService = googleAuthService;
         this.refreshTokenService = refreshTokenService;
+        this.limiter = limiter;
+        this.metrics = metrics;
+    }
+
+    /*
+     * A wrong or expired code is the person's mistake, not a server failure: they see the
+     * message (the app expects it), and it isn't logged as a crash or counted as a 5xx.
+     */
+    @ExceptionHandler(AuthService.AuthException.class)
+    public ResponseEntity<Map<String, String>> authFailed(AuthService.AuthException e) {
+        return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
     }
 
     public record RefreshRequest(String refreshToken) {
@@ -76,6 +95,19 @@ public class AuthController {
     public ResponseEntity<Map<String, String>> sendOtp(
             @Valid @RequestBody SendOtpRequest request
     ) {
+        long wait = limiter.hit(
+                "otp-send-email:" + request.email().trim().toLowerCase(java.util.Locale.ROOT),
+                OTP_PER_EMAIL,
+                OTP_PER_EMAIL_WINDOW_MS
+        );
+        if (wait > 0) {
+            metrics.counter("panchayat.auth.rate_limited", "rule", "otp-send-email").increment();
+            return ResponseEntity.status(429)
+                    .header("Retry-After", String.valueOf(wait))
+                    .body(Map.of("message", "Too many codes for this email. Try again in "
+                            + ((wait + 59) / 60) + " minutes."));
+        }
+
         authService.sendOtp(request);
 
         return ResponseEntity.ok(

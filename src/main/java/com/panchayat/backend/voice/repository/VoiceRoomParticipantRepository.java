@@ -28,6 +28,16 @@ public interface VoiceRoomParticipantRepository
             @Param("userId") Long userId
     );
 
+    /** Active rooms with at least one person recorded as in them. */
+    @Query("""
+            SELECT DISTINCT p.roomId
+            FROM VoiceRoomParticipant p, VoiceRoom r
+            WHERE r.id = p.roomId
+              AND p.status = 'JOINED'
+              AND r.status = 'ACTIVE'
+            """)
+    List<Long> findActiveRoomIdsWithParticipants();
+
     long countByRoomIdAndStatus(
             Long roomId,
             String status

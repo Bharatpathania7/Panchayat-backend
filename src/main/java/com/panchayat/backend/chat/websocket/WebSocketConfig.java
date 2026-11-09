@@ -14,19 +14,16 @@ import org.springframework.messaging.simp.config.ChannelRegistration;
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final WebSocketAuthChannelInterceptor authInterceptor;
-    private final com.panchayat.backend.security.StompRateLimitInterceptor stompLimits;
 
     /** Sites allowed to open the live connection (app.ws.allowed-origins / WS_ALLOWED_ORIGINS, comma separated). */
     private final String[] allowedOrigins;
 
     public WebSocketConfig(
             WebSocketAuthChannelInterceptor authInterceptor,
-            com.panchayat.backend.security.StompRateLimitInterceptor stompLimits,
             @org.springframework.beans.factory.annotation.Value("${app.ws.allowed-origins:http://localhost:3000,http://localhost:3100,http://localhost:5173,https://panchayat.world,https://www.panchayat.world,https://admin.panchayat.world}")
             String allowedOrigins
     ) {
         this.authInterceptor = authInterceptor;
-        this.stompLimits = stompLimits;
         this.allowedOrigins = java.util.Arrays.stream(allowedOrigins.split(","))
                 .map(String::trim).filter(s -> !s.isEmpty()).toArray(String[]::new);
     }
@@ -61,8 +58,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void configureClientInboundChannel(
             ChannelRegistration registration
     ) {
-        // Who you are first, then how much you may send
-        registration.interceptors(authInterceptor, stompLimits);
+        registration.interceptors(authInterceptor);
         // Inbound work runs on a bounded pool: a burst queues instead of exhausting threads
         registration.taskExecutor().corePoolSize(8).maxPoolSize(64).queueCapacity(10_000);
     }

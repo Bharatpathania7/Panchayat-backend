@@ -55,7 +55,6 @@ public class LudoService {
     private final SimpMessagingTemplate messaging;
     private final TransactionTemplate tx;
     private final ObjectMapper json = new ObjectMapper();
-    private final Map<Long, Long> lastChat = new ConcurrentHashMap<>();
     private final ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "ludo-timer");
         t.setDaemon(true);
@@ -281,8 +280,6 @@ public class LudoService {
         String e = emote != null && EMOTES.contains(emote) ? emote : null;
         if (t.isEmpty() && e == null) throw bad("Say something.");
         long now = System.currentTimeMillis();
-        Long prev = lastChat.put(me, now);
-        if (prev != null && now - prev < 700) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Slow down a little.");
         Map<String, Object> u = jdbc.queryForMap("select full_name, avatar_url from users where id = ?", me);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", UUID.randomUUID().toString());

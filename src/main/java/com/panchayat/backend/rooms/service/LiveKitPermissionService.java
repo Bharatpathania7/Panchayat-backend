@@ -9,10 +9,15 @@ import org.springframework.stereotype.Service;
 import retrofit2.Response;
 
 import jakarta.annotation.PreDestroy;
+import java.io.IOException;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Tells LiveKit who may publish audio. This is what really enforces the seat
@@ -20,8 +25,9 @@ import java.util.concurrent.Executors;
  * the app's UI does.
  *
  * Calls run on one background thread (in order), only when the permission
- * actually changes. A participant not connected to LiveKit yet is fine: their
- * join token already carries the right permission.
+ * actually changes. Someone who hasn't connected to LiveKit yet can't be
+ * updated, so a refused update is tried again a few times; RoomPresenceService
+ * corrects anything still wrong on its next pass.
  */
 @Service
 public class LiveKitPermissionService {
@@ -30,8 +36,11 @@ public class LiveKitPermissionService {
             LoggerFactory.getLogger(LiveKitPermissionService.class);
 
     private final RoomServiceClient client;
-    private final ExecutorService worker =
-            Executors.newSingleThreadExecutor(r -> {
+    /** Seconds before each further try of a permission LiveKit didn't apply. */
+    private static final int[] RETRY_DELAYS = {1, 3, 6};
+
+    private final ScheduledExecutorService worker =
+            Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "livekit-permissions");
                 t.setDaemon(true);
                 return t;
@@ -68,33 +77,65 @@ public class LiveKitPermissionService {
             return;
         }
 
-        worker.submit(() -> {
-            try {
-                LivekitModels.ParticipantPermission permission =
-                        LivekitModels.ParticipantPermission.newBuilder()
-                                .setCanSubscribe(true)
-                                .setCanPublishData(true)
-                                .setCanPublish(canPublish)
-                                .build();
+        worker.submit(() -> send(roomId, userId, canPublish, 0));
+    }
 
-                Response<?> response = client.updateParticipant(
-                        roomName(roomId),
-                        identity(userId),
-                        null,
-                        null,
-                        permission
-                ).execute();
+    /** Sends the permission even if it was sent before: LiveKit says it isn't in force. */
+    public void repair(Long roomId, Long userId, boolean canPublish) {
+        lastSent.put(roomId + ":" + userId, canPublish);
+        worker.submit(() -> send(roomId, userId, canPublish, RETRY_DELAYS.length));
+    }
 
-                if (!response.isSuccessful()) {
-                    // 404: not connected to LiveKit right now (their token decides)
-                    log.debug("LiveKit permission update not applied. room={}, user={}, code={}",
-                            roomId, userId, response.code());
-                }
-            } catch (Exception e) {
-                log.warn("LiveKit permission update failed. room={}, user={}: {}",
-                        roomId, userId, e.getMessage());
+    private void send(Long roomId, Long userId, boolean canPublish, int attempt) {
+        // A newer change, or they left: this one no longer matters
+        if (!Objects.equals(lastSent.get(roomId + ":" + userId), canPublish)) return;
+        try {
+            LivekitModels.ParticipantPermission permission =
+                    LivekitModels.ParticipantPermission.newBuilder()
+                            .setCanSubscribe(true)
+                            .setCanPublishData(true)
+                            .setCanPublish(canPublish)
+                            .build();
+
+            Response<?> response = client.updateParticipant(
+                    roomName(roomId),
+                    identity(userId),
+                    null,
+                    null,
+                    permission
+            ).execute();
+
+            if (response.isSuccessful()) return;
+            // 404: not connected to LiveKit yet, or between connections
+            log.debug("LiveKit permission update not applied. room={}, user={}, code={}",
+                    roomId, userId, response.code());
+        } catch (Exception e) {
+            log.warn("LiveKit permission update failed. room={}, user={}: {}",
+                    roomId, userId, e.getMessage());
+        }
+        if (attempt < RETRY_DELAYS.length) {
+            worker.schedule(() -> send(roomId, userId, canPublish, attempt + 1),
+                    RETRY_DELAYS[attempt], TimeUnit.SECONDS);
+        }
+    }
+
+    /**
+     * Who LiveKit has in a room right now. Empty when it couldn't answer, which
+     * must never be read as "nobody is there". A room it doesn't know is an empty list.
+     */
+    public Optional<List<LivekitModels.ParticipantInfo>> listParticipants(Long roomId) {
+        try {
+            Response<List<LivekitModels.ParticipantInfo>> response =
+                    client.listParticipants(roomName(roomId)).execute();
+            if (response.isSuccessful()) {
+                return Optional.of(response.body() == null ? List.of() : response.body());
             }
-        });
+            if (response.code() == 404) return Optional.of(List.of());
+            log.warn("LiveKit participant list refused. room={}, code={}", roomId, response.code());
+        } catch (IOException e) {
+            log.warn("LiveKit participant list failed. room={}: {}", roomId, e.getMessage());
+        }
+        return Optional.empty();
     }
 
     /** Disconnects someone from the call (after a kick or ban). */
