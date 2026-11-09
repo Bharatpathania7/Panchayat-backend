@@ -16,8 +16,10 @@ public class ParivarController {
 
     private final ParivarService parivar;
     private final UserRepository users;
+    private final com.panchayat.backend.admin.media.AdminMediaService media;
 
-    public ParivarController(ParivarService parivar, UserRepository users) {
+    public ParivarController(ParivarService parivar, UserRepository users, com.panchayat.backend.admin.media.AdminMediaService media) {
+        this.media = media;
         this.parivar = parivar;
         this.users = users;
     }
@@ -40,6 +42,14 @@ public class ParivarController {
     }
 
     public record DonateRequest(Long amount) {
+    }
+
+    /** The picture for a Parivar's logo. Returns the stored path to send back when creating or editing. */
+    @PostMapping(value = "/logo", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> logo(@RequestPart("file") org.springframework.web.multipart.MultipartFile file, Authentication auth) {
+        me(auth);
+        var up = media.upload(file, "parivar", com.panchayat.backend.admin.media.AdminMediaService.PICTURES);
+        return Map.of("path", up.url(), "url", com.panchayat.backend.admin.media.MediaUrls.link(up.url()));
     }
 
     @GetMapping("/config")

@@ -182,7 +182,19 @@ public class ParivarService {
 
     /* ======================= create ======================= */
 
-    public record CreateRequest(String name, String sign, String emblem, String color, String intro, String joinMode) {
+    public record CreateRequest(String name, String sign, String emblem, String color, String intro, String joinMode, String logo) {
+    }
+
+    /** A logo is only ever a file we saved ourselves (from the logo upload). */
+    static String logoPath(String p) {
+        if (p == null || p.isBlank()) return null;
+        String v = p.strip();
+        int q = v.indexOf('?');
+        if (q > 0) v = v.substring(0, q);
+        int at = v.indexOf("/uploads/media/parivar/");
+        if (at >= 0) v = v.substring(at);
+        if (!v.startsWith("/uploads/media/parivar/") || v.contains("..") || v.length() > 200) throw bad("That logo isn't valid. Upload it again.");
+        return v;
     }
 
     @Transactional
@@ -202,7 +214,7 @@ public class ParivarService {
         String name = r == null || r.name() == null ? "" : r.name().strip().replaceAll("\\s+", " ");
         String sign = r == null || r.sign() == null ? "" : r.sign().strip().toUpperCase(Locale.ROOT);
         if (name.length() < 3 || name.length() > 30) throw bad("The name must be 3 to 30 letters.");
-        if (!sign.matches("[A-Z0-9]{2,4}")) throw bad("The sign must be 2 to 4 letters or numbers.");
+        if (!sign.matches("[A-Z0-9]{2,8}")) throw bad("The sign must be 2 to 8 letters or numbers.");
         String joinMode = r.joinMode() != null && r.joinMode().equalsIgnoreCase("APPROVAL") ? "APPROVAL" : "OPEN";
         String emblem = r.emblem() == null || r.emblem().isBlank() ? "🪔" : r.emblem().strip();
         String color = r.color() != null && r.color().matches("#[0-9a-fA-F]{6}") ? r.color() : "#e7bc72";
@@ -226,8 +238,9 @@ public class ParivarService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Not enough coins. Creating a Parivar costs " + coins + " coins.");
             }
         }
-        Long id = jdbc.queryForObject("insert into parivars (name, sign, emblem, color, intro, leader_id, join_mode, create_key) values (?, ?, ?, ?, ?, ?, ?, ?) returning id",
-                Long.class, name, sign, emblem, color, intro, userId, joinMode, createKey);
+        String logo = logoPath(r.logo());
+        Long id = jdbc.queryForObject("insert into parivars (name, sign, emblem, color, intro, leader_id, join_mode, create_key, logo_url) values (?, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
+                Long.class, name, sign, emblem, color, intro, userId, joinMode, createKey, logo);
         jdbc.update("insert into parivar_members (parivar_id, user_id, role) values (?, ?, 'LEADER')", id, userId);
         activity(id, userId, null, "CREATED", 0, 0, "created the Parivar", "created:" + id);
         if (coins > 0) walletPush.pushBalance(userId, "PARIVAR_CREATE", -coins);
@@ -266,6 +279,7 @@ public class ParivarService {
                 + " (select count(*) from parivar_members m where m.parivar_id = p.id) as members,"
                 + " coalesce((select sum(a.exp) from parivar_activity a where a.parivar_id = p.id and a.created_at >= ?), 0) as week_exp,"
                 + " (select l.capacity from parivar_levels l where l.level = p.level) as capacity,"
+                + " (select l.frame from parivar_levels l where l.level = p.level) as frame,"
                 + " (select a.status from parivar_applications a where a.parivar_id = p.id and a.user_id = ? and a.status = 'PENDING') as my_application"
                 + " from parivars p" + where;
         List<Object> all = new ArrayList<>(List.of(ws, userId));
@@ -292,6 +306,7 @@ public class ParivarService {
         m.put("emblem", rs.getString("emblem"));
         m.put("color", rs.getString("color"));
         m.put("logoUrl", MediaUrls.link(rs.getString("logo_url")));
+        m.put("frame", rs.getString("frame"));
         m.put("intro", rs.getString("intro"));
         m.put("level", rs.getInt("level"));
         m.put("exp", rs.getLong("exp"));
@@ -317,10 +332,13 @@ public class ParivarService {
 
     /** A person's Parivar tag for their name (sign, name, emblem), or null. Used for the tag next to names. */
     public Map<String, Object> tagOf(Long userId) {
-        List<Map<String, Object>> l = jdbc.queryForList("select p.id, p.sign, p.name, p.emblem, p.color from parivar_members m join parivars p on p.id = m.parivar_id where m.user_id = ? and p.status = 'ACTIVE'", userId);
+        List<Map<String, Object>> l = jdbc.queryForList("select p.id, p.sign, p.name, p.emblem, p.color, p.logo_url, coalesce((select l.frame from parivar_levels l where l.level = p.level), 'wood') as frame from parivar_members m join parivars p on p.id = m.parivar_id where m.user_id = ? and p.status = 'ACTIVE'", userId);
         if (l.isEmpty()) return null;
         Map<String, Object> r = l.get(0);
-        return Map.of("id", String.valueOf(r.get("id")), "sign", r.get("sign"), "name", r.get("name"), "emblem", r.get("emblem"), "color", r.get("color"));
+        Map<String, Object> out = new LinkedHashMap<>(Map.of("id", String.valueOf(r.get("id")), "sign", r.get("sign"), "name", r.get("name"), "emblem", r.get("emblem"), "color", r.get("color"), "frame", r.get("frame")));
+        String lg = MediaUrls.link((String) r.get("logo_url"));
+        if (lg != null) out.put("logoUrl", lg);
+        return out;
     }
 
     /* ======================= profile ======================= */
@@ -335,6 +353,7 @@ public class ParivarService {
         m.put("emblem", p.get("emblem"));
         m.put("color", p.get("color"));
         m.put("logoUrl", MediaUrls.link((String) p.get("logo_url")));
+        m.put("frame", jdbc.query("select frame from parivar_levels where level = ?", rs -> rs.next() ? rs.getString(1) : "wood", ((Number) p.get("level")).intValue()));
         m.put("intro", p.get("intro"));
         m.put("announcement", p.get("announcement"));
         m.put("joinMode", p.get("join_mode"));
@@ -525,7 +544,7 @@ public class ParivarService {
         return profile(actor, id);
     }
 
-    public record UpdateRequest(String intro, String announcement, String joinMode, String emblem, String color) {
+    public record UpdateRequest(String intro, String announcement, String joinMode, String emblem, String color, String logo) {
     }
 
     @Transactional
@@ -536,12 +555,13 @@ public class ParivarService {
             String a = r.announcement().strip();
             jdbc.update("update parivars set announcement = ? where id = ?", a.isEmpty() ? null : a.substring(0, Math.min(500, a.length())), id);
         }
-        if (r.intro() != null || r.joinMode() != null || r.emblem() != null || r.color() != null) {
+        if (r.intro() != null || r.joinMode() != null || r.emblem() != null || r.color() != null || r.logo() != null) {
             require(id, actor, "EDIT_PROFILE");
             if (r.intro() != null) jdbc.update("update parivars set intro = ? where id = ?", r.intro().isBlank() ? null : r.intro().strip().substring(0, Math.min(300, r.intro().strip().length())), id);
             if (r.joinMode() != null) jdbc.update("update parivars set join_mode = ? where id = ?", r.joinMode().equalsIgnoreCase("APPROVAL") ? "APPROVAL" : "OPEN", id);
             if (r.emblem() != null && !r.emblem().isBlank()) jdbc.update("update parivars set emblem = ? where id = ?", r.emblem().strip(), id);
             if (r.color() != null && r.color().matches("#[0-9a-fA-F]{6}")) jdbc.update("update parivars set color = ? where id = ?", r.color(), id);
+            if (r.logo() != null) jdbc.update("update parivars set logo_url = ? where id = ?", logoPath(r.logo()), id);
         }
         return profile(actor, id);
     }
@@ -668,7 +688,7 @@ public class ParivarService {
             join = " left join (select parivar_id, sum(exp) as s from parivar_activity where created_at >= ?" + giftFilter() + " group by parivar_id) w on w.parivar_id = p.id";
             args.add(weekStart());
         }
-        String sql = "select * from (select p.id, p.name, p.sign, p.emblem, p.color, p.logo_url, p.level, " + score + " as score,"
+        String sql = "select * from (select p.id, p.name, p.sign, p.emblem, p.color, p.logo_url, p.level, (select l.frame from parivar_levels l where l.level = p.level) as frame, " + score + " as score,"
                 + " rank() over (order by " + score + " desc, p.id) as rnk,"
                 + " (select count(*) from parivar_members m where m.parivar_id = p.id) as members from parivars p" + join + " where p.status = 'ACTIVE') r";
         List<Map<String, Object>> top = jdbc.query(sql + " order by rnk limit 50", (rs, i) -> rankCard(rs), args.toArray());
@@ -696,6 +716,7 @@ public class ParivarService {
         m.put("emblem", rs.getString("emblem"));
         m.put("color", rs.getString("color"));
         m.put("logoUrl", MediaUrls.link(rs.getString("logo_url")));
+        m.put("frame", rs.getString("frame"));
         m.put("level", rs.getInt("level"));
         m.put("score", rs.getLong("score"));
         m.put("members", rs.getLong("members"));

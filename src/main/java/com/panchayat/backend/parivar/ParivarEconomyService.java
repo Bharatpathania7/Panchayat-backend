@@ -401,6 +401,7 @@ public class ParivarEconomyService {
         Map<String, Object> res = new LinkedHashMap<>();
         res.put("messages", rows);
         res.put("prefs", prefs(userId, parivarId));
+        res.put("me", String.valueOf(userId));
         return res;
     }
 

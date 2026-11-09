@@ -32,7 +32,9 @@ public class ParivarAdminController {
                                   Integer giftCoinsPerExp, Boolean giftCountsForRanking, Long giftUserDailyCap, Integer donationCoinsPerExp, Long minDonation) {
     }
 
-    public record LevelRow(Integer level, Long expNeeded, Integer capacity, Integer deputyCap, Integer adminCap) {
+    static final java.util.Set<String> FRAMES = java.util.Set.of("wood", "bronze", "silver", "gold", "ruby", "diamond", "royal");
+
+    public record LevelRow(Integer level, Long expNeeded, Integer capacity, Integer deputyCap, Integer adminCap, String frame) {
     }
 
     public record PermRow(String role, String perm, Boolean allowed) {
@@ -115,7 +117,7 @@ public class ParivarAdminController {
 
     @GetMapping("/levels")
     public List<Map<String, Object>> levels() {
-        return jdbc.queryForList("select level, exp_needed as \"expNeeded\", capacity, deputy_cap as \"deputyCap\", admin_cap as \"adminCap\" from parivar_levels order by level");
+        return jdbc.queryForList("select level, exp_needed as \"expNeeded\", capacity, deputy_cap as \"deputyCap\", admin_cap as \"adminCap\", frame from parivar_levels order by level");
     }
 
     /** Replace the whole level table. Level 1 must need 0 EXP, EXP must rise, capacity can't shrink. */
@@ -131,11 +133,12 @@ public class ParivarAdminController {
             if (i == 0 && r.expNeeded() != 0) throw bad("Level 1 must need 0 EXP.");
             if (r.expNeeded() <= prev) throw bad("Each level must need more EXP than the one before.");
             if (r.capacity() < 1 || r.capacity() < prevCap || r.deputyCap() < 0 || r.adminCap() < 0) throw bad("Capacity must be 1 or more and can't go down; roles can't be negative.");
+            if (r.frame() == null || !FRAMES.contains(r.frame())) throw bad("Pick a frame for every level.");
             prev = r.expNeeded();
             prevCap = r.capacity();
         }
         jdbc.update("delete from parivar_levels");
-        for (LevelRow r : rows) jdbc.update("insert into parivar_levels (level, exp_needed, capacity, deputy_cap, admin_cap) values (?, ?, ?, ?, ?)", r.level(), r.expNeeded(), r.capacity(), r.deputyCap(), r.adminCap());
+        for (LevelRow r : rows) jdbc.update("insert into parivar_levels (level, exp_needed, capacity, deputy_cap, admin_cap, frame) values (?, ?, ?, ?, ?, ?)", r.level(), r.expNeeded(), r.capacity(), r.deputyCap(), r.adminCap(), r.frame());
         // A Parivar that sits above the new top level, or below one it already earned, is re-levelled
         jdbc.update("update parivars p set level = coalesce((select max(l.level) from parivar_levels l where l.exp_needed <= p.exp), 1)");
         audit(auth, "LEVELS", rows.size() + " levels");
