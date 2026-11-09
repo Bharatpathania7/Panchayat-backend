@@ -61,6 +61,8 @@ public class RoomRedPacketService {
     private final WalletPushService walletPush;
     private final SimpMessagingTemplate messaging;
     private final TransactionTemplate tx;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.rooms.service.RoomExpService roomExp;
     private final SecureRandom random = new SecureRandom();
     private final ScheduledExecutorService settler = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "red-packet-settler");
@@ -126,6 +128,8 @@ public class RoomRedPacketService {
 
         Map<String, Object> view = view(id, "DROPPED", null, null);
         view.put("roomName", room.getName());
+        // Room EXP for the room level (only 10,000 and 50,000 red packets count)
+        roomExp.addRedPacket(roomId, amount);
         afterCommit(() -> {
             broadcast(roomId, view);
             Object banner = view;

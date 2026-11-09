@@ -143,6 +143,25 @@ public class AdminGiftController {
     private com.panchayat.backend.gifts.service.GiftCategoryService categoryService;
 
     /** Gift categories (name and kind: NORMAL, VIP gifts, CP gifts). */
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.gifts.service.GiftLuckService luckService;
+
+    public record LuckyRequest(Boolean enabled) {
+    }
+
+    /** Lucky coins (random coins to a gift's receiver): on or off. Off by default. */
+    @GetMapping("/lucky")
+    public Map<String, Object> lucky() {
+        return Map.of("enabled", luckService.luckyEnabled());
+    }
+
+    @PutMapping("/lucky")
+    public Map<String, Object> setLucky(@RequestBody LuckyRequest b) {
+        boolean on = b != null && Boolean.TRUE.equals(b.enabled());
+        luckService.setLuckyEnabled(on);
+        return Map.of("enabled", on);
+    }
+
     @GetMapping("/categories")
     public List<Map<String, Object>> categories() {
         return categoryService.list();

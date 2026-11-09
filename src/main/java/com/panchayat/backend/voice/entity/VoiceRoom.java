@@ -94,6 +94,14 @@ public class VoiceRoom {
         return points;
     }
 
+    /** Room EXP (sets the room level). Never written from here: RoomExpService adds to it in the database. */
+    @Column(nullable = false, updatable = false, insertable = false)
+    private long exp = 0;
+
+    public long getExp() {
+        return exp;
+    }
+
     @Column(
             name = "created_at",
             nullable = false,

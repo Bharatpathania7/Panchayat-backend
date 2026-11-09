@@ -42,6 +42,16 @@ public class GiftLuckService {
         this.sarpanch = sarpanch;
     }
 
+    /** Whether gifts give the receiver lucky coins right now (admin switch). */
+    public boolean luckyEnabled() {
+        Boolean on = jdbc.query("select lucky_enabled from gift_settings where id = 1", rs -> rs.next() ? rs.getBoolean(1) : Boolean.FALSE);
+        return Boolean.TRUE.equals(on);
+    }
+
+    public void setLuckyEnabled(boolean on) {
+        jdbc.update("insert into gift_settings (id, lucky_enabled) values (1, ?) on conflict (id) do update set lucky_enabled = excluded.lucky_enabled", on);
+    }
+
     /** The ranges the admin set for a gift: Charm and lucky coins, each min to max (null = not set). */
     record Triggers(Long charmMin, Long charmMax, Long coinMin, Long coinMax, Long fixedCharm) {
     }
@@ -50,6 +60,34 @@ public class GiftLuckService {
         List<Triggers> l = jdbc.query("select charm_min, charm_max, coin_min, coin_max, charm from gifts where id = ?",
                 (rs, i) -> new Triggers((Long) rs.getObject(1), (Long) rs.getObject(2), (Long) rs.getObject(3), (Long) rs.getObject(4), (Long) rs.getObject(5)), giftId);
         return l.isEmpty() ? new Triggers(null, null, null, null, null) : l.get(0);
+    }
+
+    /** Chance of a big win (the top third of the range, up to the max) and of a middle win (the middle third). */
+    static final double HIGH_CHANCE = 0.01;
+    static final double MIDDLE_CHANCE = 0.025;
+
+    /**
+     * A lucky amount from min to max where small wins are the usual: the range is cut in three. About 1 in 100
+     * lands in the top third (the max is a rare jackpot), about 2 to 3 in 100 in the middle third, and the
+     * rest (about 96 in 100) in the lowest third.
+     */
+    static long tiered(java.util.Random random, long min, long max) {
+        if (max <= min) return min;
+        long third = (max - min) / 3;
+        double r = random.nextDouble();
+        long lo, hi;
+        if (r < HIGH_CHANCE) {
+            lo = min + 2 * third + 1;
+            hi = max;
+        } else if (r < HIGH_CHANCE + MIDDLE_CHANCE) {
+            lo = min + third + 1;
+            hi = min + 2 * third;
+        } else {
+            lo = min;
+            hi = min + third;
+        }
+        if (hi < lo) hi = lo;
+        return lo + (long) (random.nextDouble() * (hi - lo + 1));
     }
 
     /** A whole number from min to max, both included. */
@@ -80,18 +118,20 @@ public class GiftLuckService {
     long roll(long coins) {
         long lo = Math.max(BONUS_MIN, coins + 1);
         if (lo > BONUS_MAX) return coins + 1 + (long) (random.nextDouble() * (coins / 10 + 1));
-        return lo + (long) (random.nextDouble() * (BONUS_MAX - lo + 1));
+        return tiered(random, lo, BONUS_MAX);
     }
 
     /** Pay the lucky coins to the receiver (same transaction as the gift); returns how many (0 for none). */
     public long bonus(Long senderId, Long receiverId, String giftId, int count, long coins, boolean fromBag, String requestId, String ref) {
         if (fromBag || coins <= 0 || receiverId == null) return 0;
+        // Lucky coins can be switched off from the admin panel (they are off by default)
+        if (!luckyEnabled()) return 0;
         Triggers t = triggers(giftId);
         long bonus;
         if (t.coinMin() != null && t.coinMax() != null) {
             // The admin's range for this gift: a random amount from min to max for each gift sent
             bonus = 0;
-            for (int i = 0; i < count; i++) bonus = Math.addExact(bonus, between(t.coinMin(), t.coinMax()));
+            for (int i = 0; i < count; i++) bonus = Math.addExact(bonus, tiered(random, t.coinMin(), t.coinMax()));
         } else {
             bonus = roll(coins);
         }

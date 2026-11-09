@@ -93,6 +93,9 @@ public class RoomGiftService {
     private GiftLuckService luck;
 
     @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.rooms.service.RoomExpService roomExp;
+
+    @org.springframework.beans.factory.annotation.Autowired
     private GiftCategoryService categoryRules;
 
     public record GiftSent(String eventId, String roomId, String fromUserId, String toUserId, String giftId,
@@ -174,6 +177,8 @@ public class RoomGiftService {
         RoomGiftEvent saved = events.save(ev);
         events.flush();
         rooms.addPoints(roomId, points);
+        // Room EXP for the room level: every 10 coins is 1 EXP (not for gifts from a Bag)
+        if (!fromBag) roomExp.addGift(roomId, coins);
         // Gifts between two tagged people grow their tag (same transaction)
         tags.addIntimacy(senderId, receiverId, coins);
         // Gifts between CP partners add love

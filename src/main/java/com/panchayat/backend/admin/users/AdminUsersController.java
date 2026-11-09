@@ -110,7 +110,7 @@ public class AdminUsersController {
         pageArgs.add((long) p * s);
         List<Map<String, Object>> rows = jdbc.query(
                 "select u.id, u.public_id, u.full_name, u.email, u.gender, u.avatar_url, u.level, u.created_at, u.profile_completed,"
-                        + " u.vip_active, u.vip_level, u.vip_expires_at, u.ban_permanent, u.banned_until, u.ban_reason,"
+                        + " u.vip_active, u.vip_level, u.vip_expires_at, u.ban_permanent, u.banned_until, u.ban_reason, u.charm_points,"
                         + " coalesce(w.balance, 0) as coins,"
                         + " (select max(a.at) from (" + ACTIVITY + ") a where a.user_id = u.id) as last_active,"
                         + " exists (select 1 from voice_room_participants vp where vp.user_id = u.id and vp.status = 'JOINED') as in_room"
@@ -132,6 +132,7 @@ public class AdminUsersController {
                     Timestamp vipEnd = rs.getTimestamp("vip_expires_at");
                     r.put("vipLevel", vip && (vipEnd == null || vipEnd.toInstant().isAfter(Instant.now())) ? rs.getObject("vip_level") : null);
                     r.put("coins", rs.getLong("coins"));
+                    r.put("charm", rs.getLong("charm_points"));
                     r.put("lastActiveAt", ts(rs.getTimestamp("last_active")));
                     r.put("online", email != null && onlineNow.contains(email.toLowerCase(Locale.ROOT)));
                     r.put("inRoom", rs.getBoolean("in_room"));
@@ -152,6 +153,52 @@ public class AdminUsersController {
         out.put("totalElements", t);
         out.put("totalPages", (t + s - 1) / s);
         return out;
+    }
+
+    public record RemoveRequest(Long amount, String reason) {
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.wallet.service.CoinWalletService wallet;
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.wallet.service.WalletPushService walletPush;
+
+    /** Take coins away from a user: the amount, or all of them when amount is empty. Super Admin only. */
+    @PostMapping("/{id:[0-9]+}/remove-coins")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public Map<String, Object> removeCoins(@PathVariable Long id, @RequestBody RemoveRequest body, org.springframework.security.core.Authentication auth) {
+        if (count("select count(*) from users where id = ?", id) == 0) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "User not found");
+        long balance = wallet.getBalance(id);
+        long amount = body == null || body.amount() == null ? balance : body.amount();
+        if (amount < 0) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "The amount must be 0 or more.");
+        if (amount > balance) amount = balance; // can't take more than they have
+        String why = body == null || body.reason() == null || body.reason().isBlank() ? "Removed by staff" : body.reason().strip();
+        if (amount > 0) {
+            wallet.debit(id, amount, "ADMIN_REMOVE", "admin", "admin-remove:" + java.util.UUID.randomUUID(), why);
+            walletPush.pushBalance(id, "ADMIN_REMOVE", -amount);
+        }
+        jdbc.update("insert into admin_user_adjust (user_id, kind, amount, reason, admin_name) values (?, 'COINS', ?, ?, ?)", id, amount, why, auth == null ? null : auth.getName());
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("removed", amount);
+        m.put("balance", wallet.getBalance(id));
+        return m;
+    }
+
+    /** Take Charm away from a user: the amount, or all of it when amount is empty. Super Admin only. */
+    @PostMapping("/{id:[0-9]+}/remove-charm")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public Map<String, Object> removeCharm(@PathVariable Long id, @RequestBody RemoveRequest body, org.springframework.security.core.Authentication auth) {
+        Long before = jdbc.query("select charm_points from users where id = ?", rs -> rs.next() ? rs.getLong(1) : null, id);
+        if (before == null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "User not found");
+        long amount = body == null || body.amount() == null ? before : Math.min(body.amount(), before);
+        if (amount < 0) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "The amount must be 0 or more.");
+        String why = body == null || body.reason() == null || body.reason().isBlank() ? "Removed by staff" : body.reason().strip();
+        jdbc.update("update users set charm_points = greatest(0, charm_points - ?) where id = ?", amount, id);
+        jdbc.update("insert into admin_user_adjust (user_id, kind, amount, reason, admin_name) values (?, 'CHARM', ?, ?, ?)", id, amount, why, auth == null ? null : auth.getName());
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("removed", amount);
+        m.put("charm", Math.max(0, before - amount));
+        return m;
     }
 
     public record BanRequest(Integer days, String reason) {

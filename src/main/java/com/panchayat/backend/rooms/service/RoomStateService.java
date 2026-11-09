@@ -510,6 +510,11 @@ public class RoomStateService {
         }
 
         if (admin && !ctx.isAdmin(target)) {
+            // How many admins a room can have goes up with its level
+            int cap = RoomLevels.adminLimit(ctx.room().getExp());
+            if (adminRepository.findByRoomId(roomId).size() >= cap) {
+                throw conflict("This room can have up to " + cap + " admins at its level. Level the room up for more.");
+            }
             adminRepository.save(new RoomAdmin(roomId, target, actor));
         } else if (!admin) {
             adminRepository.deleteByRoomIdAndUserId(roomId, target);

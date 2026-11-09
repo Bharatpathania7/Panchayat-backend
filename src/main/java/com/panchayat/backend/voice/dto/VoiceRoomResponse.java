@@ -31,6 +31,9 @@ public record VoiceRoomResponse(
         int memberCount,
         int fanCount,
         long points,
+        /* Room EXP and the level it gives (1 to 10). */
+        long exp,
+        int level,
         /* The 7-digit room ID people share and search by. */
         Long roomCode,
         /* The owner's 7-digit public user ID. */
@@ -57,6 +60,8 @@ public record VoiceRoomResponse(
                 Math.max(0, room.getMemberCount()),
                 Math.max(0, room.getFanCount()),
                 Math.max(0, room.getPoints()),
+                Math.max(0, room.getExp()),
+                com.panchayat.backend.rooms.service.RoomLevels.level(Math.max(0, room.getExp())),
                 com.panchayat.backend.common.PublicIds.room(room.getId()),
                 com.panchayat.backend.common.PublicIds.user(room.getOwnerId())
         );
