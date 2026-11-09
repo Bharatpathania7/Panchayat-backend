@@ -50,7 +50,7 @@ else
   if (cd /tmp && as_postgres pg_dump -p "$DB_PORT" -Fc "$DB_NAME") > "$DUMP" && [ -s "$DUMP" ]; then
     chmod 600 "$DUMP"
     echo "Saved $DUMP ($(du -h "$DUMP" | cut -f1))"
-    ls -1t "$BACKUP_DIR"/*.dump 2>/dev/null | tail -n +$((KEEP_DUMPS + 1)) | xargs -r rm -f
+    { ls -1t "$BACKUP_DIR"/*.dump 2>/dev/null || true; } | tail -n +$((KEEP_DUMPS + 1)) | xargs -r rm -f || true
   else
     rm -f "$DUMP"
     fail "The database backup failed (database $DB_NAME, port $DB_PORT), so nothing was changed. Check BACKEND_DB_NAME and BACKEND_DB_PORT; set SKIP_DB_BACKUP=1 only knowingly."
@@ -80,5 +80,6 @@ if [ "$UP" != 1 ]; then
   fail "Rolled back to the previous jar. If a database migration ran, the backup is in $BACKUP_DIR."
 fi
 
-ls -1t "${JAR_PATH}".before-* 2>/dev/null | tail -n +$((KEEP_JARS + 1)) | xargs -r rm -f
+# Tidying up must never fail a deploy that worked
+{ ls -1t "${JAR_PATH}".before-* 2>/dev/null || true; } | tail -n +$((KEEP_JARS + 1)) | xargs -r rm -f || true
 say "Backend deployed (previous jar kept as $OLD)"
