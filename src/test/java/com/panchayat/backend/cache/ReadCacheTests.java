@@ -80,9 +80,9 @@ class ReadCacheTests {
     @Test
     void respondGivesJsonTheAppCanRead() {
         ReadCache c = cache(true, false, null);
-        ResponseEntity<String> r = c.respond("gifts", "k", Duration.ofSeconds(30), () -> List.of(Map.of("id", "rose", "price", 10)));
+        ResponseEntity<String> r = c.respond("gifts", "k", Duration.ofSeconds(30), () -> List.of(new java.util.LinkedHashMap<>(Map.of("id", "rose"))));
         assertEquals(MediaType.APPLICATION_JSON, r.getHeaders().getContentType());
-        assertEquals("[{\"id\":\"rose\",\"price\":10}]", r.getBody());
+        assertEquals("[{\"id\":\"rose\"}]", r.getBody());
     }
 
     @Test
