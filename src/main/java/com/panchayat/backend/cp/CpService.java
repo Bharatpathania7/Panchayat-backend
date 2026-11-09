@@ -350,7 +350,7 @@ public class CpService {
         }
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "select d.couple_id, sum(d.love) as gained from cp_love_daily d join cp_couples c on c.id = d.couple_id"
-                        + " where c.ended_at is null and d.day between ? and ? group by d.couple_id having sum(d.love) > 0"
+                        + " where c.ended_at is null and d.day >= (select (reset_at at time zone 'Asia/Kolkata')::date from ranking_settings where id = 1) and d.day between ? and ? group by d.couple_id having sum(d.love) > 0"
                         + " order by gained desc, d.couple_id limit ?", from, to, Math.max(1, Math.min(limit, 100)));
         List<Map<String, Object>> out = new ArrayList<>();
         int rank = 1;

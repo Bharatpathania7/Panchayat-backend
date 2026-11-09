@@ -35,7 +35,7 @@ public class RankingController {
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final int TOP = 50;
     /** Charm per gift: coins / 5, doubled at weekends (ISO day 6 = Saturday, 7 = Sunday). */
-    static final String CHARM = "floor(e.coins * (case when extract(isodow from e.created_at at time zone 'Asia/Kolkata') in (6, 7) then 2 else 1 end) / 5.0)";
+    static final String CHARM = "coalesce(e.charm, 0)";
 
     private final JdbcTemplate jdbc;
     private final UserRepository users;
@@ -73,7 +73,7 @@ public class RankingController {
                 String value = "charm".equals(type) ? "sum(" + CHARM + ")" : "sum(e.coins)";
                 String extra = "wealth".equals(type) ? " and not e.from_bag" : "";
                 Long v = jdbc.queryForObject("select coalesce(" + value + ", 0) from room_gift_events e where " + who + " = ?"
-                        + " and e.created_at >= ? and e.created_at < ?" + extra, Long.class, me, ts(range[0]), ts(range[1]));
+                        + " and e.created_at >= greatest(?, (select reset_at from ranking_settings where id = 1)) and e.created_at < ?" + extra, Long.class, me, ts(range[0]), ts(range[1]));
                 mine.put("value", v == null ? 0 : v);
             }
         }
@@ -89,7 +89,7 @@ public class RankingController {
         List<Map<String, Object>> rows = jdbc.query(
                 "select " + who + " as uid, " + value + " as v, u.full_name, u.avatar_url, u.vip_active, u.vip_level, u.vip_expires_at"
                         + " from room_gift_events e join users u on u.id = " + who
-                        + " where e.created_at >= ? and e.created_at < ?" + extra
+                        + " where e.created_at >= greatest(?, (select reset_at from ranking_settings where id = 1)) and e.created_at < ?" + extra
                         + " group by " + who + ", u.full_name, u.avatar_url, u.vip_active, u.vip_level, u.vip_expires_at"
                         + " having " + value + " > 0 order by v desc, uid limit 200",
                 (rs, i) -> {
@@ -112,7 +112,7 @@ public class RankingController {
     private List<Map<String, Object>> rooms(Instant[] range) {
         return jdbc.query(
                 "select e.room_id, sum(e.coins) * 100 as v, r.name, r.owner_id, r.status from room_gift_events e join voice_rooms r on r.id = e.room_id"
-                        + " where e.created_at >= ? and e.created_at < ? and r.is_private = false"
+                        + " where e.created_at >= greatest(?, (select reset_at from ranking_settings where id = 1)) and e.created_at < ? and r.is_private = false"
                         + " group by e.room_id, r.name, r.owner_id, r.status order by v desc limit " + TOP,
                 (rs, i) -> {
                     Map<String, Object> m = new LinkedHashMap<>();
