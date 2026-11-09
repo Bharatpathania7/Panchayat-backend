@@ -99,7 +99,7 @@ public class RoomGiftService {
                            int count, long coins, long earned, long roomPoints, String requestId,
                            Instant at, long senderBalance, boolean fromBag, long bonus) {
         GiftSent withBonus(long b) {
-            return new GiftSent(eventId, roomId, fromUserId, toUserId, giftId, count, coins, earned, roomPoints, requestId, at, senderBalance, fromBag, b);
+            return new GiftSent(eventId, roomId, fromUserId, toUserId, giftId, count, coins, earned + b, roomPoints, requestId, at, senderBalance, fromBag, b);
         }
     }
 
