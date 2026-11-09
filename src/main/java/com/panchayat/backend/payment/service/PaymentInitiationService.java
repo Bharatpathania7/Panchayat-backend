@@ -110,6 +110,9 @@ public class PaymentInitiationService {
             );
         }
 
+        // PayU rejects product names with symbols like "·" or emoji: keep letters, digits and simple punctuation
+        productName = payUSafe(productName);
+
         if (amount == null || amount.signum() <= 0) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -294,6 +297,12 @@ public class PaymentInitiationService {
                     "Billing first name and address are required"
             );
         }
+    }
+
+    /** A name PayU accepts: ASCII letters, digits, spaces and . , - _ only (anything else becomes a space). */
+    static String payUSafe(String name) {
+        String v = name == null ? "" : name.replaceAll("[^A-Za-z0-9 .,_-]", " ").replaceAll("\s+", " ").trim();
+        return v.isEmpty() ? "Panchayat purchase" : v.substring(0, Math.min(100, v.length()));
     }
 
     private String normalize(String value) {

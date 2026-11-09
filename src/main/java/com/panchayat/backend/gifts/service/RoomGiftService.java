@@ -97,7 +97,10 @@ public class RoomGiftService {
 
     public record GiftSent(String eventId, String roomId, String fromUserId, String toUserId, String giftId,
                            int count, long coins, long earned, long roomPoints, String requestId,
-                           Instant at, long senderBalance, boolean fromBag) {
+                           Instant at, long senderBalance, boolean fromBag, long bonus) {
+        GiftSent withBonus(long b) {
+            return new GiftSent(eventId, roomId, fromUserId, toUserId, giftId, count, coins, earned, roomPoints, requestId, at, senderBalance, fromBag, b);
+        }
     }
 
     @Transactional
@@ -183,13 +186,13 @@ public class RoomGiftService {
         // The receiver's charm: 1 per 5 coins, double on Saturdays and Sundays (India time), like the rankings
         int charmFactor = java.time.LocalDate.now(BOARD_ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
         long charm = luck.charm(giftId, count, coins, charmFactor);
-        // Lucky coins on top of the gift: 80,000 to 2,00,000, more than the gift cost
-        luck.bonus(senderId, receiverId, coins, fromBag, requestId, ref);
+        // Lucky coins on top of the gift: 60,000 to 2,00,000, more than the gift cost
+        long luckyCoins = luck.bonus(senderId, receiverId, coins, fromBag, requestId, ref);
         charmJdbc.update("update users set charm_points = charm_points + ? where id = ?", charm, receiverId);
         // The same number counts as the sender's Guard for the receiver (Guard list)
         charmJdbc.update("update room_gift_events set charm = ? where request_id = ?", charm, requestId);
         long roomPoints = rooms.findById(roomId).map(VoiceRoom::getPoints).orElse(0L);
-        GiftSent result = toResult(saved, roomPoints, wallet.getBalance(senderId), requestId);
+        GiftSent result = toResult(saved, roomPoints, wallet.getBalance(senderId), requestId).withBonus(luckyCoins);
 
         afterCommit(() -> {
             Object payload = result;
@@ -239,7 +242,7 @@ public class RoomGiftService {
     private static GiftSent toResult(RoomGiftEvent e, long roomPoints, long senderBalance, String requestId) {
         return new GiftSent(String.valueOf(e.getId()), String.valueOf(e.getRoomId()), String.valueOf(e.getSenderId()),
                 String.valueOf(e.getReceiverId()), e.getGiftId(), e.getGiftCount(), e.getCoins(), e.getReceiverEarned(),
-                roomPoints, requestId, e.getCreatedAt(), senderBalance, e.isFromBag());
+                roomPoints, requestId, e.getCreatedAt(), senderBalance, e.isFromBag(), 0L);
     }
 
     private static void afterCommit(Runnable r) {
