@@ -118,6 +118,15 @@ public class CpController {
         return cp.addRing(me(auth), body.ringId(), body.source(), key);
     }
 
+    public record MainRingRequest(String ringId) {
+    }
+
+    /** Tap a ring in the ring box to make it the couple's main ring. */
+    @PostMapping("/api/v1/cp/me/main-ring")
+    public Map<String, Object> mainRing(@RequestBody MainRingRequest body, Authentication auth) {
+        return cp.setMainRing(me(auth), body == null ? null : body.ringId());
+    }
+
     @PutMapping(value = "/api/v1/cp/me/wallpaper", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> wallpaper(@RequestParam("file") MultipartFile file, Authentication auth) {
         return cp.setWallpaper(me(auth), file);

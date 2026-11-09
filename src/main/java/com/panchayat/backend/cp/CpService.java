@@ -261,6 +261,7 @@ public class CpService {
         jdbc.update("insert into cp_couple_rings (couple_id, ring_id, added_by) values (?, ?, ?)", cid, r.id, from);
         jdbc.update("update cp_proposals set status = 'ACCEPTED', answered_at = now() where id = ?", proposalId);
         ringCharm(from, to, r);
+        ringCoupleCharm(cid, from, to, r);
         // Every other pending proposal to or from either of them is over; rings go back
         for (Map<String, Object> o : jdbc.queryForList(
                 "select id, from_id, to_id, ring_id from cp_proposals where status = 'PENDING' and (from_id in (?, ?) or to_id in (?, ?)) for update",
@@ -397,6 +398,7 @@ public class CpService {
         else debit(me, r.price, "CP_RING_BOX", "cp:" + cid, idemKey, "Ring " + r.name + " for CP " + cid);
         jdbc.update("insert into cp_couple_rings (couple_id, ring_id, added_by) values (?, ?, ?)", cid, r.id, me);
         ringCharm(me, partner(cid, me), r);
+        ringCoupleCharm(cid, me, partner(cid, me), r);
         notify(partner(cid, me), "RING_ADDED", cid, null, me);
         Map<String, Object> out = couple(cid);
         if (src.equals("BUY")) remember(me, idemKey, out);
@@ -576,8 +578,8 @@ public class CpService {
             default -> throw bad("filter must be all, sent or received");
         };
         List<Map<String, Object>> rows = jdbc.queryForList(
-                "select l.id, l.sender_id, l.receiver_id, l.gift_id, l.gift_count, l.coins, l.charm, l.created_at, g.name as gift_name"
-                        + " from cp_charm_log l left join gifts g on g.id = l.gift_id where l.couple_id = ?" + where
+                "select l.id, l.sender_id, l.receiver_id, l.gift_id, l.gift_count, l.coins, l.charm, l.created_at, coalesce(g.name, cr.name) as gift_name"
+                        + " from cp_charm_log l left join gifts g on g.id = l.gift_id left join cp_rings cr on ('ring:' || cr.id) = l.gift_id where l.couple_id = ?" + where
                         + " order by l.id desc limit ?", cid, Math.max(1, Math.min(limit, 100)));
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> r : rows) {
@@ -599,10 +601,29 @@ public class CpService {
     /** Adds love, records it for the ranking, and tells both partners on a level-up. */
     /** A ring gives the person who receives it charm, like a gift (price ÷ 5), and counts for their Guard list. */
     private void ringCharm(long fromId, long toId, Ring r) {
-        long charm = Math.max(0, r.price / 5);
+        long charm = r.charm != null ? Math.max(0, r.charm) : Math.max(0, r.price / 5);
         if (charm == 0 || fromId == toId) return;
         jdbc.update("update users set charm_points = charm_points + ? where id = ?", charm, toId);
         jdbc.update("insert into cp_ring_charm (from_id, to_id, ring_id, charm) values (?, ?, ?, ?)", fromId, toId, r.id, charm);
+    }
+
+    /** The Charm the couple earns when this ring is added, if the admin set one (default none). Shown in the Charm history. */
+    private void ringCoupleCharm(long coupleId, long fromId, long toId, Ring r) {
+        if (r.cpCharm <= 0) return;
+        jdbc.update("insert into cp_charm_log (couple_id, sender_id, receiver_id, gift_id, gift_count, coins, charm) values (?, ?, ?, ?, 1, ?, ?)",
+                coupleId, fromId, toId, "ring:" + r.id, r.price, r.cpCharm);
+        addLove(coupleId, r.cpCharm);
+    }
+
+    /** Make one of the couple's rings the main ring: it is the one shown in the CP page, profiles and room cards. */
+    @Transactional
+    public Map<String, Object> setMainRing(Long me, String ringId) {
+        Long cid = requireCouple(me);
+        if (ringId == null || ringId.isBlank()) throw bad("Choose a ring");
+        lockCouple(cid);
+        if (count("select count(*) from cp_couple_rings where couple_id = ? and ring_id = ?", cid, ringId) == 0) throw bad("That ring isn't in your ring box");
+        jdbc.update("update cp_couples set ring_id = ? where id = ?", ringId, cid);
+        return couple(cid);
     }
 
     void addLove(long coupleId, long amount) {
@@ -659,7 +680,8 @@ public class CpService {
 
     /* ================= internals ================= */
 
-    record Ring(String id, String name, long price) {
+    /** charm: the Charm the person who gets it earns (null = price / 5); cpCharm: Charm the couple earns when it is added (0 = none). Both set in the admin panel. */
+    record Ring(String id, String name, long price, Long charm, long cpCharm) {
     }
 
     /** A ring that is on sale (for buying). */
@@ -671,7 +693,8 @@ public class CpService {
     private Ring ring(String id, boolean retiredOk) {
         if (id == null || id.isBlank()) throw bad("Choose a ring");
         if (isShopRing(id)) syncShopRings();
-        List<Ring> l = jdbc.query("select id, name, price from cp_rings where id = ?" + (retiredOk ? "" : " and active"), (rs, i) -> new Ring(rs.getString(1), rs.getString(2), rs.getLong(3)), id);
+        List<Ring> l = jdbc.query("select id, name, price, charm, coalesce(cp_charm, 0) from cp_rings where id = ?" + (retiredOk ? "" : " and active"),
+                (rs, i) -> new Ring(rs.getString(1), rs.getString(2), rs.getLong(3), rs.getObject(4) == null ? null : rs.getLong(4), rs.getLong(5)), id);
         if (l.isEmpty()) throw notFound("That ring isn't on sale");
         return l.get(0);
     }
