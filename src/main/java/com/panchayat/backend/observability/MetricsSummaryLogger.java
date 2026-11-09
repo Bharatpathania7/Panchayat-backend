@@ -82,6 +82,9 @@ public class MetricsSummaryLogger {
             counters(out, "path_" + kind, registry.find("panchayat.voice.media_path").tag("kind", kind).counters());
         }
         counters(out, "grace_expired", registry.find("panchayat.voice.grace_expired").counters());
+        counters(out, "cache_hit", registry.find("panchayat.cache").tag("result", "hit").counters());
+        counters(out, "cache_miss", registry.find("panchayat.cache").tag("result", "miss").counters());
+        counters(out, "redis_errors", registry.find("panchayat.cache.redis_errors").counters());
         timers(out, "db_conn_wait", registry.find("hikaricp.connections.acquire").timers());
         timers(out, "db_conn_held", registry.find("hikaricp.connections.usage").timers());
         gauge(out, "db_active", registry.find("hikaricp.connections.active").gauge());

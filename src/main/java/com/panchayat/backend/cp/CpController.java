@@ -26,10 +26,12 @@ public class CpController {
 
     private final CpService cp;
     private final UserRepository users;
+    private final com.panchayat.backend.cache.ReadCache cache;
 
-    public CpController(CpService cp, UserRepository users) {
+    public CpController(CpService cp, UserRepository users, com.panchayat.backend.cache.ReadCache cache) {
         this.cp = cp;
         this.users = users;
+        this.cache = cache;
     }
 
     public record ProposeRequest(Long toUserId, String ringId, String message) {
@@ -41,9 +43,10 @@ public class CpController {
     /* ---- rings ---- */
 
     @GetMapping("/api/v1/cp/rings")
-    public List<Map<String, Object>> rings(Authentication auth) {
+    public ResponseEntity<String> rings(Authentication auth) {
         me(auth);
-        return cp.rings();
+        // The catalogue is the same for everybody: kept for 15 s (a ring the admin adds shows up within that)
+        return cache.respond("cp-rings", "all", java.time.Duration.ofSeconds(15), cp::rings);
     }
 
     @PostMapping("/api/v1/cp/rings/{ringId}/buy")

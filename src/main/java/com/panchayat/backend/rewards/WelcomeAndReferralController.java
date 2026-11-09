@@ -37,6 +37,7 @@ public class WelcomeAndReferralController {
 
     private final JdbcTemplate jdbc;
     private final UserRepository users;
+    @Autowired private com.panchayat.backend.cache.ReadCache cache;
 
     @Autowired @Lazy private CoinWalletService wallet;
     @Autowired @Lazy private WalletPushService walletPush;
@@ -126,15 +127,18 @@ public class WelcomeAndReferralController {
     /* ---------------- live people in rooms ---------------- */
 
     @GetMapping("/api/v1/voice-rooms/live-counts")
-    public Map<String, Long> liveCounts(Authentication auth) {
+    public ResponseEntity<String> liveCounts(Authentication auth) {
         me(auth);
-        Map<String, Long> out = new LinkedHashMap<>();
-        jdbc.query("select p.room_id, count(*) from voice_room_participants p join voice_rooms v on v.id = p.room_id"
-                        + " where p.status = 'JOINED' and v.status = 'ACTIVE' group by p.room_id",
-                rs -> {
-                    out.put(String.valueOf(rs.getLong(1)), rs.getLong(2));
-                });
-        return out;
+        // Every phone on the rooms list asks every 15 s: one database answer per 5 s is shared by all of them
+        return cache.respond("live-counts", "all", java.time.Duration.ofSeconds(5), () -> {
+            Map<String, Long> out = new LinkedHashMap<>();
+            jdbc.query("select p.room_id, count(*) from voice_room_participants p join voice_rooms v on v.id = p.room_id"
+                            + " where p.status = 'JOINED' and v.status = 'ACTIVE' group by p.room_id",
+                    rs -> {
+                        out.put(String.valueOf(rs.getLong(1)), rs.getLong(2));
+                    });
+            return out;
+        });
     }
 
     /** People on mic (on a seat) in each live room: { roomId: n }. */

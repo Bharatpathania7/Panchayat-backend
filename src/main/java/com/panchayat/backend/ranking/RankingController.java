@@ -39,10 +39,12 @@ public class RankingController {
 
     private final JdbcTemplate jdbc;
     private final UserRepository users;
+    private final com.panchayat.backend.cache.ReadCache cache;
 
-    public RankingController(JdbcTemplate jdbc, UserRepository users) {
+    public RankingController(JdbcTemplate jdbc, UserRepository users, com.panchayat.backend.cache.ReadCache cache) {
         this.jdbc = jdbc;
         this.users = users;
+        this.cache = cache;
     }
 
     @GetMapping("/api/v1/rankings")
@@ -51,19 +53,30 @@ public class RankingController {
                                         Authentication auth) {
         Instant[] range = range(period);
         Long me = auth == null ? null : users.findByEmailIgnoreCase(auth.getName()).map(u -> u.getId()).orElse(null);
-        List<Map<String, Object>> rows;
-        switch (type) {
-            case "charm" -> rows = people("e.receiver_id", "sum(" + CHARM + ")", "", range);
-            case "wealth" -> rows = people("e.sender_id", "sum(e.coins)", " and not e.from_bag", range);
-            case "room" -> rows = rooms(range);
-            default -> throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "type must be charm, wealth or room");
-        }
+        // The leaderboard is the same for everybody and costs a scan of the gift events: kept for 30 s.
+        // (Your own rank and value, below, are still worked out for you.)
+        List<Map<String, Object>> rows = cache.load("rankings", type + "|" + period, java.time.Duration.ofSeconds(30),
+                new tools.jackson.core.type.TypeReference<List<Map<String, Object>>>() {
+                },
+                () -> {
+                    switch (type) {
+                        case "charm":
+                            return people("e.receiver_id", "sum(" + CHARM + ")", "", range);
+                        case "wealth":
+                            return people("e.sender_id", "sum(e.coins)", " and not e.from_bag", range);
+                        case "room":
+                            return rooms(range);
+                        default:
+                            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "type must be charm, wealth or room");
+                    }
+                });
         Map<String, Object> mine = new LinkedHashMap<>();
         mine.put("rank", null);
         mine.put("value", 0L);
         if (me != null && !"room".equals(type)) {
             for (Map<String, Object> r : rows) {
-                if (Objects.equals(r.get("userId"), me)) {
+                // (a cached row's number can come back as an Integer, so compare as numbers)
+                if (r.get("userId") instanceof Number n && n.longValue() == me) {
                     mine.put("rank", r.get("rank"));
                     mine.put("value", r.get("value"));
                 }
