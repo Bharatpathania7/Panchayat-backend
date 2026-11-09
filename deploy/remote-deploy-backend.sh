@@ -17,6 +17,15 @@ KEEP_DUMPS=7
 say()  { printf '\n==> %s\n' "$*"; }
 fail() { printf '\nFAILED: %s\n' "$*" >&2; exit 1; }
 
+# As root, run things directly. As anyone else, through sudo without a password prompt.
+if [ "$(id -u)" = 0 ]; then
+  as_root()     { "$@"; }
+  as_postgres() { runuser -u postgres -- "$@"; }
+else
+  as_root()     { sudo -n "$@"; }
+  as_postgres() { sudo -n -u postgres "$@"; }
+fi
+
 # One deploy at a time on this server
 exec 9>/tmp/panchayat-backend-deploy.lock
 flock -n 9 || fail "Another backend deploy is running."
@@ -27,7 +36,7 @@ say "Checks (commit ${COMMIT:-unknown})"
 [ -f "$JAR_PATH" ] || fail "No jar at $JAR_PATH. Set the BACKEND_JAR_PATH variable."
 [ -w "$(dirname "$JAR_PATH")" ] || fail "$(dirname "$JAR_PATH") isn't writable by $(id -un)."
 systemctl cat "$SERVICE" >/dev/null 2>&1 || fail "No systemd service called $SERVICE."
-sudo -n true 2>/dev/null || fail "sudo needs a password. Add the sudoers lines from deploy/CICD_SETUP.md."
+as_root true 2>/dev/null || fail "Can't run commands as root. Add the sudoers lines from deploy/CICD_SETUP.md (or deploy as root)."
 echo "Service: $SERVICE, jar: $JAR_PATH, user: $(id -un)"
 free -m | sed -n 1,2p
 
@@ -37,7 +46,7 @@ if [ "${SKIP_DB_BACKUP:-0}" = 1 ]; then
 else
   mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR"
   DUMP="$BACKUP_DIR/${DB_NAME}-${STAMP}.dump"
-  if (cd /tmp && sudo -n -u postgres pg_dump -Fc "$DB_NAME") > "$DUMP" && [ -s "$DUMP" ]; then
+  if (cd /tmp && as_postgres pg_dump -Fc "$DB_NAME") > "$DUMP" && [ -s "$DUMP" ]; then
     chmod 600 "$DUMP"
     echo "Saved $DUMP ($(du -h "$DUMP" | cut -f1))"
     ls -1t "$BACKUP_DIR"/*.dump 2>/dev/null | tail -n +$((KEEP_DUMPS + 1)) | xargs -r rm -f
@@ -53,7 +62,7 @@ cp -p "$JAR_PATH" "$OLD"
 cp "$NEW_JAR" "${JAR_PATH}.new"
 chmod --reference="$JAR_PATH" "${JAR_PATH}.new"
 mv -f "${JAR_PATH}.new" "$JAR_PATH"
-sudo -n systemctl restart "$SERVICE"
+as_root systemctl restart "$SERVICE"
 
 say "Waiting for the backend on port $BACKEND_PORT"
 UP=0
@@ -64,9 +73,9 @@ done
 
 if [ "$UP" != 1 ]; then
   echo "The new backend didn't come up. Last log lines:"
-  sudo -n journalctl -u "$SERVICE" -n 30 --no-pager 2>/dev/null | cut -c1-200 || true
+  as_root journalctl -u "$SERVICE" -n 30 --no-pager 2>/dev/null | cut -c1-200 || true
   cp -p "$OLD" "$JAR_PATH"
-  sudo -n systemctl restart "$SERVICE"
+  as_root systemctl restart "$SERVICE"
   fail "Rolled back to the previous jar. If a database migration ran, the backup is in $BACKUP_DIR."
 fi
 
