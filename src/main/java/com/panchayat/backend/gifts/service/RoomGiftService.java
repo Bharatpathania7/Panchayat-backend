@@ -98,6 +98,9 @@ public class RoomGiftService {
     @org.springframework.beans.factory.annotation.Autowired
     private GiftCategoryService categoryRules;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.parivar.ParivarService parivarService;
+
     public record GiftSent(String eventId, String roomId, String fromUserId, String toUserId, String giftId,
                            int count, long coins, long earned, long roomPoints, String requestId,
                            Instant at, long senderBalance, boolean fromBag, long bonus) {
@@ -183,6 +186,8 @@ public class RoomGiftService {
         tags.addIntimacy(senderId, receiverId, coins);
         // Gifts between CP partners add love
         couples.onGift(senderId, receiverId, coins, giftId, count, requestId);
+        // Gifts between members of the same Parivar add Parivar activity
+        parivarService.onGift(senderId, receiverId, giftId, count, coins, requestId);
         // Spend rewards: coins spent count towards random and guaranteed rewards (same transaction)
         if (!fromBag) rewards.onSpend(senderId, coins);
         // VIP growth ("God Points"): while VIP, every 100 coins spent adds 1 point (and a level-up shows the rewards)

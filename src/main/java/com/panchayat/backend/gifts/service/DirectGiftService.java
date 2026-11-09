@@ -69,6 +69,9 @@ public class DirectGiftService {
     @org.springframework.beans.factory.annotation.Autowired
     private GiftCategoryService categoryRules;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.parivar.ParivarService parivarService;
+
     @Transactional
     public Map<String, Object> send(Long senderId, Long receiverId, String giftId, int count, String requestId, String context) {
         if (requestId == null || !REQUEST_ID.matcher(requestId).matches()) throw bad("A request id is required");
@@ -119,6 +122,7 @@ public class DirectGiftService {
 
         tags.addIntimacy(senderId, receiverId, coins);
         couples.onGift(senderId, receiverId, coins, giftId, count, requestId);
+        parivarService.onGift(senderId, receiverId, giftId, count, coins, requestId);
         rewards.onSpend(senderId, coins);
         // VIP growth, with the level-up reward notice
         vipGrowth.onSpend(senderId, coins);
