@@ -18,6 +18,10 @@ import java.util.Locale;
 @Service
 public class GoogleAuthService {
 
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.newbie.NewbieService newbieService;
+
     private final GoogleIdTokenVerifier googleIdTokenVerifier;
     private final UserRepository userRepository;
     private final JwtService jwtService;
@@ -73,17 +77,20 @@ public class GoogleAuthService {
         String email = googleEmail.trim().toLowerCase(Locale.ROOT);
 
         // Find the existing account or create a new one.
+        boolean[] created = {false};
         User user = userRepository.findByEmailIgnoreCase(email)
                 .orElseGet(() -> {
                     User newUser = new User();
                     newUser.setEmail(email);
                     newUser.setEmailVerified(true);
+                    created[0] = true;
                     return newUser;
                 });
 
         user.setEmailVerified(true);
 
         user = userRepository.save(user);
+        if (created[0]) newbieService.onRegistered(user.getId());
 
         // Our own Panchayat access token plus a refresh token (session).
         return refreshTokenService.signIn(user, "Google sign-in successful");

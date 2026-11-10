@@ -54,6 +54,14 @@ public class VoiceRoom {
     @Column(name = "closed_seats", nullable = false, length = 100)
     private String closedSeats = "";
 
+    /** A Newbie Welcome Room (managed in Admin > Newbie rooms). */
+    @Column(nullable = false)
+    private boolean newbie = false;
+
+    /** The host has opened the 6 extra welcome seats. */
+    @Column(name = "extra_seats", nullable = false)
+    private boolean extraSeats = false;
+
     @Column(length = 30)
     private String category;
 
@@ -199,6 +207,22 @@ public class VoiceRoom {
 
     public void setMicOrder(boolean micOrder) {
         this.micOrder = micOrder;
+    }
+
+    public boolean isNewbie() {
+        return newbie;
+    }
+
+    public void setNewbie(boolean newbie) {
+        this.newbie = newbie;
+    }
+
+    public boolean isExtraSeats() {
+        return extraSeats;
+    }
+
+    public void setExtraSeats(boolean extraSeats) {
+        this.extraSeats = extraSeats;
     }
 
     public String getClosedSeats() {

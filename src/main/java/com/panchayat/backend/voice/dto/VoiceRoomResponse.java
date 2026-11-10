@@ -37,7 +37,10 @@ public record VoiceRoomResponse(
         /* The 7-digit room ID people share and search by. */
         Long roomCode,
         /* The owner's 7-digit public user ID. */
-        Long ownerPublicId
+        Long ownerPublicId,
+        /* Newbie Welcome Room, and whether its 6 extra seats are open. */
+        boolean newbie,
+        boolean extraSeats
 ) {
     public static VoiceRoomResponse from(VoiceRoom room) {
         return new VoiceRoomResponse(
@@ -63,7 +66,9 @@ public record VoiceRoomResponse(
                 Math.max(0, room.getExp()),
                 com.panchayat.backend.rooms.service.RoomLevels.level(Math.max(0, room.getExp())),
                 com.panchayat.backend.common.PublicIds.room(room.getId()),
-                com.panchayat.backend.common.PublicIds.user(room.getOwnerId())
+                com.panchayat.backend.common.PublicIds.user(room.getOwnerId()),
+                room.isNewbie(),
+                room.isExtraSeats()
         );
     }
 }

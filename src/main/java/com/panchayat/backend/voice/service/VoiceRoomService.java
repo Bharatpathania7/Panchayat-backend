@@ -162,6 +162,10 @@ public class VoiceRoomService {
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.jdbc.core.JdbcTemplate parivarJdbc;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.newbie.NewbieService newbieService;
+
     @Transactional(readOnly = true)
     public List<VoiceRoomResponse> getPublicRooms() {
 
@@ -171,6 +175,8 @@ public class VoiceRoomService {
                 .findByStatusAndIsPrivateFalseOrderByCreatedAtDesc("ACTIVE")
                 .stream()
                 .filter(r -> !familyRooms.contains(r.getId()))
+                // Newbie Welcome Rooms come first (the sort is stable, so the rest keep their order)
+                .sorted(java.util.Comparator.comparing((VoiceRoom r) -> !r.isNewbie()))
                 .map(VoiceRoomResponse::from)
                 .toList();
     }
@@ -479,6 +485,7 @@ public class VoiceRoomService {
         if (arriving || room.getOwnerId().equals(joinedUserId)) {
             afterCommit(() -> roomStateService.onJoined(roomId, joinedUserId));
         }
+        if (arriving && room.isNewbie()) newbieService.onJoin(roomId, joinedUserId);
 
         return new JoinVoiceRoomResponse(
                 liveKitUrl,

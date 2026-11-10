@@ -666,9 +666,12 @@ public class RoomStateService {
     /** Seats are fixed by the room's mode, whatever its size: 10 in a voice or Kharidari room, 12 in a YouTube room. */
     public static final int SEATS_VOICE = 10;
     public static final int SEATS_WATCH = 12;
+    /** A Newbie Welcome Room can open 6 more seats below the regular ones. */
+    public static final int SEATS_EXTRA = 6;
 
     public static int seatCount(VoiceRoom room) {
-        return room.getRoomType() == com.panchayat.backend.voice.entity.VoiceRoomType.WATCH ? SEATS_WATCH : SEATS_VOICE;
+        int base = room.getRoomType() == com.panchayat.backend.voice.entity.VoiceRoomType.WATCH ? SEATS_WATCH : SEATS_VOICE;
+        return room.isNewbie() && room.isExtraSeats() ? base + SEATS_EXTRA : base;
     }
 
     /** The owner or an admin changed the room's mode: resize the seats and tell the room. People on seats that no longer exist lose them. */

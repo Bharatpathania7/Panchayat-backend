@@ -23,6 +23,10 @@ import java.util.Locale;
 
 @Service
 public class AuthService {
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.newbie.NewbieService newbieService;
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.jdbc.core.JdbcTemplate welcomeJdbc;
 
@@ -150,16 +154,19 @@ public class AuthService {
         emailOtpRepository.flush();
 
         // Find the existing user or create a new account.
+        boolean[] created = {false};
         User user = userRepository
                 .findByEmailIgnoreCase(email)
                 .orElseGet(() -> {
                     User newUser = new User();
                     newUser.setEmail(email);
+                    created[0] = true;
                     return newUser;
                 });
 
         user.setEmailVerified(true);
         user = userRepository.saveAndFlush(user);
+        if (created[0]) newbieService.onRegistered(user.getId());
 
         return refreshTokenService.signIn(user, "Email verified successfully");
     }

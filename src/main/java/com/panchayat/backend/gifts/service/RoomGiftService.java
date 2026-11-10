@@ -93,6 +93,10 @@ public class RoomGiftService {
     private GiftLuckService luck;
 
     @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.newbie.NewbieService newbie;
+
+    @org.springframework.beans.factory.annotation.Autowired
     private com.panchayat.backend.rooms.service.RoomExpService roomExp;
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -146,6 +150,9 @@ public class RoomGiftService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "They're no longer in the room");
         }
 
+        // The Welcome Newbie gift: only the host of a welcome room, only to a newbie who has not had one
+        newbie.checkWelcomeGift(room, senderId, receiverId, giftId, count, fromBag);
+
         long coins;
         long points;
         try {
@@ -179,6 +186,7 @@ public class RoomGiftService {
         ev.setFromBag(fromBag);
         RoomGiftEvent saved = events.save(ev);
         events.flush();
+        newbie.recordWelcomeGift(room, senderId, receiverId, giftId, coins, requestId);
         rooms.addPoints(roomId, points);
         // Room EXP for the room level: every 10 coins is 1 EXP (not for gifts from a Bag)
         if (!fromBag) roomExp.addGift(roomId, coins);
