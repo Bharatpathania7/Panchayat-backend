@@ -39,6 +39,8 @@ public class GiftDefinition {
     private String animationPublicId;
     @Column(name = "animation_format", length = 10)
     private String animationFormat;
+    @Column(name = "animation_ratio", length = 20)
+    private String animationRatio;
 
     @Column(name = "sound_url", length = 500)
     private String soundUrl;
@@ -76,6 +78,8 @@ public class GiftDefinition {
     public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
     public String getImagePublicId() { return imagePublicId; }
     public void setImagePublicId(String imagePublicId) { this.imagePublicId = imagePublicId; }
+    public String getAnimationRatio() { return animationRatio; }
+    public void setAnimationRatio(String animationRatio) { this.animationRatio = animationRatio; }
     public String getAnimationUrl() { return animationUrl; }
     public void setAnimationUrl(String animationUrl) { this.animationUrl = animationUrl; }
     public String getAnimationPublicId() { return animationPublicId; }

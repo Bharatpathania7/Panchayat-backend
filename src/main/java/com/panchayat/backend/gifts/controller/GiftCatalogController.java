@@ -49,6 +49,7 @@ public class GiftCatalogController {
         m.put("imageUrl", MediaUrls.link(g.getImageUrl()));
         m.put("animationUrl", MediaUrls.link(g.getAnimationUrl()));
         m.put("animationFormat", g.getAnimationFormat());
+        m.put("animationRatio", g.getAnimationRatio());
         m.put("soundUrl", MediaUrls.link(g.getSoundUrl()));
         return m;
     }

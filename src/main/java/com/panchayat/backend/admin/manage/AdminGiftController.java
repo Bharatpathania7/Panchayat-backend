@@ -49,6 +49,19 @@ public class AdminGiftController {
         return Map.of("id", id, "announce", on);
     }
 
+    public record DisplayRequest(String ratio) {
+    }
+
+    /** How big a gift's animation plays: a shape like "510 / 534" (floats across the width), or empty for full screen. */
+    @PutMapping("/{id}/display")
+    public Map<String, Object> setDisplay(@PathVariable String id, @RequestBody DisplayRequest body) {
+        String r = body == null || body.ratio() == null ? "" : body.ratio().strip();
+        if (!r.isEmpty() && !r.matches("\\d{2,5} ?/ ?\\d{2,5}")) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Use a shape like 510 / 534.");
+        int n = announceJdbc.update("update gifts set animation_ratio = ? where id = ?", r.isEmpty() ? null : r.replaceAll(" ?/ ?", " / "), id);
+        if (n == 0) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "That gift doesn't exist.");
+        return Map.of("id", id, "animationRatio", r);
+    }
+
     /** Fixed charm per gift (gift id to charm); a gift not listed uses 1 charm per 5 coins. */
     /** Per gift: how much Charm and how many lucky coins it triggers, each as a min and max (a random number in between). */
     @GetMapping("/triggers")
@@ -249,6 +262,7 @@ public class AdminGiftController {
         m.put("imageUrl", MediaUrls.link(g.getImageUrl()));
         m.put("animationUrl", MediaUrls.link(g.getAnimationUrl()));
         m.put("animationFormat", g.getAnimationFormat());
+        m.put("animationRatio", g.getAnimationRatio());
         m.put("soundUrl", MediaUrls.link(g.getSoundUrl()));
         m.put("createdAt", g.getCreatedAt());
         m.put("updatedAt", g.getUpdatedAt());

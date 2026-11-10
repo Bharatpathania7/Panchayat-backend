@@ -280,6 +280,7 @@ public class ParivarService {
                 + " coalesce((select sum(a.exp) from parivar_activity a where a.parivar_id = p.id and a.created_at >= ?), 0) as week_exp,"
                 + " (select l.capacity from parivar_levels l where l.level = p.level) as capacity,"
                 + " (select l.frame from parivar_levels l where l.level = p.level) as frame,"
+                + " (select u.full_name from parivar_members lm join users u on u.id = lm.user_id where lm.parivar_id = p.id and lm.role = 'LEADER' limit 1) as leader_name,"
                 + " (select a.status from parivar_applications a where a.parivar_id = p.id and a.user_id = ? and a.status = 'PENDING') as my_application"
                 + " from parivars p" + where;
         List<Object> all = new ArrayList<>(List.of(ws, userId));
@@ -308,6 +309,7 @@ public class ParivarService {
         m.put("logoUrl", MediaUrls.link(rs.getString("logo_url")));
         m.put("frame", rs.getString("frame"));
         m.put("intro", rs.getString("intro"));
+        m.put("leader", rs.getString("leader_name"));
         m.put("level", rs.getInt("level"));
         m.put("exp", rs.getLong("exp"));
         m.put("weekExp", rs.getLong("week_exp"));
