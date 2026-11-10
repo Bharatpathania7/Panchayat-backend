@@ -39,7 +39,7 @@ public class DirectGiftService {
 
 
     private static final Pattern REQUEST_ID = Pattern.compile("^[A-Za-z0-9-]{8,64}$");
-    private static final Set<String> CONTEXTS = Set.of("PROFILE", "TAG", "CP", "MOMENT", "CHAT");
+    private static final Set<String> CONTEXTS = Set.of("PROFILE", "TAG", "CP", "MOMENT", "CHAT", "PARIVAR", "PARIVAR_ALL");
     private static final int MAX_COUNT = 999;
     private static final ZoneId ZONE = ZoneId.of("Asia/Kolkata");
 
@@ -92,6 +92,8 @@ public class DirectGiftService {
                     ((Number) done.get(0).get("receiver_earned")).longValue(), wallet.getBalance(senderId));
         }
 
+        // Gifts sent from the Parivar screens go only to people in the same Parivar
+        if (ctx.startsWith("PARIVAR") && !parivarService.sameParivar(senderId, receiverId)) throw bad("You can only send this to someone in your Parivar.");
         Integer exists = jdbc.queryForObject("select count(*) from users where id = ?", Integer.class, receiverId);
         if (exists == null || exists == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That person doesn't exist");
         Integer blocks = jdbc.queryForObject(
@@ -123,6 +125,7 @@ public class DirectGiftService {
         tags.addIntimacy(senderId, receiverId, coins);
         couples.onGift(senderId, receiverId, coins, giftId, count, requestId);
         parivarService.onGift(senderId, receiverId, giftId, count, coins, requestId);
+        if ("PARIVAR".equals(ctx)) parivarService.announceGift(senderId, receiverId, giftId, count);
         rewards.onSpend(senderId, coins);
         // VIP growth, with the level-up reward notice
         vipGrowth.onSpend(senderId, coins);
@@ -155,7 +158,9 @@ public class DirectGiftService {
                 messaging.convertAndSendToUser(receiverEmail, "/queue/notify", note);
             }
         });
-        return result(id, coins, earned + luckyCoins, balance);
+        Map<String, Object> res = result(id, coins, earned + luckyCoins, balance);
+        res.put("charm", charm);
+        return res;
     }
 
     /** Recent gifts between two people, both ways (for the CP and BFF spaces). */

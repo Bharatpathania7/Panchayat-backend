@@ -175,6 +175,41 @@ public class ParivarService {
         return after.get(0);
     }
 
+    /** Are these two people in the same active Parivar? */
+    public boolean sameParivar(Long a, Long b) {
+        if (a == null || b == null) return false;
+        Integer n = jdbc.queryForObject("select count(*) from parivar_members x join parivar_members y on y.parivar_id = x.parivar_id join parivars p on p.id = x.parivar_id"
+                + " where x.user_id = ? and y.user_id = ? and p.status = 'ACTIVE'", Integer.class, a, b);
+        return n != null && n > 0;
+    }
+
+    /** The other members of the Parivar this person is in (for a gift to everyone). */
+    public List<Long> otherMemberIds(Long userId) {
+        Long id = myParivarId(userId);
+        if (id == null) return List.of();
+        return jdbc.queryForList("select user_id from parivar_members where parivar_id = ? and user_id <> ? order by joined_at", Long.class, id, userId);
+    }
+
+    /** "A sent everyone a gift" in the family chat. */
+    public void announceGiftAll(Long senderId, String giftId, int count, int people) {
+        Long id = myParivarId(senderId);
+        if (id == null) return;
+        String from = jdbc.query("select coalesce(full_name, 'Someone') from users where id = ?", rs -> rs.next() ? rs.getString(1) : "Someone", senderId);
+        String gift = jdbc.query("select name from gifts where id = ?", rs -> rs.next() ? rs.getString(1) : giftId, giftId);
+        system(id, "🎁 " + from + " sent everyone (" + people + ") " + gift + (count > 1 ? " ×" + count : ""));
+    }
+
+    /** "A sent B a gift" in the family chat, for gifts sent from the Parivar screens. */
+    public void announceGift(Long senderId, Long receiverId, String giftId, int count) {
+        List<Long> same = jdbc.queryForList("select a.parivar_id from parivar_members a join parivar_members b on b.parivar_id = a.parivar_id join parivars p on p.id = a.parivar_id"
+                + " where a.user_id = ? and b.user_id = ? and p.status = 'ACTIVE'", Long.class, senderId, receiverId);
+        if (same.isEmpty()) return;
+        String from = jdbc.query("select coalesce(full_name, 'Someone') from users where id = ?", rs -> rs.next() ? rs.getString(1) : "Someone", senderId);
+        String to = jdbc.query("select coalesce(full_name, 'Someone') from users where id = ?", rs -> rs.next() ? rs.getString(1) : "Someone", receiverId);
+        String gift = jdbc.query("select name from gifts where id = ?", rs -> rs.next() ? rs.getString(1) : giftId, giftId);
+        system(same.get(0), "🎁 " + from + " sent " + to + " " + gift + (count > 1 ? " ×" + count : ""));
+    }
+
     /** A line in the family chat from the system (level ups, big wins, Chori, chests...). */
     void system(Long parivarId, String text) {
         jdbc.update("insert into parivar_chat (parivar_id, user_id, kind, text) values (?, null, 'SYSTEM', ?)", parivarId, text.length() > 500 ? text.substring(0, 500) : text);

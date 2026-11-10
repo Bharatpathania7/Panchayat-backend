@@ -220,7 +220,9 @@ public class ParivarWarService {
         m.put("blockedReason", why);
         long usedToday = l(jdbc.queryForObject("select count(*) from parivar_steal_log where thief_parivar = ? and created_at >= ?", Long.class, parivarId, dayStart()));
         int daily = ((Number) s.get("steal_daily_attempts")).intValue();
-        m.put("attemptsLeft", Math.max(0, daily - usedToday));
+        long extraAttempts = l(jdbc.query("select qty from parivar_inventory where parivar_id = ? and kind = 'ATTEMPT' and ref = 0", rs -> rs.next() ? rs.getLong(1) : 0L, parivarId));
+        m.put("attemptsLeft", Math.max(0, daily - usedToday) + extraAttempts);
+        m.put("extraAttempts", extraAttempts);
         m.put("dailyAttempts", daily);
         Timestamp last = jdbc.query("select max(created_at) from parivar_steal_log where thief_parivar = ?", rs -> rs.next() ? rs.getTimestamp(1) : null, parivarId);
         long cd = ((Number) s.get("steal_cooldown_minutes")).longValue() * 60;
@@ -300,8 +302,11 @@ public class ParivarWarService {
         Map<String, Object> me = core.activeParivar(parivarId);
 
         int daily = ((Number) s.get("steal_daily_attempts")).intValue();
-        if (l(jdbc.queryForObject("select count(*) from parivar_steal_log where thief_parivar = ? and created_at >= ?", Long.class, parivarId, dayStart())) >= daily)
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "Your Parivar has used all of today's Chori attempts.");
+        // Today's attempts first; when they are used up, a Stealing Attempt won in Gacha is used instead
+        if (l(jdbc.queryForObject("select count(*) from parivar_steal_log where thief_parivar = ? and created_at >= ?", Long.class, parivarId, dayStart())) >= daily) {
+            if (jdbc.update("update parivar_inventory set qty = qty - 1 where parivar_id = ? and kind = 'ATTEMPT' and ref = 0 and qty >= 1", parivarId) == 0)
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Your Parivar has used all of today's Chori attempts.");
+        }
         Timestamp last = jdbc.query("select max(created_at) from parivar_steal_log where thief_parivar = ?", rs -> rs.next() ? rs.getTimestamp(1) : null, parivarId);
         long cdMin = ((Number) s.get("steal_cooldown_minutes")).longValue();
         if (last != null && Duration.between(last.toInstant(), Instant.now()).toMinutes() < cdMin) throw new ResponseStatusException(HttpStatus.CONFLICT, "Chori is cooling down. Try again in a while.");

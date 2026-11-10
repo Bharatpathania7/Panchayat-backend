@@ -240,6 +240,32 @@ public class SpendRewardService {
         return pool.get(pool.size() - 1);
     }
 
+    /** A gift card won in Parivar Gacha: `qty` of a gift into the person's Bag (it expires after `days` days, 0 = never). */
+    @Transactional
+    public void grantGachaGift(Long userId, String giftId, int qty, int days) {
+        String name = jdbc.query("select name from gifts where id = ?", rs -> rs.next() ? rs.getString(1) : giftId, giftId);
+        Instant now = Instant.now();
+        jdbc.update("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, granted_at, expires_at)"
+                        + " values (?, null, null, 'GACHA', 'Parivar Gacha', ?, 'GIFT', ?, ?, ?, null, ?, ?)",
+                userId, name + " Gift Card", giftId, qty, qty, Timestamp.from(now), days > 0 ? Timestamp.from(now.plus(Duration.ofDays(days))) : null);
+    }
+
+    /** A frame, chat bubble or entry animation won in Parivar Gacha, from the Spend rewards items, for `days` days (0 = the item's own length). */
+    @Transactional
+    public String grantGachaItem(Long userId, long ruleItemId, int days) {
+        List<Map<String, Object>> it = jdbc.queryForList("select name, item_type, duration_days, media_url, media_format, sound_url from reward_rule_items where id = ?", ruleItemId);
+        if (it.isEmpty()) throw new IllegalStateException("The Gacha item " + ruleItemId + " doesn't exist");
+        Map<String, Object> i = it.get(0);
+        int len = days > 0 ? days : (i.get("duration_days") == null ? 0 : ((Number) i.get("duration_days")).intValue());
+        Instant now = Instant.now();
+        String type = (String) i.get("item_type");
+        jdbc.update("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, sound_url, granted_at, expires_at)"
+                        + " values (?, null, ?, 'GACHA', 'Parivar Gacha', ?, ?, null, 1, null, ?, ?, ?, ?, ?, ?)",
+                userId, ruleItemId, i.get("name"), type, slotOf(type), i.get("media_url"), i.get("media_format"), i.get("sound_url"), Timestamp.from(now),
+                len > 0 ? Timestamp.from(now.plus(Duration.ofDays(len))) : null);
+        return (String) i.get("name");
+    }
+
     private Map<String, Object> grant(Long userId, RewardRule r, RewardRuleItem i) {
         Instant now = Instant.now();
         Instant expires = i.getDurationDays() == null ? null : now.plus(Duration.ofDays(i.getDurationDays()));

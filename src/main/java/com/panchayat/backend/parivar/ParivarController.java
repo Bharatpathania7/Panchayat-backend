@@ -44,6 +44,44 @@ public class ParivarController {
     public record DonateRequest(Long amount) {
     }
 
+    public record GiftAllRequest(String giftId, Integer count, String requestId) {
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.gifts.service.DirectGiftService directGifts;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.wallet.service.CoinWalletService walletService;
+
+    /** The same gift to every other member of your Parivar. The whole cost is checked first; each member gets their own gift and Charm. */
+    @PostMapping("/gift-all")
+    public Map<String, Object> giftAll(@RequestBody GiftAllRequest b, Authentication auth) {
+        Long meId = me(auth);
+        if (b == null || b.giftId() == null || b.requestId() == null || b.requestId().isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pick a gift.");
+        int count = b.count() == null ? 1 : b.count();
+        if (count < 1 || count > 10) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Send between 1 and 10 at a time.");
+        List<Long> targets = parivar.otherMemberIds(meId);
+        if (targets.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No one else is in your Parivar yet.");
+        if (targets.size() > 100) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Too many members for one gift.");
+        long price = com.panchayat.backend.gifts.service.GiftCatalog.price(b.giftId()).orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "That gift isn't on sale"));
+        long total = Math.multiplyExact(Math.multiplyExact(price, (long) count), (long) targets.size());
+        if (walletService.getBalance(meId) < total) throw new ResponseStatusException(HttpStatus.CONFLICT, "Not enough coins. This gift costs " + total + " coins for everyone.");
+        long charm = 0;
+        int sent = 0;
+        for (Long t : targets) {
+            try {
+                Map<String, Object> r = directGifts.send(meId, t, b.giftId(), count, b.requestId().trim() + "-" + t, "PARIVAR_ALL");
+                charm += r.get("charm") instanceof Number n ? n.longValue() : 0;
+                sent++;
+            } catch (ResponseStatusException e) {
+                // Someone who blocked you (or left) is skipped; the rest still get theirs
+            }
+        }
+        if (sent == 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "The gift couldn't be sent to anyone.");
+        parivar.announceGiftAll(meId, b.giftId(), count, sent);
+        return Map.of("sent", sent, "coins", price * count * sent, "charm", charm, "senderBalance", walletService.getBalance(meId));
+    }
+
     /** The picture for a Parivar's logo. Returns the stored path to send back when creating or editing. */
     @PostMapping(value = "/logo", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> logo(@RequestPart("file") org.springframework.web.multipart.MultipartFile file, Authentication auth) {

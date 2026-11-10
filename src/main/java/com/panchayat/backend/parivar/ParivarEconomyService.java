@@ -67,6 +67,20 @@ public class ParivarEconomyService {
 
     /* ======================= inventory and rewards ======================= */
 
+    /** Gacha tickets belong to a person. */
+    void addTickets(Long userId, long qty) {
+        jdbc.update("insert into parivar_user_tickets (user_id, qty) values (?, ?) on conflict (user_id) do update set qty = parivar_user_tickets.qty + excluded.qty, updated_at = now()", userId, qty);
+    }
+
+    /** Takes tickets from a person; false when they don't have that many. */
+    boolean takeTickets(Long userId, long qty) {
+        return jdbc.update("update parivar_user_tickets set qty = qty - ?, updated_at = now() where user_id = ? and qty >= ?", qty, userId, qty) > 0;
+    }
+
+    long tickets(Long userId) {
+        return l(jdbc.query("select qty from parivar_user_tickets where user_id = ?", rs -> rs.next() ? rs.getLong(1) : 0L, userId));
+    }
+
     void addInventory(Long parivarId, String kind, long ref, long qty) {
         jdbc.update("insert into parivar_inventory (parivar_id, kind, ref, qty) values (?, ?, ?, ?) on conflict (parivar_id, kind, ref) do update set qty = parivar_inventory.qty + excluded.qty", parivarId, kind, ref, qty);
     }
@@ -78,7 +92,7 @@ public class ParivarEconomyService {
 
     public List<Map<String, Object>> inventory(Long userId, Long parivarId) {
         member(parivarId, userId);
-        return jdbc.queryForList("select i.kind, i.ref, i.qty, coalesce(m.name, c.name, b.name) as name from parivar_inventory i"
+        return jdbc.queryForList("select i.kind, i.ref, i.qty, coalesce(m.name, c.name, b.name, case when i.kind = 'ATTEMPT' then 'Stealing Attempts' end) as name from parivar_inventory i"
                 + " left join parivar_gacha_machines m on i.kind = 'GACHA_CARD' and m.id = i.ref left join parivar_chest_types c on i.kind = 'CHEST' and c.id = i.ref"
                 + " left join parivar_barrier_types b on i.kind = 'BARRIER' and b.id = i.ref where i.parivar_id = ? and i.qty > 0 order by i.kind, i.ref", parivarId);
     }
@@ -93,7 +107,8 @@ public class ParivarEconomyService {
             case "CHARM" -> jdbc.update("update users set charm_points = charm_points + ? where id = ?", amount, userId);
             case "FUNDS" -> core.changeFunds(parivarId, userId, amount, "REWARD", "reward:" + key);
             case "CHEST" -> addInventory(parivarId, "CHEST", ref, amount);
-            case "CARD" -> addInventory(parivarId, "GACHA_CARD", ref, amount);
+            case "CARD" -> addTickets(userId, amount);
+            case "WEAPON" -> addInventory(parivarId, "ATTEMPT", 0, amount);
             case "BARRIER" -> addInventory(parivarId, "BARRIER", ref, amount);
             case "EXP" -> core.addExp(parivarId, userId, amount);
             default -> throw new IllegalStateException("Unknown reward kind " + kind);

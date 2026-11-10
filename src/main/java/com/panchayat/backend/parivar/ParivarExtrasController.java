@@ -167,6 +167,14 @@ public class ParivarExtrasController {
         return gacha.roll(me(auth), id, machineId, body == null || body.times() == null ? 1 : body.times(), key);
     }
 
+    public record TicketRequest(Integer qty) {
+    }
+
+    @PostMapping("/gacha/tickets")
+    public Map<String, Object> buyTickets(@PathVariable Long id, @RequestBody TicketRequest body, Authentication auth) {
+        return gacha.buyTickets(me(auth), id, body == null || body.qty() == null ? 1 : body.qty());
+    }
+
     @GetMapping("/gacha/history")
     public List<Map<String, Object>> gachaHistory(@PathVariable Long id, Authentication auth) {
         return gacha.history(me(auth), id);

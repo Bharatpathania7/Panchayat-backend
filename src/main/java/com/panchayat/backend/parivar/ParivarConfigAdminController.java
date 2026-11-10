@@ -48,9 +48,10 @@ public class ParivarConfigAdminController {
         SECTIONS.put("gacha-machines", new Section("parivar_gacha_machines", "sort_order, id", List.of(
                 Col.str("name", "name", 40, true), Col.str("tier", "tier", 12, true), Col.str("imageUrl", "image_url", 500, false), Col.str("animationUrl", "animation_url", 500, false),
                 Col.num("priceFunds", "price_funds", 0, BIG), Col.num("serviceFeeCoins", "service_fee_coins", 0, BIG), Col.integer("freePerDay", "free_per_day", 0, 1000),
+                Col.num("freeFundCost", "free_fund_cost", 0, BIG), Col.num("rollPriceCoins", "roll_price_coins", 0, BIG),
                 Col.integer("minLevel", "min_level", 1, 100), Col.integer("sortOrder", "sort_order", 0, 100000), Col.bool("active", "active")), false, null));
         SECTIONS.put("gacha-rewards", new Section("parivar_gacha_rewards", "machine_id, weight desc, id", List.of(
-                Col.num("machineId", "machine_id", 1, BIG), Col.oneOf("kind", "kind", "COINS", "FUNDS", "CHARM", "CHEST", "CARD", "BARRIER"), Col.num("ref", "ref", 0, BIG), Col.num("amount", "amount", 1, BIG),
+                Col.num("machineId", "machine_id", 1, BIG), Col.oneOf("kind", "kind", "COINS", "FUNDS", "CHARM", "CHEST", "CARD", "BARRIER", "GIFT_CARD", "WEAPON", "ITEM"), Col.num("ref", "ref", 0, BIG), Col.str("giftId", "gift_id", 64, false), Col.num("amount", "amount", 1, BIG),
                 Col.integer("weight", "weight", 1, 1_000_000), Col.oneOf("rarity", "rarity", "COMMON", "RARE", "EPIC", "LEGENDARY"), Col.str("label", "label", 60, true),
                 Col.str("imageUrl", "image_url", 500, false), Col.bool("active", "active")), true, "machineId"));
         SECTIONS.put("chests", new Section("parivar_chest_types", "sort_order, id", List.of(
@@ -81,7 +82,7 @@ public class ParivarConfigAdminController {
                 Col.num("stealFailPenalty", "steal_fail_penalty", 0, BIG), Col.num("stealMinTargetFunds", "steal_min_target_funds", 0, BIG), Col.bool("gachaEnabled", "gacha_enabled"),
                 Col.bool("shopEnabled", "shop_enabled"), Col.bool("tasksEnabled", "tasks_enabled"), Col.bool("chatEnabled", "chat_enabled"), Col.bool("voiceEnabled", "voice_enabled"),
                 Col.integer("voiceMinLevel", "voice_min_level", 1, 100), Col.integer("chestExpiryHours", "chest_expiry_hours", 1, 720), Col.oneOf("chestExpiryPolicy", "chest_expiry_policy", "NONE", "REFUND_FUNDS"),
-                Col.integer("checkinExp", "checkin_exp", 0, 1_000_000), Col.bool("rankRewardsEnabled", "rank_rewards_enabled")))
+                Col.integer("checkinExp", "checkin_exp", 0, 1_000_000), Col.num("gachaTicketPrice", "gacha_ticket_price", 0, 1_000_000), Col.bool("rankRewardsEnabled", "rank_rewards_enabled")))
             EXTRA.put(c.key(), c);
     }
 
