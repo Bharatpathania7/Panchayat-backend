@@ -107,9 +107,14 @@ public class RoomGiftService {
 
     public record GiftSent(String eventId, String roomId, String fromUserId, String toUserId, String giftId,
                            int count, long coins, long earned, long roomPoints, String requestId,
-                           Instant at, long senderBalance, boolean fromBag, long bonus) {
+                           Instant at, long senderBalance, boolean fromBag, long bonus, long charm) {
         GiftSent withBonus(long b) {
-            return new GiftSent(eventId, roomId, fromUserId, toUserId, giftId, count, coins, earned + b, roomPoints, requestId, at, senderBalance, fromBag, b);
+            return new GiftSent(eventId, roomId, fromUserId, toUserId, giftId, count, coins, earned + b, roomPoints, requestId, at, senderBalance, fromBag, b, charm);
+        }
+
+        /** The Charm the receiver really got for this gift (the app shows it in the chat and adds it at once). */
+        GiftSent withCharm(long c) {
+            return new GiftSent(eventId, roomId, fromUserId, toUserId, giftId, count, coins, earned, roomPoints, requestId, at, senderBalance, fromBag, bonus, c);
         }
     }
 
@@ -210,7 +215,7 @@ public class RoomGiftService {
         // The same number counts as the sender's Guard for the receiver (Guard list)
         charmJdbc.update("update room_gift_events set charm = ? where request_id = ?", charm, requestId);
         long roomPoints = rooms.findById(roomId).map(VoiceRoom::getPoints).orElse(0L);
-        GiftSent result = toResult(saved, roomPoints, wallet.getBalance(senderId), requestId).withBonus(luckyCoins);
+        GiftSent result = toResult(saved, roomPoints, wallet.getBalance(senderId), requestId).withBonus(luckyCoins).withCharm(charm);
 
         afterCommit(() -> {
             Object payload = result;
@@ -260,7 +265,7 @@ public class RoomGiftService {
     private static GiftSent toResult(RoomGiftEvent e, long roomPoints, long senderBalance, String requestId) {
         return new GiftSent(String.valueOf(e.getId()), String.valueOf(e.getRoomId()), String.valueOf(e.getSenderId()),
                 String.valueOf(e.getReceiverId()), e.getGiftId(), e.getGiftCount(), e.getCoins(), e.getReceiverEarned(),
-                roomPoints, requestId, e.getCreatedAt(), senderBalance, e.isFromBag(), 0L);
+                roomPoints, requestId, e.getCreatedAt(), senderBalance, e.isFromBag(), 0L, 0L);
     }
 
     private static void afterCommit(Runnable r) {
