@@ -674,6 +674,15 @@ public class RoomStateService {
         return room.isNewbie() && room.isExtraSeats() ? base + SEATS_EXTRA : base;
     }
 
+    /** Tells everyone in the room about something that is not a seat change (for example a welcome for a new member). */
+    public void announce(Long roomId, String type, Long actor, Long target) {
+        Ctx ctx = load(roomId);
+        Live live = live(ctx);
+        synchronized (live) {
+            publish(ctx, live, event(type, actor, target, null, null));
+        }
+    }
+
     /** The owner or an admin changed the room's mode: resize the seats and tell the room. People on seats that no longer exist lose them. */
     public void onModeChanged(Long roomId) {
         Ctx ctx = load(roomId);

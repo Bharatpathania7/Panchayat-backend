@@ -3,6 +3,11 @@ package com.panchayat.backend.newbie;
 import com.panchayat.backend.admin.media.MediaUrls;
 import com.panchayat.backend.common.PublicIds;
 import com.panchayat.backend.rooms.service.RoomStateService;
+import com.panchayat.backend.wallet.service.CoinWalletService;
+import com.panchayat.backend.wallet.service.WalletPushService;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import com.panchayat.backend.voice.entity.VoiceRoom;
 import com.panchayat.backend.voice.entity.VoiceRoomType;
 import com.panchayat.backend.voice.repository.VoiceRoomRepository;
@@ -42,11 +47,21 @@ public class NewbieService {
     private final JdbcTemplate jdbc;
     private final VoiceRoomRepository rooms;
     private final RoomStateService roomState;
+    private final CoinWalletService wallet;
+    private final WalletPushService walletPush;
+    private final SimpMessagingTemplate messaging;
+    private final TransactionTemplate txNew;
 
-    public NewbieService(JdbcTemplate jdbc, VoiceRoomRepository rooms, @Lazy RoomStateService roomState) {
+    public NewbieService(JdbcTemplate jdbc, VoiceRoomRepository rooms, @Lazy RoomStateService roomState, CoinWalletService wallet,
+                         WalletPushService walletPush, SimpMessagingTemplate messaging, PlatformTransactionManager tm) {
         this.jdbc = jdbc;
         this.rooms = rooms;
         this.roomState = roomState;
+        this.wallet = wallet;
+        this.walletPush = walletPush;
+        this.messaging = messaging;
+        this.txNew = new TransactionTemplate(tm);
+        this.txNew.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     private static ResponseStatusException bad(String m) {
@@ -65,7 +80,8 @@ public class NewbieService {
 
     public record Config(boolean autoCreate, int eligibilityDays, int maxRooms, int roomCapacity, int roomLifetimeHours, boolean extraSeatsAllowed,
                          int hostGraceMinutes, boolean welcomeGiftEnabled, String welcomeGiftId, String welcomeTitle, String welcomeMessage,
-                         String roomDescription, int priority) {
+                         String roomDescription, int priority, boolean autoGreeting, boolean autoRewardEnabled, String autoRewardGiftId,
+                         long autoRewardCoins, long autoRewardCharm) {
     }
 
     private volatile Config cached;
@@ -76,9 +92,11 @@ public class NewbieService {
         Config c = cached;
         if (c != null && System.currentTimeMillis() - cachedAt < 5_000) return c;
         Config fresh = jdbc.queryForObject("select auto_create, eligibility_days, max_rooms, room_capacity, room_lifetime_hours, extra_seats_allowed, host_grace_minutes,"
-                        + " welcome_gift_enabled, welcome_gift_id, welcome_title, welcome_message, room_description, priority from newbie_room_config where id = 1",
+                        + " welcome_gift_enabled, welcome_gift_id, welcome_title, welcome_message, room_description, priority,"
+                        + " auto_greeting_enabled, auto_reward_enabled, auto_reward_gift_id, auto_reward_coins, auto_reward_charm from newbie_room_config where id = 1",
                 (rs, i) -> new Config(rs.getBoolean(1), rs.getInt(2), rs.getInt(3), rs.getInt(4), rs.getInt(5), rs.getBoolean(6), rs.getInt(7), rs.getBoolean(8),
-                        rs.getString(9), rs.getString(10), rs.getString(11), rs.getString(12), rs.getInt(13)));
+                        rs.getString(9), rs.getString(10), rs.getString(11), rs.getString(12), rs.getInt(13),
+                        rs.getBoolean(14), rs.getBoolean(15), rs.getString(16), rs.getLong(17), rs.getLong(18)));
         cached = fresh;
         cachedAt = System.currentTimeMillis();
         return fresh;
@@ -100,6 +118,11 @@ public class NewbieService {
         m.put("welcomeMessage", c.welcomeMessage());
         m.put("roomDescription", c.roomDescription());
         m.put("priority", c.priority());
+        m.put("autoGreeting", c.autoGreeting());
+        m.put("autoRewardEnabled", c.autoRewardEnabled());
+        m.put("autoRewardGiftId", c.autoRewardGiftId());
+        m.put("autoRewardCoins", c.autoRewardCoins());
+        m.put("autoRewardCharm", c.autoRewardCharm());
         return m;
     }
 
@@ -132,6 +155,13 @@ public class NewbieService {
         Config c = config();
         String giftId = textIn(in.get("welcomeGiftId"), c.welcomeGiftId(), 64, "The welcome gift");
         if (jdbc.queryForObject("select count(*) from gifts where id = ?", Long.class, giftId) == 0) throw bad("That gift doesn't exist. Create it in Gifts first.");
+        Object rg = in.containsKey("autoRewardGiftId") ? in.get("autoRewardGiftId") : c.autoRewardGiftId();
+        String rewardGift = rg == null || String.valueOf(rg).isBlank() ? null : String.valueOf(rg).strip();
+        if (rewardGift != null && jdbc.queryForObject("select count(*) from gifts where id = ?", Long.class, rewardGift) == 0) throw bad("The reward gift doesn't exist. Create it in Gifts first.");
+        long rewardCoins = intIn(in.get("autoRewardCoins"), (int) Math.min(c.autoRewardCoins(), 1_000_000), 0, 1_000_000, "The reward coins");
+        long rewardCharm = intIn(in.get("autoRewardCharm"), (int) Math.min(c.autoRewardCharm(), 1_000_000), 0, 1_000_000, "The reward Charm");
+        jdbc.update("update newbie_room_config set auto_greeting_enabled = ?, auto_reward_enabled = ?, auto_reward_gift_id = ?, auto_reward_coins = ?, auto_reward_charm = ? where id = 1",
+                boolIn(in.get("autoGreeting"), c.autoGreeting()), boolIn(in.get("autoRewardEnabled"), c.autoRewardEnabled()), rewardGift, rewardCoins, rewardCharm);
         jdbc.update("update newbie_room_config set auto_create = ?, eligibility_days = ?, max_rooms = ?, room_capacity = ?, room_lifetime_hours = ?, extra_seats_allowed = ?,"
                         + " host_grace_minutes = ?, welcome_gift_enabled = ?, welcome_gift_id = ?, welcome_title = ?, welcome_message = ?, room_description = ?, priority = ? where id = 1",
                 boolIn(in.get("autoCreate"), c.autoCreate()),
@@ -271,7 +301,8 @@ public class NewbieService {
             + " (select count(*) from voice_room_participants p join users x on x.id = p.user_id where p.room_id = nr.room_id and p.status = 'JOINED' and x.created_at > now() - make_interval(days => ?)) as newbies_in,"
             + " exists (select 1 from voice_room_participants p where p.room_id = nr.room_id and p.user_id = nr.host_id and p.status = 'JOINED') as host_present,"
             + " (select count(*) from newbie_room_participants q where q.room_id = nr.room_id) as visitors,"
-            + " (select count(*) from newbie_welcome_gifts g where g.room_id = nr.room_id) as gifts"
+            + " (select count(*) from newbie_welcome_gifts g where g.room_id = nr.room_id) as gifts,"
+            + " (select count(*) from voice_room_admins a where a.room_id = nr.room_id) as admins"
             + " from newbie_rooms nr join voice_rooms vr on vr.id = nr.room_id left join users u on u.id = nr.host_id";
 
     private Map<String, Object> row(java.sql.ResultSet rs) throws java.sql.SQLException {
@@ -302,6 +333,7 @@ public class NewbieService {
         m.put("extraSeats", rs.getBoolean("extra_seats"));
         m.put("visitors", rs.getLong("visitors"));
         m.put("welcomeGifts", rs.getLong("gifts"));
+        m.put("adminCount", rs.getLong("admins"));
         return m;
     }
 
@@ -359,19 +391,76 @@ public class NewbieService {
         jdbc.update("insert into newbie_user_status (user_id, welcome_seen_at) values (?, now()) on conflict (user_id) do update set welcome_seen_at = coalesce(newbie_user_status.welcome_seen_at, now())", userId);
     }
 
-    /** Called when someone first enters a welcome room. */
+    /**
+     * Called when someone enters a welcome room. The work runs after the join has been saved, in its own transaction, so a
+     * problem here can never undo or block the join.
+     */
     public void onJoin(Long roomId, Long userId) {
-        try {
-            boolean newbie = isNewbie(userId);
-            jdbc.update("insert into newbie_room_participants (room_id, user_id, newbie) values (?, ?, ?)"
-                    + " on conflict (room_id, user_id) do update set joins = newbie_room_participants.joins + 1, last_joined_at = now()", roomId, userId, newbie);
-            if (newbie) {
-                jdbc.update("insert into newbie_user_status (user_id, first_join_at) values (?, now()) on conflict (user_id) do update set first_join_at = coalesce(newbie_user_status.first_join_at, now())", userId);
-                event(roomId, userId, "JOINED", null);
+        afterCommit(() -> {
+            try {
+                txNew.executeWithoutResult(st -> doJoin(roomId, userId));
+            } catch (Exception e) {
+                log.warn("Newbie join work for user {} in room {} failed: {}", userId, roomId, e.getMessage());
             }
-        } catch (Exception e) {
-            log.debug("Newbie join not saved: {}", e.getMessage());
+        });
+    }
+
+    private void doJoin(Long roomId, Long userId) {
+        boolean newbie = isNewbie(userId);
+        Integer joins = jdbc.queryForObject("insert into newbie_room_participants (room_id, user_id, newbie) values (?, ?, ?)"
+                + " on conflict (room_id, user_id) do update set joins = newbie_room_participants.joins + 1, last_joined_at = now() returning joins", Integer.class, roomId, userId, newbie);
+        if (!newbie) return;
+        jdbc.update("insert into newbie_user_status (user_id, first_join_at) values (?, now()) on conflict (user_id) do update set first_join_at = coalesce(newbie_user_status.first_join_at, now())", userId);
+        event(roomId, userId, "JOINED", null);
+        Config c = config();
+        List<Long> owner = jdbc.queryForList("select owner_id from voice_rooms where id = ?", Long.class, roomId);
+        Long host = owner.isEmpty() ? null : owner.get(0);
+        if (host == null || host.equals(userId)) return;
+        // "Welcome to Panchayat, <name>!" in the room chat, the first time this person comes into this room
+        if (joins != null && joins == 1 && c.autoGreeting()) {
+            afterCommit(() -> roomState.announce(roomId, "NEWBIE_WELCOME", host, userId));
         }
+        giveReward(roomId, userId, host, c);
+    }
+
+    /** The welcome reward set in the admin panel: coins and Charm, and the gift animation. Once per person, ever. */
+    private void giveReward(Long roomId, Long userId, Long host, Config c) {
+        if (!c.autoRewardEnabled()) return;
+        if (c.autoRewardCoins() <= 0 && c.autoRewardCharm() <= 0 && c.autoRewardGiftId() == null) return;
+        jdbc.update("insert into newbie_user_status (user_id) values (?) on conflict do nothing", userId);
+        // Claiming is one atomic update: two joins at once can't both get the reward
+        if (jdbc.update("update newbie_user_status set reward_at = now() where user_id = ? and reward_at is null", userId) == 0) return;
+        if (c.autoRewardCoins() > 0) {
+            wallet.credit(userId, c.autoRewardCoins(), "NEWBIE_WELCOME", "room:" + roomId, "newbie:welcome:" + userId, "Welcome reward");
+        }
+        if (c.autoRewardCharm() > 0) {
+            jdbc.update("update users set charm_points = charm_points + ? where id = ?", c.autoRewardCharm(), userId);
+        }
+        event(roomId, userId, "REWARD", c.autoRewardCoins() + " coins, " + c.autoRewardCharm() + " charm");
+        long coins = c.autoRewardCoins();
+        String gift = c.autoRewardGiftId();
+        afterCommit(() -> {
+            if (coins > 0) walletPush.pushBalance(userId, "NEWBIE_WELCOME", coins);
+            if (gift != null) {
+                Long points = jdbc.queryForObject("select coalesce(points, 0) from voice_rooms where id = ?", Long.class, roomId);
+                Map<String, Object> p = new LinkedHashMap<>();
+                p.put("eventId", "newbie-" + userId);
+                p.put("roomId", String.valueOf(roomId));
+                p.put("fromUserId", String.valueOf(host));
+                p.put("toUserId", String.valueOf(userId));
+                p.put("giftId", gift);
+                p.put("count", 1);
+                p.put("coins", 0);
+                p.put("earned", 0);
+                p.put("roomPoints", points == null ? 0 : points);
+                p.put("requestId", "newbie-welcome-" + userId);
+                p.put("at", Instant.now().toString());
+                p.put("senderBalance", wallet.getBalance(host));
+                p.put("fromBag", false);
+                p.put("bonus", 0);
+                messaging.convertAndSend("/topic/voice-rooms/" + roomId + "/gifts", (Object) p);
+            }
+        });
     }
 
     // ------------------------------------------------------------------ extra seats
