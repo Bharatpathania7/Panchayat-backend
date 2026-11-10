@@ -1,6 +1,5 @@
 package com.panchayat.backend.gifts.service;
 
-import com.panchayat.backend.sarpanch.SarpanchService;
 import com.panchayat.backend.wallet.service.CoinWalletService;
 import com.panchayat.backend.wallet.service.WalletPushService;
 import org.slf4j.Logger;
@@ -32,14 +31,12 @@ public class GiftLuckService {
     private final JdbcTemplate jdbc;
     private final CoinWalletService wallet;
     private final WalletPushService walletPush;
-    private final SarpanchService sarpanch;
     private final SecureRandom random = new SecureRandom();
 
-    public GiftLuckService(JdbcTemplate jdbc, CoinWalletService wallet, WalletPushService walletPush, SarpanchService sarpanch) {
+    public GiftLuckService(JdbcTemplate jdbc, CoinWalletService wallet, WalletPushService walletPush) {
         this.jdbc = jdbc;
         this.wallet = wallet;
         this.walletPush = walletPush;
-        this.sarpanch = sarpanch;
     }
 
     /** Whether gifts give the receiver lucky coins right now (admin switch). */
@@ -75,7 +72,7 @@ public class GiftLuckService {
     public Settings settings() {
         Settings s = jdbc.query("select lucky_enabled, lucky_chance_percent, lucky_default_min, lucky_default_max, lucky_high_chance, lucky_middle_chance, lucky_min_gift_coins, lucky_daily_cap, lucky_pair_daily_limit from gift_settings where id = 1",
                 rs -> rs.next() ? new Settings(rs.getBoolean(1), rs.getDouble(2), rs.getLong(3), rs.getLong(4), rs.getDouble(5), rs.getDouble(6), rs.getLong(7), rs.getLong(8), rs.getInt(9)) : null);
-        return s != null ? s : new Settings(false, 100, BONUS_MIN, BONUS_MAX, HIGH_CHANCE * 100, MIDDLE_CHANCE * 100, 0, 0, 0);
+        return s != null ? s : new Settings(false, 25, BONUS_MIN, BONUS_MAX, HIGH_CHANCE * 100, MIDDLE_CHANCE * 100, 0, 0, 0);
     }
 
     /** Saves the settings the admin sent (missing ones stay as they are). Returns the saved settings. */
@@ -195,16 +192,19 @@ public class GiftLuckService {
         if (!st.enabled()) return 0;
         // Small gifts can be left out, and not every gift has to be lucky
         if (coins < st.minGiftCoins()) return 0;
-        if (st.chancePercent() < 100 && random.nextDouble() * 100 >= st.chancePercent()) return 0;
+        // Every gift in the stack gets its own draw, so lucky coins really are random: some gifts pay, most don't
         Triggers t = triggers(giftId);
-        long bonus;
-        if (t.coinMin() != null && t.coinMax() != null) {
-            // The admin's range for this gift: a random amount from min to max for each gift sent
-            bonus = 0;
-            for (int i = 0; i < count; i++) bonus = Math.addExact(bonus, tiered(random, t.coinMin(), t.coinMax(), st.highChance() / 100.0, st.middleChance() / 100.0));
-        } else {
-            bonus = roll(coins, st);
+        int n = Math.max(1, count);
+        long unitCoins = Math.max(1, coins / n);
+        long bonus = 0;
+        for (int i = 0; i < n; i++) {
+            if (st.chancePercent() < 100 && random.nextDouble() * 100 >= st.chancePercent()) continue;
+            long one = t.coinMin() != null && t.coinMax() != null
+                    ? tiered(random, t.coinMin(), t.coinMax(), st.highChance() / 100.0, st.middleChance() / 100.0)
+                    : roll(unitCoins, st);
+            bonus = Math.addExact(bonus, one);
         }
+        if (bonus <= 0) return 0;
         // Daily limits (India time), checked while holding a lock on the receiver so two gifts at once can't both slip through
         jdbc.query("select pg_advisory_xact_lock(?)", rs -> null, 770_000_000_000L + receiverId);
         java.sql.Timestamp start = java.sql.Timestamp.from(java.time.LocalDate.now(ZONE).atStartOfDay(ZONE).toInstant());
@@ -229,8 +229,6 @@ public class GiftLuckService {
                 log.debug("Lucky coins balance push failed: {}", e.getMessage());
             }
         });
-        // One message in the receiver's Sarpanch chat for every lucky payout, saved in its own transaction
-        sarpanch.sendSafely(receiverId, new SarpanchService.Message("Lucky coins!", "A gift brought you " + String.format("%,d", paid) + " lucky coins.", null, null, null, "REWARD"), "gift-lucky:" + requestId);
         return bonus;
     }
 
