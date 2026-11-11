@@ -615,6 +615,14 @@ public class VoiceRoomService {
             );
         }
 
+        // A Newbie Welcome Room stays open for new members; only the admin panel closes it
+        if (room.isNewbie()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "A Newbie Welcome Room stays open. You can leave it; it is closed only from the admin panel."
+            );
+        }
+
         room.setStatus("CLOSED");
 
         // Mark active participants as LEFT in the database.

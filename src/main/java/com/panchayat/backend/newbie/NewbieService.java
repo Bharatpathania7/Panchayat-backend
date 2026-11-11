@@ -169,7 +169,7 @@ public class NewbieService {
                 intIn(in.get("eligibilityDays"), c.eligibilityDays(), 1, 365, "The Newbie period (days)"),
                 intIn(in.get("maxRooms"), c.maxRooms(), 1, 100, "The maximum number of rooms"),
                 intIn(in.get("roomCapacity"), c.roomCapacity(), 16, 50, "The room capacity"),
-                intIn(in.get("roomLifetimeHours"), c.roomLifetimeHours(), 1, 720, "The room lifetime (hours)"),
+                intIn(in.get("roomLifetimeHours"), c.roomLifetimeHours(), 0, 720, "The room lifetime (hours)"),
                 boolIn(in.get("extraSeatsAllowed"), c.extraSeatsAllowed()),
                 intIn(in.get("hostGraceMinutes"), c.hostGraceMinutes(), 1, 120, "The host grace time (minutes)"),
                 boolIn(in.get("welcomeGiftEnabled"), c.welcomeGiftEnabled()),
@@ -361,8 +361,8 @@ public class NewbieService {
         room.setCategory("Newbie");
         room.setNewbie(true);
         VoiceRoom saved = rooms.saveAndFlush(room);
-        jdbc.update("insert into newbie_rooms (room_id, room_number, name, host_id, priority, expires_at, created_by) values (?, ?, ?, ?, ?, now() + make_interval(hours => ?), ?)",
-                saved.getId(), (int) number, name, hostId, c.priority(), c.roomLifetimeHours(), by);
+        jdbc.update("insert into newbie_rooms (room_id, room_number, name, host_id, priority, expires_at, created_by) values (?, ?, ?, ?, ?, case when ? = 0 then null else now() + make_interval(hours => ?) end, ?)",
+                saved.getId(), (int) number, name, hostId, c.priority(), c.roomLifetimeHours(), c.roomLifetimeHours(), by);
         event(saved.getId(), hostId, "ROOM_CREATED", name);
         applyDefaultBackground(saved.getId());
         return saved.getId();
@@ -666,7 +666,7 @@ public class NewbieService {
         if ("ACTIVE".equals(status)) {
             if (!"ACTIVE".equals(room.get("status")) && activeCount() >= config().maxRooms()) throw conflict("You have reached the maximum number of welcome rooms.");
             // Opening a room again gives it a fresh lifetime
-            jdbc.update("update newbie_rooms set status = 'ACTIVE', closed_at = null, host_absent_since = null, expires_at = now() + make_interval(hours => ?) where room_id = ?", config().roomLifetimeHours(), roomId);
+            jdbc.update("update newbie_rooms set status = 'ACTIVE', closed_at = null, host_absent_since = null, expires_at = case when ? = 0 then null else now() + make_interval(hours => ?) end where room_id = ?", config().roomLifetimeHours(), config().roomLifetimeHours(), roomId);
             jdbc.update("update voice_rooms set status = 'ACTIVE' where id = ?", roomId);
         } else {
             closeRoomRows(roomId, status);
@@ -813,10 +813,8 @@ public class NewbieService {
                 jdbc.update("update voice_rooms set owner_id = ? where id = ?", next, roomId);
                 event(roomId, next, "HOST_REASSIGNED", "the host was away");
                 afterCommit(() -> roomState.onModeChanged(roomId));
-            } else if (((Number) r.get("joined")).longValue() == 0) {
-                closeRoomRows(roomId, "CLOSED");
-                event(roomId, null, "CLOSED", "no host and nobody inside");
             }
+            // No free host: the room simply stays open (empty or not) until a host comes back; a welcome room is never closed just because it is quiet
         }
     }
 }
