@@ -137,6 +137,11 @@ public class ParivarController {
         return parivar.update(me(auth), id, body);
     }
 
+    @PostMapping("/{id:[0-9]+}/level-up")
+    public Map<String, Object> levelUp(@PathVariable Long id, Authentication auth) {
+        return parivar.levelUp(me(auth), id);
+    }
+
     @PutMapping("/{id:[0-9]+}/identity")
     public Map<String, Object> identity(@PathVariable Long id, @RequestBody ParivarService.IdentityRequest body, Authentication auth) {
         return parivar.changeIdentity(me(auth), id, body);

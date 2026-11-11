@@ -438,8 +438,9 @@ public class ParivarService {
         long exp = l(p.get("exp"));
         m.put("level", level);
         m.put("exp", exp);
-        Long next = jdbc.query("select min(exp_needed) from parivar_levels where exp_needed > ?", rs -> rs.next() ? (Long) rs.getObject(1) : null, exp);
-        m.put("nextLevelExp", next);
+        Map<String, Object> lu = levelUpInfo(p);
+        m.put("nextLevelExp", lu == null ? null : lu.get("expNeeded"));
+        m.put("levelUp", lu);
         m.put("capacity", capacity(level));
         m.put("funds", l(p.get("funds")));
         m.put("createdAt", ((Timestamp) p.get("created_at")).toInstant().toString());
@@ -779,16 +780,51 @@ public class ParivarService {
     /** Adds EXP to the Parivar and the member's contribution, and levels the Parivar up when it passes a threshold. */
     void addExp(Long id, Long userId, long exp) {
         if (exp <= 0) return;
-        Long total = jdbc.queryForObject("update parivars set exp = exp + ? where id = ? returning exp", Long.class, exp, id);
+        jdbc.update("update parivars set exp = exp + ? where id = ?", exp, id);
         jdbc.update("update parivar_members set contribution = contribution + ? where parivar_id = ? and user_id = ?", exp, id, userId);
-        Integer lvl = jdbc.query("select max(level) from parivar_levels where exp_needed <= ?", rs -> rs.next() ? (Integer) rs.getObject(1) : null, total);
-        Integer cur = jdbc.queryForObject("select level from parivars where id = ?", Integer.class, id);
-        if (lvl != null && cur != null && lvl > cur) {
-            jdbc.update("update parivars set level = ? where id = ?", lvl, id);
-            activity(id, userId, null, "LEVEL", 0, 0, "The Parivar reached level " + lvl, null);
-            system(id, "🎉 The Parivar reached level " + lvl + "!");
-            world("LEVEL_UP", id, null, "\uD83C\uDF89 " + jdbc.queryForObject("select name from parivars where id = ?", String.class, id) + " reached level " + lvl + "!", lvl);
-        }
+        // Levelling up is a decision: when the activity and the fund are both enough, the Mukhiya presses Level up (see levelUp)
+    }
+
+    /** What the next level asks for and whether the Parivar has it: activity (EXP) and family fund. Null at the top level. */
+    public Map<String, Object> levelUpInfo(Map<String, Object> p) {
+        int level = ((Number) p.get("level")).intValue();
+        List<Map<String, Object>> nx = jdbc.queryForList("select level, exp_needed, fund_needed from parivar_levels where level = ?", level + 1);
+        if (nx.isEmpty()) return null;
+        long expNeed = l(nx.get(0).get("exp_needed"));
+        long fundNeed = l(nx.get(0).get("fund_needed"));
+        boolean expOk = l(p.get("exp")) >= expNeed;
+        boolean fundOk = l(p.get("funds")) >= fundNeed;
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("level", level + 1);
+        m.put("expNeeded", expNeed);
+        m.put("fundNeeded", fundNeed);
+        m.put("expOk", expOk);
+        m.put("fundOk", fundOk);
+        m.put("ready", expOk && fundOk);
+        return m;
+    }
+
+    /**
+     * The Mukhiya moves the Parivar up one level. Needs the activity AND the family fund the next level asks for;
+     * that fund is taken out of the treasury (it goes down by what the level costs).
+     */
+    @Transactional
+    public Map<String, Object> levelUp(Long actor, Long id) {
+        activeParivar(id);
+        if (!"LEADER".equals(roleOf(id, actor))) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the Mukhiya can level the Parivar up.");
+        Map<String, Object> p = jdbc.queryForMap("select * from parivars where id = ? for update", id);
+        Map<String, Object> info = levelUpInfo(p);
+        if (info == null) throw conflict("Your Parivar is already at the top level.");
+        if (!(Boolean) info.get("expOk")) throw conflict("Not enough activity yet. Level " + info.get("level") + " needs " + info.get("expNeeded") + " activity.");
+        if (!(Boolean) info.get("fundOk")) throw conflict("Not enough family fund yet. Level " + info.get("level") + " needs " + info.get("fundNeeded") + " in the fund.");
+        int next = ((Number) info.get("level")).intValue();
+        long cost = l(info.get("fundNeeded"));
+        if (cost > 0) changeFunds(id, actor, -cost, "LEVELUP", "levelup:" + id + ":" + next);
+        jdbc.update("update parivars set level = ? where id = ?", next, id);
+        activity(id, actor, null, "LEVEL", 0, cost, "The Parivar reached level " + next, "levelup:" + id + ":" + next);
+        system(id, "🎉 The Parivar reached level " + next + "!" + (cost > 0 ? " " + cost + " funds were used." : ""));
+        world("LEVEL_UP", id, null, "\uD83C\uDF89 " + p.get("name") + " reached level " + next + "!", next);
+        return profile(actor, id);
     }
 
     /** A gift between two members of the same Parivar adds activity (coins per EXP, daily cap per person: both are settings). */

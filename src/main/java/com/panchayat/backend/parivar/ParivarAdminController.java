@@ -34,7 +34,7 @@ public class ParivarAdminController {
 
     static final java.util.Set<String> FRAMES = java.util.Set.of("wood", "bronze", "silver", "gold", "ruby", "diamond", "royal");
 
-    public record LevelRow(Integer level, Long expNeeded, Integer capacity, Integer deputyCap, Integer adminCap, String frame) {
+    public record LevelRow(Integer level, Long expNeeded, Long fundNeeded, Integer capacity, Integer deputyCap, Integer adminCap, String frame) {
     }
 
     public record PermRow(String role, String perm, Boolean allowed) {
@@ -127,7 +127,7 @@ public class ParivarAdminController {
 
     @GetMapping("/levels")
     public List<Map<String, Object>> levels() {
-        return jdbc.queryForList("select level, exp_needed as \"expNeeded\", capacity, deputy_cap as \"deputyCap\", admin_cap as \"adminCap\", frame from parivar_levels order by level");
+        return jdbc.queryForList("select level, exp_needed as \"expNeeded\", fund_needed as \"fundNeeded\", capacity, deputy_cap as \"deputyCap\", admin_cap as \"adminCap\", frame from parivar_levels order by level");
     }
 
     /** Replace the whole level table. Level 1 must need 0 EXP, EXP must rise, capacity can't shrink. */
@@ -141,6 +141,7 @@ public class ParivarAdminController {
             LevelRow r = rows.get(i);
             if (r.level() == null || r.level() != i + 1 || r.expNeeded() == null || r.capacity() == null || r.deputyCap() == null || r.adminCap() == null) throw bad("Levels must be 1, 2, 3... with all numbers filled in.");
             if (i == 0 && r.expNeeded() != 0) throw bad("Level 1 must need 0 EXP.");
+            if (r.fundNeeded() != null && r.fundNeeded() < 0) throw bad("The fund a level needs can't be negative.");
             if (r.expNeeded() <= prev) throw bad("Each level must need more EXP than the one before.");
             if (r.capacity() < 1 || r.capacity() < prevCap || r.deputyCap() < 0 || r.adminCap() < 0) throw bad("Capacity must be 1 or more and can't go down; roles can't be negative.");
             if (r.frame() == null || !FRAMES.contains(r.frame())) throw bad("Pick a frame for every level.");
@@ -148,9 +149,9 @@ public class ParivarAdminController {
             prevCap = r.capacity();
         }
         jdbc.update("delete from parivar_levels");
-        for (LevelRow r : rows) jdbc.update("insert into parivar_levels (level, exp_needed, capacity, deputy_cap, admin_cap, frame) values (?, ?, ?, ?, ?, ?)", r.level(), r.expNeeded(), r.capacity(), r.deputyCap(), r.adminCap(), r.frame());
-        // A Parivar that sits above the new top level, or below one it already earned, is re-levelled
-        jdbc.update("update parivars p set level = coalesce((select max(l.level) from parivar_levels l where l.exp_needed <= p.exp), 1)");
+        for (LevelRow r : rows) jdbc.update("insert into parivar_levels (level, exp_needed, fund_needed, capacity, deputy_cap, admin_cap, frame) values (?, ?, ?, ?, ?, ?, ?)", r.level(), r.expNeeded(), r.fundNeeded() == null ? 0L : r.fundNeeded(), r.capacity(), r.deputyCap(), r.adminCap(), r.frame());
+        // A Parivar above the new top level comes down to it; nobody is moved up (levelling up is the Mukhiya's choice)
+        jdbc.update("update parivars p set level = least(p.level, (select max(l.level) from parivar_levels l))");
         audit(auth, "LEVELS", rows.size() + " levels");
         return levels();
     }
