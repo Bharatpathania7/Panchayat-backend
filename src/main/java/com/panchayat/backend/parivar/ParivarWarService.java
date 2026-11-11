@@ -339,6 +339,7 @@ public class ParivarWarService {
             case "SUCCESS" -> {
                 core.activity(parivarId, userId, null, "STEAL", 0, amount, "took " + amount + " funds from " + tn + " (Chori)", null);
                 core.activity(targetId, userId, null, "STEAL", 0, amount, mn + " took " + amount + " funds from the treasury (Chori)", null);
+                core.world("ATTACK", parivarId, targetId, "\uD83E\uDD77 " + mn + " attacked " + tn + " and took " + amount + " funds from its treasury!", amount);
                 core.system(targetId, "🥷 " + mn + " took " + amount + " funds from the treasury!");
                 core.system(parivarId, "🥷 Chori worked! " + amount + " funds from " + tn + ".");
             }

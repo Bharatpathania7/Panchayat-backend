@@ -126,7 +126,18 @@ public class RoomStateController {
 
     @GetMapping("/bans")
     public List<Map<String, Object>> bans(@PathVariable Long roomId, Authentication auth) {
-        return state.listBans(roomId, me(auth));
+        List<Map<String, Object>> rows = state.listBans(roomId, me(auth));
+        // The app shows who is blocked: name and picture next to each ID
+        for (Map<String, Object> row : rows) {
+            try {
+                User u = userRepository.findById(Long.parseLong(String.valueOf(row.get("userId")))).orElse(null);
+                row.put("name", u == null || u.getFullName() == null ? "Someone" : u.getFullName());
+                row.put("avatarUrl", u == null ? null : com.panchayat.backend.admin.media.MediaUrls.protectedLink(u.getAvatarUrl()));
+            } catch (Exception ignored) {
+                row.put("name", "Someone");
+            }
+        }
+        return rows;
     }
 
     // ---- Bodies ----

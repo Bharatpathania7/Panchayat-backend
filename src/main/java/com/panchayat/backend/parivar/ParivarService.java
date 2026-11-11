@@ -221,6 +221,34 @@ public class ParivarService {
         giftCard(same.get(0), senderId, to, giftId, count, 1, earned, charm, senderId.equals(receiverId));
     }
 
+    /** A line in World news. Only the system writes these. */
+    void world(String kind, Long parivarId, Long otherId, String text, long amount) {
+        try {
+            jdbc.update("insert into parivar_world_news (kind, parivar_id, other_id, text, amount) values (?, ?, ?, ?, ?)", kind, parivarId, otherId, text.length() > 300 ? text.substring(0, 300) : text, amount);
+        } catch (Exception e) {
+            // News must never break the action that made it
+        }
+    }
+
+    /** The latest World news, newest first, with the Parivars' names and logos. */
+    public List<Map<String, Object>> worldNews(int limit) {
+        int n = Math.min(100, Math.max(1, limit));
+        return jdbc.query("select w.id, w.kind, w.text, w.amount, w.created_at, p.id as pid, p.name as pname, p.sign as psign, p.logo_url as plogo, p.emblem as pemblem,"
+                        + " o.id as oid, o.name as oname, o.sign as osign from parivar_world_news w join parivars p on p.id = w.parivar_id left join parivars o on o.id = w.other_id order by w.id desc limit ?",
+                (rs, i) -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", String.valueOf(rs.getLong("id")));
+                    m.put("kind", rs.getString("kind"));
+                    m.put("text", rs.getString("text"));
+                    m.put("amount", rs.getLong("amount"));
+                    m.put("at", rs.getTimestamp("created_at").toInstant().toString());
+                    m.put("parivar", Map.of("id", String.valueOf(rs.getLong("pid")), "name", rs.getString("pname"), "sign", rs.getString("psign"), "emblem", rs.getString("pemblem")));
+                    if (rs.getString("plogo") != null) m.put("logoUrl", MediaUrls.link(rs.getString("plogo")));
+                    if (rs.getObject("oid") != null) m.put("other", Map.of("id", String.valueOf(rs.getLong("oid")), "name", rs.getString("oname"), "sign", rs.getString("osign")));
+                    return m;
+                }, n);
+    }
+
     /** A line in the family chat from the system (level ups, big wins, Chori, chests...). */
     void system(Long parivarId, String text) {
         jdbc.update("insert into parivar_chat (parivar_id, user_id, kind, text) values (?, null, 'SYSTEM', ?)", parivarId, text.length() > 500 ? text.substring(0, 500) : text);
@@ -403,6 +431,7 @@ public class ParivarService {
         m.put("logoUrl", MediaUrls.link((String) p.get("logo_url")));
         m.put("frame", jdbc.query("select frame from parivar_levels where level = ?", rs -> rs.next() ? rs.getString(1) : "wood", ((Number) p.get("level")).intValue()));
         m.put("intro", p.get("intro"));
+        m.put("identityPrices", identityPrices());
         m.put("announcement", p.get("announcement"));
         m.put("joinMode", p.get("join_mode"));
         int level = ((Number) p.get("level")).intValue();
@@ -592,6 +621,64 @@ public class ParivarService {
         return profile(actor, id);
     }
 
+    public record IdentityRequest(String name, String sign, String logo, String key) {
+    }
+
+    /** What changing the name, title (sign) and logo costs, in coins (admin setting). */
+    public Map<String, Object> identityPrices() {
+        Map<String, Object> s = settings();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("name", l(s.get("change_name_price")));
+        m.put("sign", l(s.get("change_sign_price")));
+        m.put("logo", l(s.get("change_logo_price")));
+        return m;
+    }
+
+    /**
+     * The Mukhiya changes the name, the title (sign) and / or the logo. Each change that really differs costs the coins the admin set;
+     * everything is charged in one go from the Mukhiya's wallet, and a retry with the same key is not charged twice.
+     */
+    @Transactional
+    public Map<String, Object> changeIdentity(Long actor, Long id, IdentityRequest r) {
+        if (r == null || r.key() == null || r.key().isBlank() || r.key().length() > 60) throw bad("A request key is required.");
+        Map<String, Object> p = activeParivar(id);
+        if (!"LEADER".equals(roleOf(id, actor))) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the Mukhiya can change this.");
+        String ref = "pv-ident:" + id + ":" + actor + ":" + r.key().strip();
+        if (l(jdbc.queryForObject("select count(*) from parivar_activity where ref = ?", Long.class, ref)) > 0) return profile(actor, id);
+
+        String curName = (String) p.get("name");
+        String curSign = (String) p.get("sign");
+        String name = r.name() == null ? null : r.name().strip().replaceAll("\\s+", " ");
+        String sign = r.sign() == null ? null : r.sign().strip().toUpperCase(Locale.ROOT);
+        boolean newName = name != null && !name.isEmpty() && !name.equals(curName);
+        boolean newSign = sign != null && !sign.isEmpty() && !sign.equals(curSign);
+        String logoIn = r.logo() == null || r.logo().isBlank() ? null : logoPath(r.logo());
+        boolean newLogo = logoIn != null && !logoIn.equals(p.get("logo_url"));
+        if (!newName && !newSign && !newLogo) throw bad("Nothing to change.");
+        if (newName && (name.length() < 3 || name.length() > 30)) throw bad("The name must be 3 to 30 letters.");
+        if (newSign && !sign.matches("[A-Z0-9]{2,8}")) throw bad("The title must be 2 to 8 letters or numbers.");
+        if (newName && jdbc.queryForObject("select count(*) from parivars where status = 'ACTIVE' and id <> ? and lower(name) = lower(?)", Long.class, id, name) > 0) throw conflict("That name is already taken.");
+        if (newSign && jdbc.queryForObject("select count(*) from parivars where status = 'ACTIVE' and id <> ? and lower(sign) = lower(?)", Long.class, id, sign) > 0) throw conflict("That title is already taken.");
+
+        Map<String, Object> prices = identityPrices();
+        long cost = (newName ? l(prices.get("name")) : 0) + (newSign ? l(prices.get("sign")) : 0) + (newLogo ? l(prices.get("logo")) : 0);
+        if (cost > 0) {
+            try {
+                wallet.debit(actor, cost, "PARIVAR_EDIT", "parivar:" + id, "pv-ident-" + ref, "Changed Parivar " + id + " name/title/logo");
+            } catch (IllegalStateException e) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Not enough coins. This change costs " + cost + " coins.");
+            }
+        }
+        if (newName) jdbc.update("update parivars set name = ? where id = ?", name, id);
+        if (newSign) jdbc.update("update parivars set sign = ? where id = ?", sign, id);
+        if (newLogo) jdbc.update("update parivars set logo_url = ? where id = ?", logoIn, id);
+        String what = (newName ? "name" : "") + (newName && (newSign || newLogo) ? ", " : "") + (newSign ? "title" : "") + (newSign && newLogo ? ", " : "") + (newLogo ? "logo" : "");
+        activity(id, actor, null, "EDIT", 0, cost, "changed the Parivar " + what, ref);
+        system(id, "\u270F\uFE0F The Mukhiya changed the Parivar " + what + (newName ? ". New name: " + name : "") + (newSign ? ". New title: " + sign : ""));
+        if (cost > 0) walletPush.pushBalance(actor, "PARIVAR_EDIT", -cost);
+        return profile(actor, id);
+    }
+
     public record UpdateRequest(String intro, String announcement, String joinMode, String emblem, String color, String logo) {
     }
 
@@ -700,6 +787,7 @@ public class ParivarService {
             jdbc.update("update parivars set level = ? where id = ?", lvl, id);
             activity(id, userId, null, "LEVEL", 0, 0, "The Parivar reached level " + lvl, null);
             system(id, "🎉 The Parivar reached level " + lvl + "!");
+            world("LEVEL_UP", id, null, "\uD83C\uDF89 " + jdbc.queryForObject("select name from parivars where id = ?", String.class, id) + " reached level " + lvl + "!", lvl);
         }
     }
 
@@ -746,6 +834,7 @@ public class ParivarService {
                 jdbc.update("insert into parivar_chests (parivar_id, type_id, name, price, pieces, sent_by, expires_at, send_key) values (?, ?, ?, 0, ?, null, ?, ?)",
                         id, m.get("type_id"), m.get("name"), m.get("pieces"), Timestamp.from(java.time.Instant.now().plus(java.time.Duration.ofHours(hours))), key + ":" + i);
             }
+            world("CHEST", id, null, "\uD83C\uDF81 " + jdbc.queryForObject("select name from parivars where id = ?", String.class, id) + " completed " + l(m.get("threshold")) / 1000 + "k activity and opened " + (qty > 1 ? qty + " x " : "a ") + m.get("name") + "!", l(m.get("threshold")));
             system(id, "🎁 " + l(m.get("threshold")) / 1000 + "k activity this week! " + (qty > 1 ? qty + " × " : "A ") + m.get("name") + " opened for the Parivar. Open Chests to claim your piece!");
         }
     }

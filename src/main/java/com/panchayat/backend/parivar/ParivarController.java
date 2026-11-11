@@ -137,6 +137,17 @@ public class ParivarController {
         return parivar.update(me(auth), id, body);
     }
 
+    @PutMapping("/{id:[0-9]+}/identity")
+    public Map<String, Object> identity(@PathVariable Long id, @RequestBody ParivarService.IdentityRequest body, Authentication auth) {
+        return parivar.changeIdentity(me(auth), id, body);
+    }
+
+    /** World news: written by the system (level ups, chests opened, funds taken). Anyone signed in can read it. */
+    @GetMapping("/world-news")
+    public List<Map<String, Object>> worldNews(@RequestParam(defaultValue = "50") int limit) {
+        return parivar.worldNews(limit);
+    }
+
     @PostMapping("/{id:[0-9]+}/join")
     public Map<String, Object> join(@PathVariable Long id, Authentication auth) {
         return parivar.join(me(auth), id);

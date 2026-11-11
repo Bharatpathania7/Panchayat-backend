@@ -29,7 +29,7 @@ public class ParivarAdminController {
 
     public record SettingsRequest(Boolean enabled, Boolean creationOpen, String creationMode, BigDecimal creationInr, BigDecimal coinsPerInr,
                                   Boolean useCoinPackRate, Long manualCoins, Long requiredCharm, Boolean consumeCharm, Boolean onePerUser,
-                                  Integer giftCoinsPerExp, Integer giftCoinsPerCharm, Boolean giftCountsForRanking, Long giftUserDailyCap, Integer donationCoinsPerExp, Long minDonation) {
+                                  Integer giftCoinsPerExp, Integer giftCoinsPerCharm, Long changeNamePrice, Long changeSignPrice, Long changeLogoPrice, Boolean giftCountsForRanking, Long giftUserDailyCap, Integer donationCoinsPerExp, Long minDonation) {
     }
 
     static final java.util.Set<String> FRAMES = java.util.Set.of("wood", "bronze", "silver", "gold", "ruby", "diamond", "royal");
@@ -76,6 +76,9 @@ public class ParivarAdminController {
         m.put("onePerUser", s.get("one_per_user"));
         m.put("giftCoinsPerExp", s.get("gift_coins_per_exp"));
         m.put("giftCoinsPerCharm", s.get("gift_coins_per_charm"));
+        m.put("changeNamePrice", s.get("change_name_price"));
+        m.put("changeSignPrice", s.get("change_sign_price"));
+        m.put("changeLogoPrice", s.get("change_logo_price"));
         m.put("giftCountsForRanking", s.get("gift_counts_for_ranking"));
         m.put("giftUserDailyCap", s.get("gift_user_daily_cap"));
         m.put("donationCoinsPerExp", s.get("donation_coins_per_exp"));
@@ -99,6 +102,10 @@ public class ParivarAdminController {
         long charm = b.requiredCharm() == null ? ((Number) cur.get("required_charm")).longValue() : b.requiredCharm();
         if (manual < 0 || charm < 0) throw bad("Coins and Charm can't be negative.");
         int giftPer = b.giftCoinsPerExp() == null ? ((Number) cur.get("gift_coins_per_exp")).intValue() : b.giftCoinsPerExp();
+        long namePrice = b.changeNamePrice() == null ? ((Number) cur.get("change_name_price")).longValue() : b.changeNamePrice();
+        long signPrice = b.changeSignPrice() == null ? ((Number) cur.get("change_sign_price")).longValue() : b.changeSignPrice();
+        long logoPrice = b.changeLogoPrice() == null ? ((Number) cur.get("change_logo_price")).longValue() : b.changeLogoPrice();
+        if (namePrice < 0 || signPrice < 0 || logoPrice < 0) throw bad("Prices can't be negative.");
         int perCharm = b.giftCoinsPerCharm() == null ? ((Number) cur.get("gift_coins_per_charm")).intValue() : b.giftCoinsPerCharm();
         if (perCharm < 1) throw bad("Coins per Charm must be 1 or more.");
         long giftCap = b.giftUserDailyCap() == null ? ((Number) cur.get("gift_user_daily_cap")).longValue() : b.giftUserDailyCap();
@@ -111,10 +118,10 @@ public class ParivarAdminController {
         boolean one = b.onePerUser() == null ? Boolean.TRUE.equals(cur.get("one_per_user")) : b.onePerUser();
         boolean giftRank = b.giftCountsForRanking() == null ? Boolean.TRUE.equals(cur.get("gift_counts_for_ranking")) : b.giftCountsForRanking();
         jdbc.update("update parivar_settings set enabled = ?, creation_open = ?, creation_mode = ?, creation_inr = ?, coins_per_inr = ?, manual_coins = ?, required_charm = ?, consume_charm = ?,"
-                        + " one_per_user = ?, gift_coins_per_exp = ?, gift_coins_per_charm = ?, gift_counts_for_ranking = ?, gift_user_daily_cap = ?, donation_coins_per_exp = ?, min_donation = ?, updated_by = ?, updated_at = now() where id = 1",
-                enabled, open, mode, inr, rate, manual, charm, consume, one, giftPer, perCharm, giftRank, giftCap, donPer, minDon, auth == null ? null : auth.getName());
+                        + " one_per_user = ?, gift_coins_per_exp = ?, gift_coins_per_charm = ?, change_name_price = ?, change_sign_price = ?, change_logo_price = ?, gift_counts_for_ranking = ?, gift_user_daily_cap = ?, donation_coins_per_exp = ?, min_donation = ?, updated_by = ?, updated_at = now() where id = 1",
+                enabled, open, mode, inr, rate, manual, charm, consume, one, giftPer, perCharm, namePrice, signPrice, logoPrice, giftRank, giftCap, donPer, minDon, auth == null ? null : auth.getName());
         audit(auth, "SETTINGS", "enabled=" + enabled + " open=" + open + " mode=" + mode + " inr=" + inr + " rate=" + rate + " manual=" + manual + " charm=" + charm + " consume=" + consume
-                + " onePerUser=" + one + " giftPerExp=" + giftPer + " coinsPerCharm=" + perCharm + " giftRank=" + giftRank + " giftCap=" + giftCap + " donPerExp=" + donPer + " minDonation=" + minDon);
+                + " onePerUser=" + one + " giftPerExp=" + giftPer + " coinsPerCharm=" + perCharm + " changePrices=" + namePrice + "/" + signPrice + "/" + logoPrice + " giftRank=" + giftRank + " giftCap=" + giftCap + " donPerExp=" + donPer + " minDonation=" + minDon);
         return settings();
     }
 
