@@ -697,7 +697,7 @@ public class ParivarService {
     /** A gift between two members of the same Parivar adds activity (coins per EXP, daily cap per person: both are settings). */
     @Transactional
     public void onGift(Long senderId, Long receiverId, String giftId, int count, long coins, String requestId) {
-        if (senderId == null || receiverId == null || senderId.equals(receiverId) || coins <= 0) return;
+        if (senderId == null || receiverId == null || coins <= 0) return;
         List<Long> same = jdbc.queryForList("select a.parivar_id from parivar_members a join parivar_members b on b.parivar_id = a.parivar_id join parivars p on p.id = a.parivar_id"
                 + " where a.user_id = ? and b.user_id = ? and p.status = 'ACTIVE'", Long.class, senderId, receiverId);
         if (same.isEmpty()) return;
@@ -713,7 +713,32 @@ public class ParivarService {
         String name = jdbc.query("select name from gifts where id = ?", rs -> rs.next() ? rs.getString(1) : giftId, giftId);
         int n = jdbc.update("insert into parivar_activity (parivar_id, user_id, other_id, kind, exp, coins, label, ref) values (?, ?, ?, 'GIFT', ?, ?, ?, ?) on conflict do nothing",
                 id, senderId, receiverId, exp, coins, "sent " + (count > 1 ? count + " x " : "") + name, "gift:" + requestId);
-        if (n > 0 && exp > 0) addExp(id, senderId, exp);
+        if (n > 0 && exp > 0) {
+            addExp(id, senderId, exp);
+            weeklyChests(id);
+        }
+    }
+
+    /**
+     * Weekly activity milestones (gifts decide the activity): each one sends the Parivar a chest once per week.
+     * 8k = Normal, 24k = Advanced, 60k = Rare, 120k = 2 Rare. Rows are in parivar_activity_milestones.
+     */
+    private void weeklyChests(Long id) {
+        long week = l(jdbc.queryForObject("select coalesce(sum(exp), 0) from parivar_activity where parivar_id = ? and created_at >= ?", Long.class, id, weekStart()));
+        long hours = Math.max(1, l(settings().get("chest_expiry_hours")));
+        String wk = weekStart().toInstant().toString().substring(0, 10);
+        List<Map<String, Object>> ms = jdbc.queryForList("select m.id, m.threshold, m.qty, t.id as type_id, t.name, t.pieces from parivar_activity_milestones m join parivar_chest_types t on t.id = m.chest_type_id where m.active and m.threshold <= ? order by m.threshold", week);
+        for (Map<String, Object> m : ms) {
+            String key = "milestone:" + id + ":" + wk + ":" + m.get("id");
+            int got = jdbc.update("insert into parivar_milestone_grants (key) values (?) on conflict do nothing", key);
+            if (got == 0) continue;
+            int qty = ((Number) m.get("qty")).intValue();
+            for (int i = 0; i < qty; i++) {
+                jdbc.update("insert into parivar_chests (parivar_id, type_id, name, price, pieces, sent_by, expires_at, send_key) values (?, ?, ?, 0, ?, null, ?, ?)",
+                        id, m.get("type_id"), m.get("name"), m.get("pieces"), Timestamp.from(java.time.Instant.now().plus(java.time.Duration.ofHours(hours))), key + ":" + i);
+            }
+            system(id, "🎁 " + l(m.get("threshold")) / 1000 + "k activity this week! " + (qty > 1 ? qty + " × " : "A ") + m.get("name") + " opened for the Parivar. Open Chests to claim your piece!");
+        }
     }
 
     /* ======================= ranking ======================= */

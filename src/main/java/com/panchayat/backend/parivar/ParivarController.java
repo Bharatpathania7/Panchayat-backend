@@ -67,11 +67,13 @@ public class ParivarController {
         long total = Math.multiplyExact(Math.multiplyExact(price, (long) count), (long) targets.size());
         if (walletService.getBalance(meId) < total) throw new ResponseStatusException(HttpStatus.CONFLICT, "Not enough coins. This gift costs " + total + " coins for everyone.");
         long charm = 0;
+        long earned = 0;
         int sent = 0;
         for (Long t : targets) {
             try {
                 Map<String, Object> r = directGifts.send(meId, t, b.giftId(), count, b.requestId().trim() + "-" + t, "PARIVAR_ALL");
                 charm += r.get("charm") instanceof Number n ? n.longValue() : 0;
+                earned += r.get("earned") instanceof Number e ? e.longValue() : 0;
                 sent++;
             } catch (ResponseStatusException e) {
                 // Someone who blocked you (or left) is skipped; the rest still get theirs
@@ -79,7 +81,7 @@ public class ParivarController {
         }
         if (sent == 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "The gift couldn't be sent to anyone.");
         parivar.announceGiftAll(meId, b.giftId(), count, sent);
-        return Map.of("sent", sent, "coins", price * count * sent, "charm", charm, "senderBalance", walletService.getBalance(meId));
+        return Map.of("sent", sent, "coins", price * count * sent, "charm", charm, "earned", earned, "senderBalance", walletService.getBalance(meId));
     }
 
     /** The picture for a Parivar's logo. Returns the stored path to send back when creating or editing. */

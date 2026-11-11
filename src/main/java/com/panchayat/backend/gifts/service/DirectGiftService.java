@@ -132,6 +132,8 @@ public class DirectGiftService {
         dailyTasks.track(senderId, "SEND_GIFT", 1);
         int charmFactor = LocalDate.now(ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
         long charm = luck.charm(giftId, count, coins, charmFactor);
+        // Gifts inside a Parivar always give 1 Charm for every 5 coins
+        if (ctx.startsWith("PARIVAR")) charm = coins / 5;
         long luckyCoins = luck.bonus(senderId, receiverId, giftId, count, coins, false, requestId, ref);
         jdbc.update("update users set charm_points = charm_points + ? where id = ?", charm, receiverId);
         // The same number counts as the sender's Guard for the receiver (Guard list)
@@ -154,6 +156,7 @@ public class DirectGiftService {
                 note.put("count", count);
                 note.put("coins", fCoins);
                 note.put("context", fCtx);
+                note.put("earned", earned);
                 note.put("at", Instant.now().toString());
                 messaging.convertAndSendToUser(receiverEmail, "/queue/notify", note);
             }
