@@ -266,6 +266,45 @@ public class NewbieService {
         return one(roomId);
     }
 
+    /**
+     * Turns a room that already exists (one a person made in the app) into a Newbie Welcome Room: it gets the welcome look,
+     * the host seat, the extra seats and the rest, and its owner becomes the host. `ref` is the room's 7-digit ID or its number.
+     */
+    @Transactional
+    public Map<String, Object> attachRoom(String ref, String by) {
+        jdbc.query("select pg_advisory_xact_lock(?)", rs -> null, LOCK);
+        if (ref == null || ref.isBlank()) throw bad("Enter the room ID.");
+        Long code = PublicIds.parse(ref);
+        List<Long> found;
+        if (code != null) found = jdbc.queryForList("select id from voice_rooms where room_code = ?", Long.class, code);
+        else {
+            try {
+                found = jdbc.queryForList("select id from voice_rooms where id = ?", Long.class, Long.parseLong(ref.trim()));
+            } catch (NumberFormatException e) {
+                throw bad("Enter the 7-digit room ID.");
+            }
+        }
+        if (found.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No room has that ID.");
+        Long roomId = found.get(0);
+        if (jdbc.queryForObject("select count(*) from newbie_rooms where room_id = ?", Long.class, roomId) > 0) throw conflict("That room is already a welcome room.");
+        Map<String, Object> room = jdbc.queryForMap("select owner_id, name, status, parivar_id from voice_rooms where id = ?", roomId);
+        if (!"ACTIVE".equals(room.get("status"))) throw conflict("That room is closed.");
+        if (room.get("parivar_id") != null) throw conflict("A Parivar room can't be a welcome room.");
+        if (activeCount() >= config().maxRooms()) throw conflict("You have reached the maximum number of welcome rooms (" + config().maxRooms() + ").");
+        Long hostId = ((Number) room.get("owner_id")).longValue();
+        if (jdbc.queryForObject("select count(*) from newbie_rooms where host_id = ? and status = 'ACTIVE'", Long.class, hostId) > 0) throw conflict("Its owner already hosts another welcome room.");
+        jdbc.update("insert into newbie_room_hosts (user_id, added_by) values (?, ?) on conflict (user_id) do update set active = true", hostId, by);
+        long number = jdbc.queryForObject("select nextval('newbie_room_number_seq')", Long.class);
+        String name = (String) room.get("name");
+        if (jdbc.queryForObject("select count(*) from newbie_rooms where name = ?", Long.class, name) > 0) name = name + " #" + number;
+        jdbc.update("update voice_rooms set newbie = true, category = 'Newbie' where id = ?", roomId);
+        // A room somebody made by hand has no end time
+        jdbc.update("insert into newbie_rooms (room_id, room_number, name, host_id, priority, expires_at, created_by) values (?, ?, ?, ?, ?, null, ?)", roomId, (int) number, name, hostId, config().priority(), by);
+        event(roomId, hostId, "ATTACHED", name);
+        afterCommit(() -> roomState.onModeChanged(roomId));
+        return one(roomId);
+    }
+
     private Long createRoomLocked(Long hostId, String by) {
         Config c = config();
         long number = jdbc.queryForObject("select nextval('newbie_room_number_seq')", Long.class);

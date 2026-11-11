@@ -70,6 +70,15 @@ public class AdminNewbieController {
         return newbie.createRoom(id(b == null || b.hostId() == null ? "" : b.hostId(), "a host"), by(auth));
     }
 
+    public record AttachBody(String room) {
+    }
+
+    /** Makes a room that already exists (made in the app) a welcome room. */
+    @PostMapping("/rooms/attach")
+    public Map<String, Object> attach(@RequestBody AttachBody b, Authentication auth) {
+        return newbie.attachRoom(b == null ? null : b.room(), by(auth));
+    }
+
     @PostMapping("/rooms/{roomId:[0-9]+}/activate")
     public Map<String, Object> activate(@PathVariable Long roomId) {
         return newbie.setRoomStatus(roomId, "ACTIVE");
