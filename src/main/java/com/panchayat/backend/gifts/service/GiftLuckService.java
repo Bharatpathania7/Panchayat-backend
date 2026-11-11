@@ -90,6 +90,11 @@ public class GiftLuckService {
         if (chance < 0 || chance > 100) throw new IllegalArgumentException("The chance must be between 0 and 100.");
         if (min < 0 || max < min) throw new IllegalArgumentException("The most lucky coins can't be less than the least.");
         if (high < 0 || mid < 0 || high + mid > 100) throw new IllegalArgumentException("The big and middle win chances together can't be over 100.");
+        if (in.get("coinsPerCharm") != null) {
+            double r = num(in.get("coinsPerCharm"), 5);
+            if (r < 0 || r != Math.floor(r)) throw new IllegalArgumentException("Coins per Charm must be a whole number (0 = use each gift's own Charm).");
+            jdbc.update("insert into gift_settings (id, coins_per_charm) values (1, ?) on conflict (id) do update set coins_per_charm = excluded.coins_per_charm", (int) r);
+        }
         if (minGift < 0 || cap < 0 || pair < 0) throw new IllegalArgumentException("Limits can't be negative (0 means no limit).");
         jdbc.update("insert into gift_settings (id, lucky_enabled, lucky_chance_percent, lucky_default_min, lucky_default_max, lucky_high_chance, lucky_middle_chance, lucky_min_gift_coins, lucky_daily_cap, lucky_pair_daily_limit) values (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 + " on conflict (id) do update set lucky_enabled = excluded.lucky_enabled, lucky_chance_percent = excluded.lucky_chance_percent, lucky_default_min = excluded.lucky_default_min, lucky_default_max = excluded.lucky_default_max,"
@@ -157,7 +162,15 @@ public class GiftLuckService {
      * Charm the receiver earns, times the weekend factor: a random number in the gift's Charm range (admin panel)
      * for each gift sent; else the gift's old fixed Charm; else 1 per 5 coins.
      */
+    /** Coins that make 1 Charm on every gift in rooms (admin setting, 5 by default; 0 = each gift uses its own Charm numbers). */
+    public long coinsPerCharm() {
+        Long v = jdbc.query("select coins_per_charm from gift_settings where id = 1", rs -> rs.next() ? rs.getLong(1) : null);
+        return v == null ? 5 : v;
+    }
+
     public long charm(String giftId, int count, long coins, int weekendFactor) {
+        long rate = coinsPerCharm();
+        if (rate > 0) return (coins / rate) * weekendFactor;
         Triggers t = triggers(giftId);
         long base;
         if (t.charmMin() != null && t.charmMax() != null) {

@@ -40,7 +40,8 @@ public record VoiceRoomResponse(
         Long ownerPublicId,
         /* Newbie Welcome Room, and whether its 6 extra seats are open. */
         boolean newbie,
-        boolean extraSeats
+        boolean extraSeats,
+        String newbieBackground
 ) {
     public static VoiceRoomResponse from(VoiceRoom room) {
         return new VoiceRoomResponse(
@@ -68,7 +69,8 @@ public record VoiceRoomResponse(
                 com.panchayat.backend.common.PublicIds.room(room.getId()),
                 com.panchayat.backend.common.PublicIds.user(room.getOwnerId()),
                 room.isNewbie(),
-                room.isExtraSeats()
+                room.isExtraSeats(),
+                room.isNewbie() ? com.panchayat.backend.admin.media.MediaUrls.link(room.getNewbieBackground()) : null
         );
     }
 }

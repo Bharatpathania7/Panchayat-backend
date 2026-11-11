@@ -19,9 +19,12 @@ public class NewbieController {
     private final NewbieService newbie;
     private final UserRepository users;
 
-    public NewbieController(NewbieService newbie, UserRepository users) {
+    private final com.panchayat.backend.admin.media.AdminMediaService media;
+
+    public NewbieController(NewbieService newbie, UserRepository users, com.panchayat.backend.admin.media.AdminMediaService media) {
         this.newbie = newbie;
         this.users = users;
+        this.media = media;
     }
 
     @ExceptionHandler(ResponseStatusException.class)
@@ -78,5 +81,18 @@ public class NewbieController {
     @PutMapping("/rooms/{roomId:[0-9]+}/extra-seats")
     public Map<String, Object> extraSeats(@PathVariable Long roomId, @RequestBody SeatsBody body, Authentication auth) {
         return newbie.setExtraSeats(roomId, me(auth), body != null && Boolean.TRUE.equals(body.enabled()), false);
+    }
+
+    /** The host (or a room admin) uploads a background picture (JPG or PNG) for the welcome room. */
+    @PostMapping(value = "/rooms/{roomId:[0-9]+}/background", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> setBackground(@PathVariable Long roomId, @RequestParam("file") org.springframework.web.multipart.MultipartFile file, Authentication auth) {
+        var up = media.upload(file, "newbie", Set.of("PNG", "JPG", "JPEG"));
+        return newbie.setRoomBackground(roomId, me(auth), up.url());
+    }
+
+    /** Back to the admin's picture. */
+    @DeleteMapping("/rooms/{roomId:[0-9]+}/background")
+    public Map<String, Object> resetBackground(@PathVariable Long roomId, Authentication auth) {
+        return newbie.setRoomBackground(roomId, me(auth), null);
     }
 }

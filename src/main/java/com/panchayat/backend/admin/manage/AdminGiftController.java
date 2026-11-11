@@ -165,14 +165,18 @@ public class AdminGiftController {
     /** Lucky coins (random coins to a gift's receiver): on or off. Off by default. */
     @GetMapping("/lucky")
     public Map<String, Object> lucky() {
-        return luckyMap(luckService.settings());
+        Map<String, Object> m = luckyMap(luckService.settings());
+        m.put("coinsPerCharm", luckService.coinsPerCharm());
+        return m;
     }
 
     @PutMapping("/lucky")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public Map<String, Object> setLucky(@RequestBody Map<String, Object> b) {
         try {
-            return luckyMap(luckService.save(b == null ? Map.of() : b));
+            Map<String, Object> m = luckyMap(luckService.save(b == null ? Map.of() : b));
+            m.put("coinsPerCharm", luckService.coinsPerCharm());
+            return m;
         } catch (IllegalArgumentException e) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, e.getMessage());
         }

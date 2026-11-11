@@ -190,26 +190,35 @@ public class ParivarService {
         return jdbc.queryForList("select user_id from parivar_members where parivar_id = ? and user_id <> ? order by joined_at", Long.class, id, userId);
     }
 
+    /** Coins that make 1 Charm for a gift inside a Parivar (admin setting). */
+    public long coinsPerCharm() {
+        return Math.max(1, l(settings().get("gift_coins_per_charm")));
+    }
+
+    private static String q(String v) {
+        return "\"" + (v == null ? "" : v.replace("\\", "").replace("\"", "'").replace("\n", " ")) + "\"";
+    }
+
+    /** The gift card line in the family chat: the app draws it like the room's gift card (who sent what, then coins and Charm). */
+    private void giftCard(Long parivarId, Long senderId, String to, String giftId, int count, int people, long earned, long charm, boolean self) {
+        String from = jdbc.query("select coalesce(full_name, 'Someone') from users where id = ?", rs -> rs.next() ? rs.getString(1) : "Someone", senderId);
+        system(parivarId, "🎁{\"g\":" + q(giftId) + ",\"c\":" + count + ",\"f\":" + q(from) + ",\"t\":" + q(to) + ",\"n\":" + people + ",\"e\":" + earned + ",\"h\":" + charm + ",\"s\":" + self + "}");
+    }
+
     /** "A sent everyone a gift" in the family chat. */
-    public void announceGiftAll(Long senderId, String giftId, int count, int people) {
+    public void announceGiftAll(Long senderId, String giftId, int count, int people, long earned, long charm) {
         Long id = myParivarId(senderId);
         if (id == null) return;
-        String from = jdbc.query("select coalesce(full_name, 'Someone') from users where id = ?", rs -> rs.next() ? rs.getString(1) : "Someone", senderId);
-        String gift = jdbc.query("select name from gifts where id = ?", rs -> rs.next() ? rs.getString(1) : giftId, giftId);
-        system(id, "🎁 " + from + " sent everyone (" + people + ") " + gift + (count > 1 ? " ×" + count : ""));
+        giftCard(id, senderId, null, giftId, count, people, earned, charm, false);
     }
 
     /** "A sent B a gift" in the family chat, for gifts sent from the Parivar screens. */
-    public void announceGift(Long senderId, Long receiverId, String giftId, int count) {
+    public void announceGift(Long senderId, Long receiverId, String giftId, int count, long earned, long charm) {
         List<Long> same = jdbc.queryForList("select a.parivar_id from parivar_members a join parivar_members b on b.parivar_id = a.parivar_id join parivars p on p.id = a.parivar_id"
                 + " where a.user_id = ? and b.user_id = ? and p.status = 'ACTIVE'", Long.class, senderId, receiverId);
         if (same.isEmpty()) return;
-        String from = jdbc.query("select coalesce(full_name, 'Someone') from users where id = ?", rs -> rs.next() ? rs.getString(1) : "Someone", senderId);
         String to = jdbc.query("select coalesce(full_name, 'Someone') from users where id = ?", rs -> rs.next() ? rs.getString(1) : "Someone", receiverId);
-        String gift = jdbc.query("select name from gifts where id = ?", rs -> rs.next() ? rs.getString(1) : giftId, giftId);
-        system(same.get(0), senderId.equals(receiverId)
-                ? "🎁 " + from + " sent themselves " + gift + (count > 1 ? " ×" + count : "")
-                : "🎁 " + from + " sent " + to + " " + gift + (count > 1 ? " ×" + count : ""));
+        giftCard(same.get(0), senderId, to, giftId, count, 1, earned, charm, senderId.equals(receiverId));
     }
 
     /** A line in the family chat from the system (level ups, big wins, Chori, chests...). */

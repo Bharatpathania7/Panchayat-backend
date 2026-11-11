@@ -123,6 +123,7 @@ public class NewbieService {
         m.put("autoRewardGiftId", c.autoRewardGiftId());
         m.put("autoRewardCoins", c.autoRewardCoins());
         m.put("autoRewardCharm", c.autoRewardCharm());
+        m.put("backgroundUrl", com.panchayat.backend.admin.media.MediaUrls.link(defaultBackground()));
         return m;
     }
 
@@ -301,8 +302,49 @@ public class NewbieService {
         // A room somebody made by hand has no end time
         jdbc.update("insert into newbie_rooms (room_id, room_number, name, host_id, priority, expires_at, created_by) values (?, ?, ?, ?, ?, null, ?)", roomId, (int) number, name, hostId, config().priority(), by);
         event(roomId, hostId, "ATTACHED", name);
+        applyDefaultBackground(roomId);
         afterCommit(() -> roomState.onModeChanged(roomId));
         return one(roomId);
+    }
+
+    /** The picture the admin chose for every welcome room (null = the app's built-in one). */
+    public String defaultBackground() {
+        return jdbc.query("select background_url from newbie_room_config where id = 1", rs -> rs.next() ? rs.getString(1) : null);
+    }
+
+    /** The admin sets (or clears) the picture; every welcome room whose host did not pick its own follows it. */
+    public Map<String, Object> setDefaultBackground(String url) {
+        jdbc.update("update newbie_room_config set background_url = ? where id = 1", url);
+        List<Long> ids = jdbc.queryForList("update voice_rooms set newbie_background = ? where newbie and newbie_bg_custom = false returning id", Long.class, url);
+        cached = null;
+        // Only the rooms that are open need a live update (a closed room has no live state)
+        for (Long id : ids) {
+            if (!"ACTIVE".equals(jdbc.query("select status from voice_rooms where id = ?", rs -> rs.next() ? rs.getString(1) : null, id))) continue;
+            try {
+                roomState.onModeChanged(id);
+            } catch (Exception e) {
+                log.debug("Room {} not refreshed after the background change: {}", id, e.getMessage());
+            }
+        }
+        return configMap();
+    }
+
+    /** A host (or a room admin) puts their own picture on the room; url = null goes back to the admin's. */
+    public Map<String, Object> setRoomBackground(Long roomId, Long actor, String url) {
+        VoiceRoom room = rooms.findById(roomId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
+        if (!room.isNewbie()) throw bad("This is only for Newbie Welcome Rooms.");
+        boolean owner = actor != null && actor.equals(room.getOwnerId());
+        boolean admin = actor != null && jdbc.queryForObject("select exists (select 1 from voice_room_admins where room_id = ? and user_id = ?)", Boolean.class, roomId, actor);
+        if (!owner && !admin) throw forbidden("Only the host or a room admin can change the background.");
+        if (url == null) jdbc.update("update voice_rooms set newbie_background = (select background_url from newbie_room_config where id = 1), newbie_bg_custom = false where id = ?", roomId);
+        else jdbc.update("update voice_rooms set newbie_background = ?, newbie_bg_custom = true where id = ?", url, roomId);
+        event(roomId, actor, url == null ? "BACKGROUND_RESET" : "BACKGROUND_CHANGED", null);
+        if ("ACTIVE".equals(room.getStatus())) afterCommit(() -> roomState.onModeChanged(roomId));
+        return Map.of("roomId", roomId, "background", String.valueOf(com.panchayat.backend.admin.media.MediaUrls.link(jdbc.query("select newbie_background from voice_rooms where id = ?", rs -> rs.next() ? rs.getString(1) : null, roomId))));
+    }
+
+    private void applyDefaultBackground(Long roomId) {
+        jdbc.update("update voice_rooms set newbie_background = (select background_url from newbie_room_config where id = 1), newbie_bg_custom = false where id = ?", roomId);
     }
 
     private Long createRoomLocked(Long hostId, String by) {
@@ -322,6 +364,7 @@ public class NewbieService {
         jdbc.update("insert into newbie_rooms (room_id, room_number, name, host_id, priority, expires_at, created_by) values (?, ?, ?, ?, ?, now() + make_interval(hours => ?), ?)",
                 saved.getId(), (int) number, name, hostId, c.priority(), c.roomLifetimeHours(), by);
         event(saved.getId(), hostId, "ROOM_CREATED", name);
+        applyDefaultBackground(saved.getId());
         return saved.getId();
     }
 

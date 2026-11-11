@@ -80,7 +80,7 @@ public class ParivarController {
             }
         }
         if (sent == 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "The gift couldn't be sent to anyone.");
-        parivar.announceGiftAll(meId, b.giftId(), count, sent);
+        parivar.announceGiftAll(meId, b.giftId(), count, sent, earned, charm);
         return Map.of("sent", sent, "coins", price * count * sent, "charm", charm, "earned", earned, "senderBalance", walletService.getBalance(meId));
     }
 

@@ -21,8 +21,11 @@ public class AdminNewbieController {
 
     private final NewbieService newbie;
 
-    public AdminNewbieController(NewbieService newbie) {
+    private final com.panchayat.backend.admin.media.AdminMediaService media;
+
+    public AdminNewbieController(NewbieService newbie, com.panchayat.backend.admin.media.AdminMediaService media) {
         this.newbie = newbie;
+        this.media = media;
     }
 
     private static String by(Authentication auth) {
@@ -133,5 +136,17 @@ public class AdminNewbieController {
     @DeleteMapping("/hosts/{userId:[0-9]+}")
     public List<Map<String, Object>> removeHost(@PathVariable Long userId) {
         return newbie.removeHost(userId);
+    }
+
+    /** The background picture of every welcome room (rooms whose host picked their own keep theirs). */
+    @PostMapping(value = "/background", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> setBackground(@RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        var up = media.upload(file, "newbie", java.util.Set.of("PNG", "JPG", "JPEG"));
+        return newbie.setDefaultBackground(up.url());
+    }
+
+    @DeleteMapping("/background")
+    public Map<String, Object> clearBackground() {
+        return newbie.setDefaultBackground(null);
     }
 }

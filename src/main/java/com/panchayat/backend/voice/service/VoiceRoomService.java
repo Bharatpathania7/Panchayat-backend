@@ -166,6 +166,9 @@ public class VoiceRoomService {
     @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.newbie.NewbieService newbieService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.auth.service.VipLevelService vipLevelService;
+
     @Transactional(readOnly = true)
     public List<VoiceRoomResponse> getPublicRooms() {
 
@@ -271,7 +274,9 @@ public class VoiceRoomService {
                     String bubbleUrl = null;
                     String entryAnimationUrl = null;
 
-                    if (participantUser != null) {
+                    // VIP things (frame, chat bubble, entry effect, badge) are only shown while the VIP lasts,
+                    // and only the ones the person's VIP level still allows
+                    if (participantUser != null && vipLevel != null) {
 
                         List<UserEquippedCosmetic> equippedCosmetics =
                                 equippedByUser.getOrDefault(participantUser.getId(), List.of());
@@ -283,6 +288,10 @@ public class VoiceRoomService {
                             if (cosmetic == null
                                     || cosmetic.getSecureUrl() == null
                                     || cosmetic.getSecureUrl().isBlank()) {
+                                continue;
+                            }
+
+                            if (cosmetic.getVipLevel() != null && cosmetic.getVipLevel() > effectiveVipLevel(participantUser)) {
                                 continue;
                             }
 
@@ -494,6 +503,10 @@ public class VoiceRoomService {
                 600
         );
     }
+    private int effectiveVipLevel(User user) {
+        return vipLevelService.calculateEffectiveVipLevel(user);
+    }
+
     private Integer resolveVipLevel(User user) {
         if (user == null || !user.isVipActive()) {
             return null;

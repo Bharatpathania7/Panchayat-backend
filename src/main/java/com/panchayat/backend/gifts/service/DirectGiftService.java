@@ -125,19 +125,20 @@ public class DirectGiftService {
         tags.addIntimacy(senderId, receiverId, coins);
         couples.onGift(senderId, receiverId, coins, giftId, count, requestId);
         parivarService.onGift(senderId, receiverId, giftId, count, coins, requestId);
-        if ("PARIVAR".equals(ctx)) parivarService.announceGift(senderId, receiverId, giftId, count);
         rewards.onSpend(senderId, coins);
         // VIP growth, with the level-up reward notice
         vipGrowth.onSpend(senderId, coins);
         dailyTasks.track(senderId, "SEND_GIFT", 1);
         int charmFactor = LocalDate.now(ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
         long charm = luck.charm(giftId, count, coins, charmFactor);
-        // Gifts inside a Parivar always give 1 Charm for every 5 coins
-        if (ctx.startsWith("PARIVAR")) charm = coins / 5;
+        // Gifts inside a Parivar give 1 Charm for every N coins (N is an admin setting, 5 by default)
+        if (ctx.startsWith("PARIVAR")) charm = coins / parivarService.coinsPerCharm();
         long luckyCoins = luck.bonus(senderId, receiverId, giftId, count, coins, false, requestId, ref);
         jdbc.update("update users set charm_points = charm_points + ? where id = ?", charm, receiverId);
         // The same number counts as the sender's Guard for the receiver (Guard list)
         jdbc.update("update room_gift_events set charm = ? where request_id = ?", charm, requestId);
+
+        if ("PARIVAR".equals(ctx)) parivarService.announceGift(senderId, receiverId, giftId, count, earned + luckyCoins, charm);
 
         long balance = wallet.getBalance(senderId);
         String senderName = jdbc.queryForObject("select coalesce(full_name, 'Someone') from users where id = ?", String.class, senderId);

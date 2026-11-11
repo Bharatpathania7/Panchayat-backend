@@ -209,6 +209,18 @@ public class VoiceRoom {
         this.micOrder = micOrder;
     }
 
+    /** The background picture of a Newbie Welcome Room (the admin's, or the one its host uploaded). */
+    @Column(name = "newbie_background", length = 500)
+    private String newbieBackground;
+
+    public String getNewbieBackground() {
+        return newbieBackground;
+    }
+
+    public void setNewbieBackground(String newbieBackground) {
+        this.newbieBackground = newbieBackground;
+    }
+
     public boolean isNewbie() {
         return newbie;
     }
