@@ -26,22 +26,98 @@ public class UserTagService {
 
     private final UserTagRepository tags;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
+    private final com.panchayat.backend.wallet.service.CoinWalletService wallet;
+    private final com.panchayat.backend.wallet.service.WalletPushService walletPush;
 
-    public UserTagService(UserTagRepository tags, org.springframework.jdbc.core.JdbcTemplate jdbc) {
+    public UserTagService(UserTagRepository tags, org.springframework.jdbc.core.JdbcTemplate jdbc,
+                          com.panchayat.backend.wallet.service.CoinWalletService wallet, com.panchayat.backend.wallet.service.WalletPushService walletPush) {
         this.tags = tags;
         this.jdbc = jdbc;
+        this.wallet = wallet;
+        this.walletPush = walletPush;
     }
 
-    /** How many BFF tags this person can hold: 5, plus 1 per VIP level while VIP, up to 12. */
+    /** The admin's slot rules: how many everyone starts with, the most, what a coin slot costs, and whether VIP levels add slots. */
+    public record SlotRules(int base, int max, long price, boolean vipBonus) {
+    }
+
+    public SlotRules rules() {
+        SlotRules r = jdbc.query("select base_slots, max_slots, slot_price, vip_bonus from tag_settings where id = 1",
+                rs -> rs.next() ? new SlotRules(rs.getInt(1), rs.getInt(2), rs.getLong(3), rs.getBoolean(4)) : null);
+        return r != null ? r : new SlotRules(BASE_SLOTS, MAX_SLOTS, 5000, true);
+    }
+
+    public Map<String, Object> rulesMap() {
+        SlotRules r = rules();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("baseSlots", r.base());
+        m.put("maxSlots", r.max());
+        m.put("slotPrice", r.price());
+        m.put("vipBonus", r.vipBonus());
+        return m;
+    }
+
+    @Transactional
+    public Map<String, Object> saveRules(Map<String, Object> in) {
+        SlotRules c = rules();
+        int base = in.get("baseSlots") instanceof Number n ? n.intValue() : c.base();
+        int max = in.get("maxSlots") instanceof Number n ? n.intValue() : c.max();
+        long price = in.get("slotPrice") instanceof Number n ? n.longValue() : c.price();
+        boolean vip = in.get("vipBonus") instanceof Boolean b ? b : c.vipBonus();
+        if (base < 0 || base > 100) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Free slots must be 0 to 100.");
+        if (max < 1 || max > 200 || max < base) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The most slots must be at least the free slots (and up to 200).");
+        if (price < 0 || price > 1_000_000_000L) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The slot price must be 0 or more.");
+        jdbc.update("update tag_settings set base_slots = ?, max_slots = ?, slot_price = ?, vip_bonus = ? where id = 1", base, max, price, vip);
+        return rulesMap();
+    }
+
+    private int bought(Long userId) {
+        Integer b = jdbc.query("select bought from user_tag_slots where user_id = ?", rs -> rs.next() ? rs.getInt(1) : 0, userId);
+        return b == null ? 0 : b;
+    }
+
+    /** How many tags this person can hold: the free slots, plus slots opened with coins, plus 1 per VIP level while VIP (if the admin allows), up to the most. */
     public int slotsFor(Long userId) {
-        Integer vip = jdbc.queryForObject(
-                "select case when vip_active and (vip_expires_at is null or vip_expires_at > now()) then coalesce(vip_level, 0) else 0 end from users where id = ?",
-                Integer.class, userId);
-        return Math.min(MAX_SLOTS, BASE_SLOTS + Math.max(0, vip == null ? 0 : vip));
+        SlotRules r = rules();
+        int vipExtra = 0;
+        if (r.vipBonus()) {
+            Integer vip = jdbc.queryForObject(
+                    "select case when vip_active and (vip_expires_at is null or vip_expires_at > now()) then coalesce(vip_level, 0) else 0 end from users where id = ?",
+                    Integer.class, userId);
+            vipExtra = Math.max(0, vip == null ? 0 : vip);
+        }
+        return Math.min(r.max(), r.base() + vipExtra + bought(userId));
     }
 
     public Map<String, Object> slots(Long userId) {
-        return Map.of("used", tags.countFor(userId), "slots", slotsFor(userId), "max", MAX_SLOTS);
+        SlotRules r = rules();
+        int slots = slotsFor(userId);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("used", tags.countFor(userId));
+        m.put("slots", slots);
+        m.put("max", r.max());
+        m.put("price", r.price());
+        m.put("canBuy", slots < r.max());
+        return m;
+    }
+
+    /** Opens one more slot for coins (the price is the admin's). A retry of the same purchase is not charged twice. */
+    @Transactional
+    public Map<String, Object> buySlot(Long userId) {
+        SlotRules r = rules();
+        jdbc.queryForObject("select pg_advisory_xact_lock(?)", Object.class, 8_000_000_000L + userId);
+        if (slotsFor(userId) >= r.max()) throw new ResponseStatusException(HttpStatus.CONFLICT, "You already have the most slots (" + r.max() + ").");
+        int next = bought(userId) + 1;
+        if (r.price() > 0) {
+            try {
+                wallet.debit(userId, r.price(), "TAG_SLOT", "tags", "tag-slot:" + userId + ":" + next, "Opened BFF tag slot " + next);
+            } catch (IllegalStateException e) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Not enough coins. A new slot costs " + r.price() + " coins.");
+            }
+        }
+        jdbc.update("insert into user_tag_slots (user_id, bought) values (?, 1) on conflict (user_id) do update set bought = user_tag_slots.bought + 1", userId);
+        if (r.price() > 0) walletPush.pushBalance(userId, "TAG_SLOT", -r.price());
+        return slots(userId);
     }
 
     /** Either person can change the relation, the pet name and the theme of their tag. */
@@ -52,11 +128,7 @@ public class UserTagService {
         if (!t.involves(userId)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "That isn't your tag");
         if (relation != null) {
             if (!RELATIONS.contains(relation)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pick one of the tag types");
-            // One tag of each type per person
-            if (!relation.equals(t.getRelation())
-                    && (tags.countOfType(t.getUserA(), relation) > 0 || tags.countOfType(t.getUserB(), relation) > 0)) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "One of you already has a " + label(relation) + " tag. Each person can have one tag of each type.");
-            }
+            // The same type can be used on as many tags as the person has slots for (each tag is with someone different)
             t.setRelation(relation);
         }
         if (nickname != null) {
@@ -84,7 +156,7 @@ public class UserTagService {
         return switch (relation == null ? "" : relation) {
             case "brosis" -> "Bro and sis";
             case "besties" -> "Besties";
-            case "bro" -> "Bro";
+            case "bro" -> "Brothers";
             case "confidant" -> "Confidant";
             case "apprentice" -> "Apprentice";
             case "sibling" -> "Sibling";
@@ -109,8 +181,6 @@ public class UserTagService {
             return FormResult.EXISTING;
         }
         if (tags.countFor(winner) >= slotsFor(winner) || tags.countFor(item) >= slotsFor(item)) return FormResult.FULL;
-        // One tag of each type per person
-        if (tags.countOfType(winner, rel) > 0 || tags.countOfType(item, rel) > 0) return FormResult.TAKEN;
         try {
             String decl = declaration == null || declaration.isBlank() ? null : declaration.trim();
             if (decl != null && decl.length() > 80) decl = decl.substring(0, 80);

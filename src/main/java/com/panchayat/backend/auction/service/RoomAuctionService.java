@@ -136,7 +136,6 @@ public class RoomAuctionService {
             if (!actor.equals(a.itemId)) throw forbidden("Only the person on the auction seat declares the tag");
             if ("bidding".equals(a.phase)) throw conflict("You can't change your declaration while bidding is open");
             if (!UserTagService.RELATIONS.contains(relation)) throw bad("Pick one of the relationships");
-            if (tags.hasType(actor, relation)) throw conflict("You already have a " + UserTagService.label(relation) + " tag. Each person can have one tag of each type, so pick another.");
             String text = declaration == null ? "" : declaration.trim();
             a.relation = relation;
             a.declaration = text.length() > 80 ? text.substring(0, 80) : text;

@@ -65,6 +65,12 @@ public class UserTagController {
         return tags.slots(userId);
     }
 
+    /** Opens one more BFF slot for coins (the price is set in the admin panel). */
+    @PostMapping("/me/slots/buy")
+    public Map<String, Object> buySlot(Authentication auth) {
+        return tags.buySlot(me(auth));
+    }
+
     @DeleteMapping("/{tagId:[0-9]+}")
     public ResponseEntity<Void> breakTag(@PathVariable Long tagId, Authentication auth) {
         tags.breakTag(tagId, me(auth));
