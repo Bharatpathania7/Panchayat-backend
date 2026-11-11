@@ -53,7 +53,7 @@ public class SearchController {
                     m.put("id", rs.getLong("id"));
                     m.put("publicId", rs.getLong("public_id"));
                     m.put("fullName", rs.getString("full_name"));
-                    m.put("avatarUrl", rs.getString("avatar_url"));
+                    m.put("avatarUrl", com.panchayat.backend.admin.media.MediaUrls.protectedLink(rs.getString("avatar_url")));
                     m.put("gender", rs.getString("gender"));
                     m.put("vipLevel", rs.getBoolean("vip_active") ? rs.getObject("vip_level") : null);
                     m.put("official", rs.getBoolean("official"));

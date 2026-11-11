@@ -55,6 +55,14 @@ public class MediaUrls {
         return base.isEmpty() ? path : base + path;
     }
 
+    /**
+     * For a picture shown to people in the app (a profile photo): signed when it is stored under /uploads/media (the admin
+     * panel's uploads, such as the Sarpanch picture), otherwise left exactly as it is.
+     */
+    public static String protectedLink(String stored) {
+        return stored != null && stored.startsWith(PREFIX) ? link(stored) : stored;
+    }
+
     /** Whether a request for path carries a valid, unexpired signature. */
     public static boolean valid(String path, String md5, String expires) {
         if (path == null || md5 == null || expires == null) return false;

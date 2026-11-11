@@ -330,7 +330,7 @@ public class CpService {
         out.put("coupleId", String.valueOf(c.get("id")));
         out.put("partnerUserId", String.valueOf(partner));
         out.put("partnerName", u.get("full_name"));
-        out.put("partnerAvatarUrl", u.get("avatar_url"));
+        out.put("partnerAvatarUrl", com.panchayat.backend.admin.media.MediaUrls.protectedLink((String) u.get("avatar_url")));
         out.put("ringId", c.get("ring_id"));
         out.put("blessings", num(c.get("blessings")));
         return out;
@@ -471,7 +471,7 @@ public class CpService {
             Map<String, Object> by = new LinkedHashMap<>();
             by.put("userId", String.valueOf(r.get("user_id")));
             by.put("name", r.get("full_name"));
-            by.put("avatarUrl", r.get("avatar_url"));
+            by.put("avatarUrl", com.panchayat.backend.admin.media.MediaUrls.protectedLink((String) r.get("avatar_url")));
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", String.valueOf(r.get("id")));
             m.put("by", by);
@@ -803,7 +803,7 @@ public class CpService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("userId", String.valueOf(id));
         m.put("name", u.get("full_name"));
-        m.put("avatarUrl", u.get("avatar_url"));
+        m.put("avatarUrl", com.panchayat.backend.admin.media.MediaUrls.protectedLink((String) u.get("avatar_url")));
         return m;
     }
 

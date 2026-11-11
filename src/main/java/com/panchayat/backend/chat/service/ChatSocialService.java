@@ -200,7 +200,7 @@ public class ChatSocialService {
                     m.put("userId", uid);
                     m.put("publicId", PublicIds.user(uid));
                     m.put("name", rs.getString("full_name"));
-                    m.put("avatarUrl", rs.getString("avatar_url"));
+                    m.put("avatarUrl", com.panchayat.backend.admin.media.MediaUrls.protectedLink(rs.getString("avatar_url")));
                     m.put("role", rs.getString("role"));
                     m.put("online", email != null && online.contains(email.toLowerCase(Locale.ROOT)));
                     m.put("lastSeenAt", ts(rs.getTimestamp("last_seen_at")));
@@ -308,7 +308,7 @@ public class ChatSocialService {
                     m.put("userId", uid);
                     m.put("publicId", PublicIds.user(uid));
                     m.put("name", rs.getString("full_name"));
-                    m.put("avatarUrl", rs.getString("avatar_url"));
+                    m.put("avatarUrl", com.panchayat.backend.admin.media.MediaUrls.protectedLink(rs.getString("avatar_url")));
                     m.put("blockedAt", ts(rs.getTimestamp("created_at")));
                     return m;
                 }, me);

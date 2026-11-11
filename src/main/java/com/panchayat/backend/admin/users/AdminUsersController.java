@@ -124,7 +124,7 @@ public class AdminUsersController {
                     r.put("name", rs.getString("full_name"));
                     r.put("email", email);
                     r.put("gender", rs.getString("gender"));
-                    r.put("avatarUrl", rs.getString("avatar_url"));
+                    r.put("avatarUrl", com.panchayat.backend.admin.media.MediaUrls.protectedLink(rs.getString("avatar_url")));
                     r.put("level", rs.getObject("level"));
                     r.put("joinedAt", ts(rs.getTimestamp("created_at")));
                     r.put("profileCompleted", rs.getBoolean("profile_completed"));

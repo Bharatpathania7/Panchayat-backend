@@ -307,7 +307,7 @@ public class VoiceRoomService {
                             participantUser != null
                                     ? participantUser.getFullName() : null,
                             participantUser != null
-                                    ? participantUser.getAvatarUrl() : null,
+                                    ? com.panchayat.backend.admin.media.MediaUrls.protectedLink(participantUser.getAvatarUrl()) : null,
                             participant.getRole(),
                             participant.isMuted(),
                             participant.getJoinedAt(),

@@ -207,7 +207,9 @@ public class ParivarService {
         String from = jdbc.query("select coalesce(full_name, 'Someone') from users where id = ?", rs -> rs.next() ? rs.getString(1) : "Someone", senderId);
         String to = jdbc.query("select coalesce(full_name, 'Someone') from users where id = ?", rs -> rs.next() ? rs.getString(1) : "Someone", receiverId);
         String gift = jdbc.query("select name from gifts where id = ?", rs -> rs.next() ? rs.getString(1) : giftId, giftId);
-        system(same.get(0), "🎁 " + from + " sent " + to + " " + gift + (count > 1 ? " ×" + count : ""));
+        system(same.get(0), senderId.equals(receiverId)
+                ? "🎁 " + from + " sent themselves " + gift + (count > 1 ? " ×" + count : "")
+                : "🎁 " + from + " sent " + to + " " + gift + (count > 1 ? " ×" + count : ""));
     }
 
     /** A line in the family chat from the system (level ups, big wins, Chori, chests...). */

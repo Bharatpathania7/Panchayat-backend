@@ -426,7 +426,7 @@ public class LudoService {
         Player p = new Player();
         p.userId = userId;
         p.name = u.get("full_name") == null ? "Player" : (String) u.get("full_name");
-        p.avatar = (String) u.get("avatar_url");
+        p.avatar = com.panchayat.backend.admin.media.MediaUrls.protectedLink((String) u.get("avatar_url"));
         p.seat = seat;
         return p;
     }

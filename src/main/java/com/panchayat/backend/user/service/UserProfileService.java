@@ -204,7 +204,7 @@ public class UserProfileService {
                 user.isEmailVerified(),
                 user.isProfileCompleted(),
                 user.getCreatedAt(),
-                user.getAvatarUrl(),
+                com.panchayat.backend.admin.media.MediaUrls.protectedLink(user.getAvatarUrl()),
                 user.getBannerUrl(),
                 user.getNameFont(),
                 user.getBio(),
@@ -246,7 +246,7 @@ public class UserProfileService {
         return new PublicUserProfileResponse(
                 user.getId(),
                 user.getFullName(),
-                user.getAvatarUrl(),
+                com.panchayat.backend.admin.media.MediaUrls.protectedLink(user.getAvatarUrl()),
                 user.getBannerUrl(),
                 user.getNameFont(),
                 user.getBio(),

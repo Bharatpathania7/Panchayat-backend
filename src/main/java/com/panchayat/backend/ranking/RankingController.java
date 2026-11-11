@@ -114,7 +114,7 @@ public class RankingController {
                     m.put("userId", uid);
                     m.put("publicId", PublicIds.user(uid));
                     m.put("name", rs.getString("full_name"));
-                    m.put("avatarUrl", rs.getString("avatar_url"));
+                    m.put("avatarUrl", com.panchayat.backend.admin.media.MediaUrls.protectedLink(rs.getString("avatar_url")));
                     m.put("vipLevel", vip ? rs.getObject("vip_level") : null);
                     m.put("value", rs.getLong("v"));
                     return m;

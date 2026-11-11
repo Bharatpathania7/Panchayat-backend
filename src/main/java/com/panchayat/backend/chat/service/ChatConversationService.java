@@ -273,7 +273,7 @@ public class ChatConversationService {
                             conversation.getId(),
                             otherId,
                             group ? (String) meta.get("name") : otherUser.getFullName(),
-                            group ? null : otherUser.getAvatarUrl(),
+                            group ? null : com.panchayat.backend.admin.media.MediaUrls.protectedLink(otherUser.getAvatarUrl()),
                             lastMessagePreview,
                             lastMessageType,
                             lastMessageAt,

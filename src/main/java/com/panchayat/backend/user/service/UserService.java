@@ -236,7 +236,7 @@ public class UserService {
                 user.isEmailVerified(),
                 user.isProfileCompleted(),
                 user.getCreatedAt(),
-                user.getAvatarUrl(),
+                com.panchayat.backend.admin.media.MediaUrls.protectedLink(user.getAvatarUrl()),
                 user.getBannerUrl(),
                 user.getNameFont(),
                 user.getBio(),
