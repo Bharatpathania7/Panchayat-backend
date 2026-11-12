@@ -38,6 +38,10 @@ public class PersonalChatWebSocketController {
         this.messagingTemplate = messagingTemplate;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.push.PushService push;
+
     @MessageMapping("/chat.send")
     public void sendMessage(
             @Payload SendChatMessageRequest request,
@@ -119,6 +123,9 @@ public class PersonalChatWebSocketController {
                     "/queue/chat",
                     response
             );
+            // Not online in the app: a notification on their phone (the message text itself is not sent through the push service)
+            push.toEmail(recipient.getEmail(), sender.getFullName() == null || sender.getFullName().isBlank() ? "New message" : sender.getFullName(),
+                    "Sent you a message", java.util.Map.of("type", "CHAT", "conversationId", String.valueOf(conversationId)));
         }
 
         // Send a confirmation to the sender's private queue.

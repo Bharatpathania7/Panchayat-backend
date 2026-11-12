@@ -38,6 +38,10 @@ public class FriendService {
         this.messaging = messaging;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.push.PushService push;
+
     @Transactional
     public Map<String, Object> follow(Long me, Long other) {
         if (other == null || other.equals(me)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "You can't follow yourself.");
@@ -64,7 +68,10 @@ public class FriendService {
                 note.put("type", Boolean.TRUE.equals(st.get("friends")) ? "FRIEND_NEW" : "FOLLOWED");
                 note.put("byUserId", String.valueOf(me));
                 note.put("byName", name);
-                afterCommit(() -> messaging.convertAndSendToUser(email, "/queue/notify", (Object) note));
+                afterCommit(() -> {
+                    messaging.convertAndSendToUser(email, "/queue/notify", (Object) note);
+                    push.toEmail(email, "Panchayat", Boolean.TRUE.equals(st.get("friends")) ? name + " is now your friend" : name + " followed you", Map.of("type", "FOLLOW", "userId", String.valueOf(me)));
+                });
             }
         }
         return st;

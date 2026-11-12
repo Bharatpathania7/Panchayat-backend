@@ -47,6 +47,11 @@ public class AccountBanService {
     }
 
     /** The ban on this account right now, or null. If the database can't be asked, the person is let through. */
+    /** The ban check is cached for a few seconds; this makes a change (an account deleted) count straight away. */
+    public void forget(Long userId) {
+        cache.invalidate(userId);
+    }
+
     public Ban activeBan(Long userId) {
         if (userId == null) return null;
         try {

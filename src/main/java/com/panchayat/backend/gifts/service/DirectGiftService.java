@@ -39,6 +39,10 @@ public class DirectGiftService {
 
 
     private static final Pattern REQUEST_ID = Pattern.compile("^[A-Za-z0-9-]{8,64}$");
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.push.PushService push;
+
     private static final Set<String> CONTEXTS = Set.of("PROFILE", "TAG", "CP", "MOMENT", "CHAT", "PARIVAR", "PARIVAR_ALL");
     private static final int MAX_COUNT = 999;
     private static final ZoneId ZONE = ZoneId.of("Asia/Kolkata");
@@ -160,6 +164,7 @@ public class DirectGiftService {
                 note.put("earned", earned);
                 note.put("at", Instant.now().toString());
                 messaging.convertAndSendToUser(receiverEmail, "/queue/notify", note);
+                push.toEmail(receiverEmail, "You got a gift", senderName + " sent you a gift" + (earned > 0 ? " (+" + earned + " coins)" : ""), Map.of("type", "GIFT", "fromUserId", String.valueOf(senderId)));
             }
         });
         Map<String, Object> res = result(id, coins, earned + luckyCoins, balance);

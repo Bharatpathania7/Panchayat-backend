@@ -139,6 +139,10 @@ public class SarpanchService {
      * send of the same event does nothing (returns false). Joins the caller's
      * transaction, so it's saved together with the change it reports.
      */
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.push.PushService push;
+
     @Transactional(propagation = Propagation.REQUIRED)
     public boolean send(Long userId, Message m, String eventKey) {
         if (userId == null || isSarpanch(userId)) return false;
@@ -167,7 +171,9 @@ public class SarpanchService {
         jdbc.update("insert into chat_message_receipts (message_id, user_id) values (?, ?)", id, userId);
         jdbc.update("update chat_conversations set updated_at = now() where id = ?", conv);
         Map<String, Object> payload = view(id, conv, body, m.title(), m.imageUrl(), m.actionLabel(), m.actionUrl(), category, Instant.now());
+        final String pushTitle = m.title() == null || m.title().isBlank() ? "Panchayat" : m.title();
         afterCommit(() -> {
+            push.toEmail(email, pushTitle, body, Map.of("type", "SARPANCH"));
             try {
                 messaging.convertAndSendToUser(email, "/queue/chat", (Object) payload);
             } catch (Exception e) {
