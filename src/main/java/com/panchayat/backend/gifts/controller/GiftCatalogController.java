@@ -26,9 +26,31 @@ public class GiftCatalogController {
     /** The same for everybody, so it's kept for 30 s (a gift the admin adds shows up within that). */
     @GetMapping("/api/v1/gifts")
     public ResponseEntity<String> onSale() {
-        return cache.respond("gifts", "on-sale", Duration.ofSeconds(30),
-                () -> catalog.onSale().stream().map(GiftCatalogController::view).toList());
+        return cache.respond("gifts", "on-sale", Duration.ofSeconds(30), () -> {
+            java.util.List<Map<String, Object>> out = new java.util.ArrayList<>(catalog.onSale().stream().map(GiftCatalogController::view).toList());
+            // The gift the Newbie welcome reward plays may be off sale. The app needs its name and picture to show it in the room;
+            // it is marked offSale so it never appears in the gift panel.
+            try {
+                String rid = jdbc.query("select auto_reward_gift_id from newbie_room_config where id = 1", rs -> rs.next() ? rs.getString(1) : null);
+                if (rid != null && out.stream().noneMatch(m -> rid.equals(m.get("id")))) {
+                    giftRepository.findById(rid).ifPresent(g -> {
+                        Map<String, Object> v = view(g);
+                        v.put("offSale", true);
+                        out.add(v);
+                    });
+                }
+            } catch (Exception ignored) {
+                // The catalog still works without it
+            }
+            return out;
+        });
     }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.gifts.repository.GiftDefinitionRepository giftRepository;
 
     @org.springframework.beans.factory.annotation.Autowired
     private com.panchayat.backend.gifts.service.GiftCategoryService categories;

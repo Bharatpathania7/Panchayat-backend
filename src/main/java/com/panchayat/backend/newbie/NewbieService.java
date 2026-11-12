@@ -521,6 +521,7 @@ public class NewbieService {
         event(roomId, userId, "REWARD", c.autoRewardCoins() + " coins, " + c.autoRewardCharm() + " charm");
         long coins = c.autoRewardCoins();
         String gift = c.autoRewardGiftId();
+        long rewardCharm = c.autoRewardCharm();
         afterCommit(() -> {
             if (coins > 0) walletPush.pushBalance(userId, "NEWBIE_WELCOME", coins);
             if (gift != null) {
@@ -533,7 +534,9 @@ public class NewbieService {
                 p.put("giftId", gift);
                 p.put("count", 1);
                 p.put("coins", 0);
-                p.put("earned", 0);
+                // The card in the room chat shows what the new member got: the coins and the Charm
+                p.put("earned", coins);
+                p.put("charm", rewardCharm);
                 p.put("roomPoints", points == null ? 0 : points);
                 p.put("requestId", "newbie-welcome-" + userId);
                 p.put("at", Instant.now().toString());
