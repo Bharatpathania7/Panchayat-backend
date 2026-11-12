@@ -56,6 +56,7 @@ public class AdminUsersController {
         m.put("active7Days", active(now.minusSeconds(7 * 86400L)));
         m.put("active30Days", active(now.minusSeconds(30 * 86400L)));
         m.put("vipActive", count("select count(*) from users where vip_active and (vip_expires_at is null or vip_expires_at > now())"));
+        m.put("vipTrialActive", count("select count(*) from users u join vip_trials t on t.user_id = u.id where u.vip_active and u.vip_expires_at is not null and u.vip_expires_at > now() and u.vip_expires_at <= t.ends_at + interval '1 minute'"));
         m.put("profileCompleted", count("select count(*) from users where profile_completed"));
         return m;
     }
@@ -95,13 +96,14 @@ public class AdminUsersController {
                 }
             }
             case "vip" -> where.add("u.vip_active and (u.vip_expires_at is null or u.vip_expires_at > now())");
+            case "trial" -> where.add("exists (select 1 from vip_trials t where t.user_id = u.id and u.vip_active and u.vip_expires_at > now() and u.vip_expires_at <= t.ends_at + interval '1 minute')");
             case "new" -> where.add("u.created_at >= now() - interval '7 days'");
             case "banned" -> where.add("(u.ban_permanent or u.banned_until > now())");
             case "all" -> {
                 // everyone
             }
             default -> throw new org.springframework.web.server.ResponseStatusException(
-                    org.springframework.http.HttpStatus.BAD_REQUEST, "filter must be all, online, vip, new or banned");
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "filter must be all, online, vip, trial, new or banned");
         }
         String w = where.isEmpty() ? "" : " where " + String.join(" and ", where);
         Long total = jdbc.queryForObject("select count(*) from users u" + w, Long.class, args.toArray());
@@ -110,7 +112,7 @@ public class AdminUsersController {
         pageArgs.add((long) p * s);
         List<Map<String, Object>> rows = jdbc.query(
                 "select u.id, u.public_id, u.full_name, u.email, u.gender, u.avatar_url, u.level, u.created_at, u.profile_completed,"
-                        + " u.vip_active, u.vip_level, u.vip_expires_at, u.ban_permanent, u.banned_until, u.ban_reason, u.charm_points,"
+                        + " u.vip_active, u.vip_level, u.vip_expires_at, (select t.ends_at from vip_trials t where t.user_id = u.id) as trial_ends, u.ban_permanent, u.banned_until, u.ban_reason, u.charm_points,"
                         + " coalesce(w.balance, 0) as coins,"
                         + " (select max(a.at) from (" + ACTIVITY + ") a where a.user_id = u.id) as last_active,"
                         + " exists (select 1 from voice_room_participants vp where vp.user_id = u.id and vp.status = 'JOINED') as in_room"
@@ -131,6 +133,12 @@ public class AdminUsersController {
                     boolean vip = rs.getBoolean("vip_active");
                     Timestamp vipEnd = rs.getTimestamp("vip_expires_at");
                     r.put("vipLevel", vip && (vipEnd == null || vipEnd.toInstant().isAfter(Instant.now())) ? rs.getObject("vip_level") : null);
+                    // On the free trial for new users (not bought, not extended) - and when it ends
+                    Timestamp trialEnds = rs.getTimestamp("trial_ends");
+                    boolean onTrial = trialEnds != null && vip && vipEnd != null && vipEnd.toInstant().isAfter(Instant.now()) && !vipEnd.toInstant().isAfter(trialEnds.toInstant().plusSeconds(60));
+                    r.put("vipTrial", onTrial);
+                    r.put("vipEndsAt", vip ? ts(vipEnd) : null);
+                    r.put("hadTrial", trialEnds != null);
                     r.put("coins", rs.getLong("coins"));
                     r.put("charm", rs.getLong("charm_points"));
                     r.put("lastActiveAt", ts(rs.getTimestamp("last_active")));
