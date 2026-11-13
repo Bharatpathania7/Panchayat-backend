@@ -66,7 +66,7 @@ public class ProfileTitleAdminController {
 
     @PutMapping("/settings")
     public Map<String, Object> settings(@RequestBody Settings s) {
-        if (s.maxWorn() == null || s.maxWorn() < 1 || s.maxWorn() > 10) throw bad("People can wear 1 to 10 titles.");
+        if (s.maxWorn() == null || s.maxWorn() < 0 || s.maxWorn() > 100) throw bad("Use 0 (no limit) or up to 100.");
         jdbc.update("update title_settings set max_worn = ? where id = 1", s.maxWorn());
         return Map.of("maxWorn", s.maxWorn());
     }
@@ -85,7 +85,7 @@ public class ProfileTitleAdminController {
                                       @RequestParam(value = "file", required = false) MultipartFile file) {
         rarity = rarity.toUpperCase(Locale.ROOT);
         check(name, from, to, text, rarity, price);
-        String icon = file == null || file.isEmpty() ? null : media.upload(file, "titles", Set.of("PNG", "JPG", "JPEG")).url();
+        String icon = file == null || file.isEmpty() ? null : media.upload(file, "titles", AdminMediaService.VISUALS).url();
         Long id = jdbc.queryForObject("insert into profile_titles (name, icon_url, color_from, color_to, text_color, rarity, price_coins, free, sort_order)"
                         + " values (?, ?, ?, ?, ?, ?, ?, ?, (select coalesce(max(sort_order), 0) + 1 from profile_titles)) returning id", Long.class,
                 name.strip(), icon, from, to, text, rarity, price, free);
@@ -116,7 +116,7 @@ public class ProfileTitleAdminController {
     @PostMapping(value = "/{id:[0-9]+}/icon", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> icon(@PathVariable Long id, @RequestParam("file") MultipartFile file) {
         if (jdbc.queryForObject("select count(*) from profile_titles where id = ?", Long.class, id) == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That title doesn't exist.");
-        jdbc.update("update profile_titles set icon_url = ? where id = ?", media.upload(file, "titles", Set.of("PNG", "JPG", "JPEG")).url(), id);
+        jdbc.update("update profile_titles set icon_url = ? where id = ?", media.upload(file, "titles", AdminMediaService.VISUALS).url(), id);
         return Map.of("ok", true);
     }
 

@@ -19,7 +19,7 @@ public class ParivarLibraryAdminController {
 
     private static final Set<String> KINDS = Set.of("BADGE", "TITLE", "ANIMATION", "GIFT");
     private static final Set<String> RARITIES = Set.of("COMMON", "PREMIUM", "EPIC", "LEGENDARY", "ULTRA_RARE");
-    private static final Set<String> FORMATS = Set.of("PNG", "JPG", "JPEG", "SVGA", "MP4");
+    private static final Set<String> FORMATS = AdminMediaService.VISUALS;
 
     private final JdbcTemplate jdbc;
     private final AdminMediaService media;

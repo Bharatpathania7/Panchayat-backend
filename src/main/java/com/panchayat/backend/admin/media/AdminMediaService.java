@@ -38,7 +38,9 @@ public class AdminMediaService {
     public static final Set<String> PICTURES = Set.of("PNG", "JPG", "JPEG");
     public static final Set<String> ANIMATIONS = Set.of("SVGA", "MP4");
     public static final Set<String> SOUNDS = Set.of("MP3");
-    public static final Set<String> ANY = Set.of("PNG", "JPG", "JPEG", "SVGA", "MP4", "MP3");
+    public static final Set<String> ANY = Set.of("PNG", "JPG", "JPEG", "GIF", "WEBP", "SVGA", "MP4", "MP3");
+    /** Everything that can be shown (pictures and animations, no sound). */
+    public static final Set<String> VISUALS = Set.of("PNG", "JPG", "JPEG", "GIF", "WEBP", "SVGA", "MP4");
 
     private static final long MB = 1024L * 1024;
     private static final Pattern FOLDER = Pattern.compile("^[a-z0-9]+(/[a-z0-9]+)*$");
@@ -114,6 +116,8 @@ public class AdminMediaService {
         return switch (format) {
             case "PNG" -> n >= 4 && (b[0] & 0xff) == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G';
             case "JPG", "JPEG" -> n >= 3 && (b[0] & 0xff) == 0xFF && (b[1] & 0xff) == 0xD8 && (b[2] & 0xff) == 0xFF;
+            case "GIF" -> n >= 4 && b[0] == 'G' && b[1] == 'I' && b[2] == 'F' && b[3] == '8';
+            case "WEBP" -> n >= 12 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F' && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P';
             // SVGA 2.x is zlib-compressed protobuf (0x78 …); SVGA 1.x is a zip (PK)
             case "SVGA" -> n >= 2 && (((b[0] & 0xff) == 0x78) || (b[0] == 'P' && b[1] == 'K'));
             // ISO media: "ftyp" at byte 4

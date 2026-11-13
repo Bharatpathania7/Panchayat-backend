@@ -82,7 +82,7 @@ public class ProfileTitleService {
     /** The titles someone wears (anyone can see these on a profile). */
     public List<Map<String, Object>> worn(Long userId) {
         return jdbc.query("select t.* from user_titles u join profile_titles t on t.id = u.title_id where u.user_id = ? and u.worn_pos is not null and t.active"
-                        + " and (u.expires_at is null or u.expires_at > now()) order by u.worn_pos limit 10",
+                        + " and (u.expires_at is null or u.expires_at > now()) order by u.worn_pos limit 100",
                 (rs, i) -> card(rs), userId);
     }
 
@@ -100,7 +100,7 @@ public class ProfileTitleService {
         Integer already = jdbc.query("select worn_pos from user_titles where user_id = ? and title_id = ?", rs -> rs.next() ? (Integer) rs.getObject(1) : null, userId, titleId);
         if (already != null) return mine(userId);
         long count = jdbc.queryForObject("select count(*) from user_titles u join profile_titles t on t.id = u.title_id where u.user_id = ? and u.worn_pos is not null and t.active", Long.class, userId);
-        if (count >= maxWorn()) throw bad(HttpStatus.CONFLICT, "You can wear " + maxWorn() + " titles. Take one off first.");
+        if (maxWorn() > 0 && count >= maxWorn()) throw bad(HttpStatus.CONFLICT, "You can wear " + maxWorn() + " titles. Take one off first.");
         jdbc.update("update user_titles set worn_pos = (select coalesce(max(worn_pos), 0) + 1 from user_titles where user_id = ?) where user_id = ? and title_id = ?", userId, userId, titleId);
         return mine(userId);
     }
