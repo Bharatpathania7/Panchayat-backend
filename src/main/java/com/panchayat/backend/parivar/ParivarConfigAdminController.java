@@ -66,7 +66,7 @@ public class ParivarConfigAdminController {
                 Col.integer("drawsPerMember", "draws_per_member", 0, 10), Col.integer("eligibleMinHours", "eligible_min_hours", 0, 8760), Col.str("imageUrl", "image_url", 500, false),
                 Col.integer("sortOrder", "sort_order", 0, 100000)), false, null));
         SECTIONS.put("treasure-rewards", new Section("treasure_rewards", "tier_id, weight desc, id", List.of(
-                Col.num("tierId", "tier_id", 1, BIG), Col.oneOf("kind", "kind", "GIFT", "ITEM", "VIP_CARD", "TITLE", "BADGE"), Col.num("ref", "ref", 0, BIG), Col.str("giftId", "gift_id", 64, false),
+                Col.num("tierId", "tier_id", 1, BIG), Col.oneOf("kind", "kind", "GIFT", "ITEM", "VIP_CARD", "TITLE", "BADGE", "COLLECTIBLE", "PROFILE_TITLE"), Col.num("ref", "ref", 0, BIG), Col.str("giftId", "gift_id", 64, false),
                 Col.num("amount", "amount", 0, BIG), Col.oneOf("rarity", "rarity", "COMMON", "PREMIUM", "EPIC", "LEGENDARY", "ULTRA_RARE"), Col.integer("weight", "weight", 1, 1_000_000),
                 Col.integer("maxPerChest", "max_per_chest", 0, 1000), Col.str("label", "label", 60, true), Col.str("imageUrl", "image_url", 500, false), Col.bool("active", "active")), true, "tierId"));
         SECTIONS.put("shop", new Section("parivar_shop_items", "sort_order, id", List.of(
@@ -226,6 +226,8 @@ public class ParivarConfigAdminController {
                 String k = (String) m.get("kind");
                 if (k.equals("GIFT") && (m.get("gift_id") == null || jdbc.queryForObject("select count(*) from gifts where id = ?", Integer.class, m.get("gift_id")) == 0)) throw bad("Gift reward: write the ID of an existing gift.");
                 if (k.equals("ITEM") && jdbc.queryForObject("select count(*) from reward_rule_items where id = ?", Integer.class, m.get("ref")) == 0) throw bad("Item reward: \"ref\" must be the ID of an item made in Spend rewards.");
+                if (k.equals("COLLECTIBLE") && jdbc.queryForObject("select count(*) from parivar_collectibles where id = ?", Integer.class, m.get("ref")) == 0) throw bad("Library reward: \"ref\" must be the ID of an item in the Parivar library.");
+                if (k.equals("PROFILE_TITLE") && jdbc.queryForObject("select count(*) from profile_titles where id = ?", Integer.class, m.get("ref")) == 0) throw bad("Profile title reward: \"ref\" must be the ID of a title made in the Profile titles page.");
                 if (k.equals("VIP_CARD") && ((Number) m.get("amount")).longValue() < 1) throw bad("VIP card: amount is the number of days (at least 1).");
             }
             if (section.equals("treasure-tiers") && !String.valueOf(m.get("code")).matches("[A-Z_]{2,12}")) throw bad("Tier code is capital letters only (like NORMAL).");

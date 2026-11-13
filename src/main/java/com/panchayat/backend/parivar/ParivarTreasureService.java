@@ -43,9 +43,11 @@ public class ParivarTreasureService {
     private final DiamondService diamonds;
     private final SpendRewardService bag;
     private final AdminVipService vip;
+    private final com.panchayat.backend.titles.ProfileTitleService profileTitles;
 
     public ParivarTreasureService(JdbcTemplate jdbc, ParivarService core, CoinWalletService wallet, WalletPushService walletPush, DiamondService diamonds,
-                                  SpendRewardService bag, AdminVipService vip) {
+                                  SpendRewardService bag, AdminVipService vip, com.panchayat.backend.titles.ProfileTitleService profileTitles) {
+        this.profileTitles = profileTitles;
         this.jdbc = jdbc;
         this.core = core;
         this.wallet = wallet;
@@ -89,7 +91,9 @@ public class ParivarTreasureService {
             m.put("poolDiamonds", l(t.get("pool_diamonds")));
             m.put("imageUrl", MediaUrls.link((String) t.get("image_url")));
             m.put("earnedThisWeek", jdbc.queryForObject("select count(*) from treasure_chests where parivar_id = ? and tier_id = ? and grant_key like ?", Long.class, parivarId, t.get("id"), "wk:" + parivarId + ":" + wk + ":%") > 0);
-            m.put("rewards", jdbc.query("select kind, rarity, weight, label, image_url, max_per_chest from treasure_rewards where tier_id = ? and active order by weight desc, id",
+            m.put("rewards", jdbc.query("select r.kind, r.rarity, r.weight, case when r.kind = 'COLLECTIBLE' then c.name when r.kind = 'PROFILE_TITLE' then pt.name else r.label end as label, coalesce(c.media_url, pt.icon_url, r.image_url) as image_url from treasure_rewards r"
+                    + " left join parivar_collectibles c on r.kind = 'COLLECTIBLE' and c.id = r.ref left join profile_titles pt on r.kind = 'PROFILE_TITLE' and pt.id = r.ref"
+                    + " where r.tier_id = ? and r.active and (r.kind <> 'COLLECTIBLE' or c.active) and (r.kind <> 'PROFILE_TITLE' or pt.active) order by r.weight desc, r.id",
                     (rs, i) -> Map.of("kind", rs.getString("kind"), "rarity", rs.getString("rarity"), "label", rs.getString("label"), "imageUrl", MediaUrls.link(rs.getString("image_url")) == null ? "" : MediaUrls.link(rs.getString("image_url"))), t.get("id")));
             tiers.add(m);
         }
@@ -223,7 +227,8 @@ public class ParivarTreasureService {
                     return m;
                 }, userId));
         out.put("collection", jdbc.query("select kind, label, image_url, source, created_at from user_collection where user_id = ? order by id desc limit 100",
-                (rs, i) -> Map.of("kind", rs.getString("kind"), "label", rs.getString("label"), "source", rs.getString("source"), "at", rs.getTimestamp("created_at").toInstant().toString()), userId));
+                (rs, i) -> Map.of("kind", rs.getString("kind"), "label", rs.getString("label"), "source", rs.getString("source"), "at", rs.getTimestamp("created_at").toInstant().toString(),
+                        "imageUrl", MediaUrls.link(rs.getString("image_url")) == null ? "" : MediaUrls.link(rs.getString("image_url"))), userId));
         return out;
     }
 
@@ -349,7 +354,9 @@ public class ParivarTreasureService {
             out.get(order.get(i)).coins = coins[i];
             out.get(order.get(i)).diamonds = dia[i];
         }
-        List<Map<String, Object>> rewards = new ArrayList<>(jdbc.queryForList("select * from treasure_rewards where tier_id = ? and active and weight > 0", tier.get("id")));
+        List<Map<String, Object>> rewards = new ArrayList<>(jdbc.queryForList("select r.*, c.name as cname, c.media_url as cmedia, c.kind as ckind, pt.name as tname, pt.icon_url as ticon from treasure_rewards r left join parivar_collectibles c on r.kind = 'COLLECTIBLE' and c.id = r.ref"
+                + " left join profile_titles pt on r.kind = 'PROFILE_TITLE' and pt.id = r.ref"
+                + " where r.tier_id = ? and r.active and r.weight > 0 and (r.kind <> 'COLLECTIBLE' or c.active) and (r.kind <> 'PROFILE_TITLE' or pt.active)", tier.get("id")));
         Map<Object, Integer> drawn = new HashMap<>();
         int per = (int) l(tier.get("draws_per_member"));
         for (int round = 0; round < per; round++) {
@@ -375,12 +382,13 @@ public class ParivarTreasureService {
                 Map<String, Object> it = new LinkedHashMap<>();
                 it.put("rewardId", l(pick.get("id")));
                 it.put("kind", pick.get("kind"));
-                it.put("label", pick.get("label"));
+                it.put("label", "COLLECTIBLE".equals(pick.get("kind")) ? pick.get("cname") : "PROFILE_TITLE".equals(pick.get("kind")) ? pick.get("tname") : pick.get("label"));
+                if ("COLLECTIBLE".equals(pick.get("kind"))) it.put("collectibleKind", pick.get("ckind"));
                 it.put("rarity", pick.get("rarity"));
                 it.put("amount", l(pick.get("amount")));
                 it.put("ref", l(pick.get("ref")));
                 it.put("giftId", pick.get("gift_id"));
-                String img = MediaUrls.link((String) pick.get("image_url"));
+                String img = MediaUrls.link((String) ("COLLECTIBLE".equals(pick.get("kind")) ? pick.get("cmedia") : "PROFILE_TITLE".equals(pick.get("kind")) ? pick.get("ticon") : pick.get("image_url")));
                 it.put("imageUrl", img == null ? "" : img);
                 out.get(m).items.add(it);
             }
@@ -442,6 +450,13 @@ public class ParivarTreasureService {
                 }
                 case "ITEM" -> bag.grantGachaItem(userId, l(it.get("ref")), (int) amount);
                 case "VIP_CARD" -> vip.grantVip(userId, new AdminVipGrantRequest((int) Math.max(1, amount)));
+                case "PROFILE_TITLE" -> profileTitles.grant(userId, l(it.get("ref")), "TREASURE", 0);
+                case "COLLECTIBLE" -> {
+                    List<Map<String, Object>> cr = jdbc.queryForList("select kind, name, media_url from parivar_collectibles where id = ?", l(it.get("ref")));
+                    if (cr.isEmpty()) throw new IllegalStateException("A treasure collectible was removed");
+                    jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref) values (?, ?, ?, ?, 'TREASURE', ?) on conflict do nothing",
+                            userId, cr.get(0).get("kind"), cr.get(0).get("name"), cr.get(0).get("media_url"), base + ":" + idx);
+                }
                 case "TITLE", "BADGE" -> jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref) values (?, ?, ?, ?, 'TREASURE', ?) on conflict do nothing",
                         userId, kind, label, ((String) it.get("imageUrl")).isEmpty() ? null : it.get("imageUrl"), base + ":" + idx);
                 default -> throw new IllegalStateException("Unknown treasure reward " + kind);
