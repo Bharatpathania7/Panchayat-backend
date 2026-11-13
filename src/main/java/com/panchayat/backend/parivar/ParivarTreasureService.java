@@ -226,9 +226,9 @@ public class ParivarTreasureService {
                     m.put("at", rs.getTimestamp("created_at").toInstant().toString());
                     return m;
                 }, userId));
-        out.put("collection", jdbc.query("select kind, label, image_url, source, created_at from user_collection where user_id = ? order by id desc limit 100",
+        out.put("collection", jdbc.query("select kind, label, image_url, source, created_at, category from user_collection where user_id = ? order by id desc limit 100",
                 (rs, i) -> Map.of("kind", rs.getString("kind"), "label", rs.getString("label"), "source", rs.getString("source"), "at", rs.getTimestamp("created_at").toInstant().toString(),
-                        "imageUrl", MediaUrls.link(rs.getString("image_url")) == null ? "" : MediaUrls.link(rs.getString("image_url"))), userId));
+                        "imageUrl", MediaUrls.link(rs.getString("image_url")) == null ? "" : MediaUrls.link(rs.getString("image_url")), "category", rs.getString("category") == null ? "" : rs.getString("category")), userId));
         return out;
     }
 
@@ -450,12 +450,12 @@ public class ParivarTreasureService {
                 }
                 case "ITEM" -> bag.grantGachaItem(userId, l(it.get("ref")), (int) amount);
                 case "VIP_CARD" -> vip.grantVip(userId, new AdminVipGrantRequest((int) Math.max(1, amount)));
-                case "PROFILE_TITLE" -> profileTitles.grant(userId, l(it.get("ref")), "TREASURE", 0);
+                case "PROFILE_TITLE" -> profileTitles.grantUsual(userId, l(it.get("ref")), "TREASURE", (int) amount);
                 case "COLLECTIBLE" -> {
-                    List<Map<String, Object>> cr = jdbc.queryForList("select kind, name, media_url from parivar_collectibles where id = ?", l(it.get("ref")));
+                    List<Map<String, Object>> cr = jdbc.queryForList("select c.kind, c.name, c.media_url, k.name as cat from parivar_collectibles c left join parivar_library_categories k on k.id = c.category_id where c.id = ?", l(it.get("ref")));
                     if (cr.isEmpty()) throw new IllegalStateException("A treasure collectible was removed");
-                    jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref) values (?, ?, ?, ?, 'TREASURE', ?) on conflict do nothing",
-                            userId, cr.get(0).get("kind"), cr.get(0).get("name"), cr.get(0).get("media_url"), base + ":" + idx);
+                    jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref, category) values (?, ?, ?, ?, 'TREASURE', ?, ?) on conflict do nothing",
+                            userId, cr.get(0).get("kind"), cr.get(0).get("name"), cr.get(0).get("media_url"), base + ":" + idx, cr.get(0).get("cat"));
                 }
                 case "TITLE", "BADGE" -> jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref) values (?, ?, ?, ?, 'TREASURE', ?) on conflict do nothing",
                         userId, kind, label, ((String) it.get("imageUrl")).isEmpty() ? null : it.get("imageUrl"), base + ":" + idx);

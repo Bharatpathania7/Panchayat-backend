@@ -15,8 +15,9 @@ import java.time.Instant;
 import java.util.*;
 
 /**
- * Profile titles. The admin makes them (name, colours, picture, price, free or not). A person owns a title when it is free, bought,
- * given by the admin or won in a chest, and wears up to "max worn" of them on their profile. The server checks ownership on every wear.
+ * Profile titles. The admin makes them (name, colours, picture or animation, price, free or not, how long they last, who may buy them and when).
+ * A person owns a title when it is free, bought, given by the admin, won in a chest or given by an automatic rule, and wears the ones they like
+ * on their profile. The server checks ownership and every limit on each call.
  */
 @Service
 public class ProfileTitleService {
@@ -35,9 +36,10 @@ public class ProfileTitleService {
         return new ResponseStatusException(s, m);
     }
 
+    /** 0 = a person can wear every title they own. */
     public int maxWorn() {
-        Integer m = jdbc.query("select max_worn from title_settings where id = 1", rs -> rs.next() ? rs.getInt(1) : 3);
-        return m == null ? 3 : m;
+        Integer m = jdbc.query("select max_worn from title_settings where id = 1", rs -> rs.next() ? rs.getInt(1) : 0);
+        return m == null ? 0 : m;
     }
 
     static Map<String, Object> card(java.sql.ResultSet rs) throws java.sql.SQLException {
@@ -52,7 +54,28 @@ public class ProfileTitleService {
         return m;
     }
 
-    /** What a person can wear right now: owned (not expired) plus free titles. */
+    private int vipLevelOf(Long userId) {
+        Integer l = jdbc.query("select case when vip_active and vip_expires_at > now() then coalesce(vip_level, 0) else 0 end from users where id = ?", rs -> rs.next() ? rs.getInt(1) : 0, userId);
+        return l == null ? 0 : l;
+    }
+
+    private boolean inParivar(Long userId) {
+        return jdbc.queryForObject("select count(*) from parivar_members where user_id = ?", Long.class, userId) > 0;
+    }
+
+    /** Why this person cannot buy the title right now, or null. */
+    private String blockedReason(Map<String, Object> t, int vip, boolean parivar) {
+        Timestamp from = (Timestamp) t.get("sale_from"), until = (Timestamp) t.get("sale_until");
+        Instant now = Instant.now();
+        if (from != null && from.toInstant().isAfter(now)) return "On sale from " + from.toInstant().toString().substring(0, 10);
+        if (until != null && until.toInstant().isBefore(now)) return "Sale ended";
+        int minVip = ((Number) t.get("min_vip_level")).intValue();
+        if (minVip > 0 && vip < minVip) return "Needs VIP " + minVip;
+        if (Boolean.TRUE.equals(t.get("parivar_only")) && !parivar) return "Parivar members only";
+        return null;
+    }
+
+    /** What a person can wear right now (owned and not expired, plus free titles), and the titles they can buy. */
     public Map<String, Object> mine(Long userId) {
         List<Map<String, Object>> owned = jdbc.query("select t.*, u.worn_pos, u.expires_at, u.user_id as owner from profile_titles t left join user_titles u on u.title_id = t.id and u.user_id = ?"
                         + " where t.active and ((u.user_id is not null and (u.expires_at is null or u.expires_at > now())) or t.free) order by t.sort_order, t.id",
@@ -65,13 +88,29 @@ public class ProfileTitleService {
                     m.put("free", rs.getBoolean("free"));
                     return m;
                 }, userId);
-        List<Map<String, Object>> store = jdbc.query("select t.* from profile_titles t where t.active and not t.free and t.price_coins > 0 and not exists"
-                        + " (select 1 from user_titles u where u.user_id = ? and u.title_id = t.id and (u.expires_at is null or u.expires_at > now())) order by t.price_coins, t.id",
-                (rs, i) -> {
-                    Map<String, Object> m = card(rs);
-                    m.put("priceCoins", rs.getLong("price_coins"));
-                    return m;
-                }, userId);
+        int vip = vipLevelOf(userId);
+        boolean parivar = inParivar(userId);
+        List<Map<String, Object>> store = new ArrayList<>();
+        for (Map<String, Object> t : jdbc.queryForList("select t.*, (select u.expires_at from user_titles u where u.user_id = ? and u.title_id = t.id and (u.expires_at is null or u.expires_at > now())) as my_expiry,"
+                + " exists (select 1 from user_titles u where u.user_id = ? and u.title_id = t.id and (u.expires_at is null or u.expires_at > now())) as have"
+                + " from profile_titles t where t.active and not t.free and t.for_sale and t.price_coins > 0 and (t.sale_until is null or t.sale_until > now()) order by t.price_coins, t.id", userId, userId)) {
+            boolean have = Boolean.TRUE.equals(t.get("have"));
+            Timestamp myExpiry = (Timestamp) t.get("my_expiry");
+            if (have && myExpiry == null) continue; // owned for ever: nothing to buy
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", String.valueOf(((Number) t.get("id")).longValue()));
+            m.put("name", t.get("name"));
+            m.put("iconUrl", MediaUrls.link((String) t.get("icon_url")));
+            m.put("colorFrom", t.get("color_from"));
+            m.put("colorTo", t.get("color_to"));
+            m.put("textColor", t.get("text_color"));
+            m.put("rarity", t.get("rarity"));
+            m.put("priceCoins", ((Number) t.get("price_coins")).longValue());
+            m.put("durationDays", ((Number) t.get("duration_days")).intValue());
+            m.put("renew", have);
+            m.put("blocked", blockedReason(t, vip, parivar));
+            store.add(m);
+        }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("maxWorn", maxWorn());
         out.put("owned", owned);
@@ -93,7 +132,7 @@ public class ProfileTitleService {
 
     @Transactional
     public Map<String, Object> wear(Long userId, Long titleId) {
-        // One person's wear/take-off calls run one after the other, so the limit can't be passed by two taps at once
+        // One person's wear/take-off calls run one after the other, so a limit can't be passed by two taps at once
         jdbc.queryForObject("select id from users where id = ? for update", Long.class, userId);
         if (!owns(userId, titleId)) throw bad(HttpStatus.FORBIDDEN, "You don't have this title.");
         jdbc.update("insert into user_titles (user_id, title_id, source) select ?, id, 'FREE' from profile_titles where id = ? and free on conflict do nothing", userId, titleId);
@@ -118,22 +157,43 @@ public class ProfileTitleService {
         if (tl.isEmpty()) throw bad(HttpStatus.NOT_FOUND, "That title isn't available.");
         Map<String, Object> t = tl.get(0);
         long price = ((Number) t.get("price_coins")).longValue();
-        if (Boolean.TRUE.equals(t.get("free")) || price <= 0) throw bad(HttpStatus.CONFLICT, "This title isn't for sale.");
-        if (owns(userId, titleId)) throw bad(HttpStatus.CONFLICT, "You already have this title.");
-        // The key is unique per person and title, so a repeated tap can't charge twice
+        if (Boolean.TRUE.equals(t.get("free")) || price <= 0 || !Boolean.TRUE.equals(t.get("for_sale"))) throw bad(HttpStatus.CONFLICT, "This title isn't for sale.");
+        String why = blockedReason(t, vipLevelOf(userId), inParivar(userId));
+        if (why != null) throw bad(HttpStatus.CONFLICT, why + ".");
+        boolean has = jdbc.queryForObject("select count(*) from user_titles where user_id = ? and title_id = ? and (expires_at is null or expires_at > now())", Long.class, userId, titleId) > 0;
+        Timestamp cur = jdbc.query("select expires_at from user_titles where user_id = ? and title_id = ? and expires_at > now()", rs -> rs.next() ? rs.getTimestamp(1) : null, userId, titleId);
+        if (has && cur == null) throw bad(HttpStatus.CONFLICT, "You already have this title for ever.");
+        int dur = ((Number) t.get("duration_days")).intValue();
+        Timestamp exp = null;
+        if (dur > 0) {
+            Instant base = cur != null ? cur.toInstant() : Instant.now();
+            exp = Timestamp.from(base.plus(Duration.ofDays(dur)));
+        }
+        // The key is unique per person, title and minute, so a repeated tap can't charge twice
         wallet.debit(userId, price, "TITLE_PURCHASE", "title:" + titleId, "title-buy:" + userId + ":" + titleId + ":" + System.currentTimeMillis() / 1000 / 60, "Profile title: " + t.get("name"));
-        jdbc.update("insert into user_titles (user_id, title_id, source) values (?, ?, 'PURCHASE') on conflict (user_id, title_id) do update set source = 'PURCHASE', expires_at = null", userId, titleId);
+        jdbc.update("insert into user_titles (user_id, title_id, source, expires_at) values (?, ?, 'PURCHASE', ?) on conflict (user_id, title_id) do update set source = 'PURCHASE', expires_at = excluded.expires_at", userId, titleId, exp);
         walletPush.pushBalance(userId, "TITLE_PURCHASE", -price);
         return mine(userId);
     }
 
-    /** Admin or chest gives a title. days = 0 means for ever. Giving a title again only extends it. */
+    /** Gives a title. days = 0 means for ever. Giving it again only extends it. */
     @Transactional
     public void grant(Long userId, Long titleId, String source, int days) {
         if (jdbc.queryForObject("select count(*) from profile_titles where id = ?", Long.class, titleId) == 0) throw bad(HttpStatus.NOT_FOUND, "That title doesn't exist.");
         Timestamp exp = days > 0 ? Timestamp.from(Instant.now().plus(Duration.ofDays(days))) : null;
         jdbc.update("insert into user_titles (user_id, title_id, source, expires_at) values (?, ?, ?, ?) on conflict (user_id, title_id) do update set expires_at ="
                 + " case when user_titles.expires_at is null or excluded.expires_at is null then null else greatest(user_titles.expires_at, excluded.expires_at) end", userId, titleId, source, exp);
+    }
+
+    /** Like grant, but with days = 0 the title's own duration is used (a chest or an admin who says "the usual time"). */
+    @Transactional
+    public void grantUsual(Long userId, Long titleId, String source, int days) {
+        int d = days;
+        if (d <= 0) {
+            Integer own = jdbc.query("select duration_days from profile_titles where id = ?", rs -> rs.next() ? rs.getInt(1) : 0, titleId);
+            d = own == null ? 0 : own;
+        }
+        grant(userId, titleId, source, d);
     }
 
     @Transactional
