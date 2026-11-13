@@ -798,6 +798,10 @@ public class ParivarService {
         m.put("level", level + 1);
         m.put("expNeeded", expNeed);
         m.put("fundNeeded", fundNeed);
+        // On level up the whole fund is used (the admin can switch this off: then only the level's price is taken)
+        boolean all = b(settings().get("levelup_spend_all"));
+        m.put("spendAll", all);
+        m.put("fundUsed", all ? l(p.get("funds")) : fundNeed);
         m.put("expOk", expOk);
         m.put("fundOk", fundOk);
         m.put("ready", expOk && fundOk);
@@ -805,8 +809,8 @@ public class ParivarService {
     }
 
     /**
-     * The Mukhiya moves the Parivar up one level. Needs the activity AND the family fund the next level asks for;
-     * that fund is taken out of the treasury (it goes down by what the level costs).
+     * The Mukhiya moves the Parivar up one level. Needs the activity AND the family fund the next level asks for.
+     * Then ALL the family fund is used (the treasury goes to 0), unless the admin switched that off: then only the level's price is taken.
      */
     @Transactional
     public Map<String, Object> levelUp(Long actor, Long id) {
@@ -818,7 +822,7 @@ public class ParivarService {
         if (!(Boolean) info.get("expOk")) throw conflict("Not enough activity yet. Level " + info.get("level") + " needs " + info.get("expNeeded") + " activity.");
         if (!(Boolean) info.get("fundOk")) throw conflict("Not enough family fund yet. Level " + info.get("level") + " needs " + info.get("fundNeeded") + " in the fund.");
         int next = ((Number) info.get("level")).intValue();
-        long cost = l(info.get("fundNeeded"));
+        long cost = l(info.get("fundUsed"));
         if (cost > 0) changeFunds(id, actor, -cost, "LEVELUP", "levelup:" + id + ":" + next);
         jdbc.update("update parivars set level = ? where id = ?", next, id);
         activity(id, actor, null, "LEVEL", 0, cost, "The Parivar reached level " + next, "levelup:" + id + ":" + next);

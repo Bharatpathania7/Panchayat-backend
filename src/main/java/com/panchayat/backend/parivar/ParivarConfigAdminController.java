@@ -91,7 +91,7 @@ public class ParivarConfigAdminController {
                 Col.num("stealFailPenalty", "steal_fail_penalty", 0, BIG), Col.num("stealMinTargetFunds", "steal_min_target_funds", 0, BIG), Col.bool("gachaEnabled", "gacha_enabled"),
                 Col.bool("shopEnabled", "shop_enabled"), Col.bool("tasksEnabled", "tasks_enabled"), Col.bool("chatEnabled", "chat_enabled"), Col.bool("voiceEnabled", "voice_enabled"),
                 Col.integer("voiceMinLevel", "voice_min_level", 1, 100), Col.integer("chestExpiryHours", "chest_expiry_hours", 1, 720), Col.oneOf("chestExpiryPolicy", "chest_expiry_policy", "NONE", "REFUND_FUNDS"),
-                Col.integer("checkinExp", "checkin_exp", 0, 1_000_000), Col.num("gachaTicketPrice", "gacha_ticket_price", 0, 1_000_000), Col.bool("rankRewardsEnabled", "rank_rewards_enabled")))
+                Col.integer("checkinExp", "checkin_exp", 0, 1_000_000), Col.num("gachaTicketPrice", "gacha_ticket_price", 0, 1_000_000), Col.bool("rankRewardsEnabled", "rank_rewards_enabled"), Col.bool("levelupSpendAll", "levelup_spend_all")))
             EXTRA.put(c.key(), c);
     }
 
