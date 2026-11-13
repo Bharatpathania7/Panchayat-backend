@@ -60,6 +60,15 @@ public class ParivarConfigAdminController {
         SECTIONS.put("chest-rewards", new Section("parivar_chest_rewards", "chest_id, weight desc, id", List.of(
                 Col.num("chestId", "chest_id", 1, BIG), Col.oneOf("kind", "kind", "COINS", "FUNDS", "CHARM", "CHEST", "CARD", "BARRIER"), Col.num("ref", "ref", 0, BIG), Col.num("amount", "amount", 1, BIG),
                 Col.integer("weight", "weight", 1, 1_000_000), Col.str("label", "label", 60, true), Col.bool("active", "active")), true, "chestId"));
+        SECTIONS.put("treasure-tiers", new Section("treasure_tiers", "sort_order, id", List.of(
+                Col.str("code", "code", 12, true), Col.str("name", "name", 40, true), Col.bool("enabled", "enabled"), Col.num("weeklyTarget", "weekly_target", 1, BIG),
+                Col.integer("unlockMinutes", "unlock_minutes", 0, 525600), Col.num("poolCoins", "pool_coins", 0, BIG), Col.num("poolDiamonds", "pool_diamonds", 0, BIG),
+                Col.integer("drawsPerMember", "draws_per_member", 0, 10), Col.integer("eligibleMinHours", "eligible_min_hours", 0, 8760), Col.str("imageUrl", "image_url", 500, false),
+                Col.integer("sortOrder", "sort_order", 0, 100000)), false, null));
+        SECTIONS.put("treasure-rewards", new Section("treasure_rewards", "tier_id, weight desc, id", List.of(
+                Col.num("tierId", "tier_id", 1, BIG), Col.oneOf("kind", "kind", "GIFT", "ITEM", "VIP_CARD", "TITLE", "BADGE"), Col.num("ref", "ref", 0, BIG), Col.str("giftId", "gift_id", 64, false),
+                Col.num("amount", "amount", 0, BIG), Col.oneOf("rarity", "rarity", "COMMON", "PREMIUM", "EPIC", "LEGENDARY", "ULTRA_RARE"), Col.integer("weight", "weight", 1, 1_000_000),
+                Col.integer("maxPerChest", "max_per_chest", 0, 1000), Col.str("label", "label", 60, true), Col.str("imageUrl", "image_url", 500, false), Col.bool("active", "active")), true, "tierId"));
         SECTIONS.put("shop", new Section("parivar_shop_items", "sort_order, id", List.of(
                 Col.str("name", "name", 40, true), Col.str("imageUrl", "image_url", 500, false), Col.oneOf("kind", "kind", "GACHA_CARD", "CHEST", "BARRIER"), Col.num("ref", "ref", 1, BIG),
                 Col.integer("qty", "qty", 1, 1000), Col.num("priceFunds", "price_funds", 0, BIG), Col.num("priceCoins", "price_coins", 0, BIG), Col.integer("dailyLimit", "daily_limit", 0, 100000),
@@ -213,6 +222,13 @@ public class ParivarConfigAdminController {
             for (Col c : s.cols()) m.put(c.column(), coerce(c, r.get(c.key())));
             if (m.containsKey("kind") && m.containsKey("ref")) checkRef((String) m.get("kind"), ((Number) m.get("ref")).longValue());
             if (section.equals("rank-rewards") && ((Number) m.get("rank_to")).intValue() < ((Number) m.get("rank_from")).intValue()) throw bad("\"rankTo\" can't be below \"rankFrom\".");
+            if (section.equals("treasure-rewards")) {
+                String k = (String) m.get("kind");
+                if (k.equals("GIFT") && (m.get("gift_id") == null || jdbc.queryForObject("select count(*) from gifts where id = ?", Integer.class, m.get("gift_id")) == 0)) throw bad("Gift reward: write the ID of an existing gift.");
+                if (k.equals("ITEM") && jdbc.queryForObject("select count(*) from reward_rule_items where id = ?", Integer.class, m.get("ref")) == 0) throw bad("Item reward: \"ref\" must be the ID of an item made in Spend rewards.");
+                if (k.equals("VIP_CARD") && ((Number) m.get("amount")).longValue() < 1) throw bad("VIP card: amount is the number of days (at least 1).");
+            }
+            if (section.equals("treasure-tiers") && !String.valueOf(m.get("code")).matches("[A-Z_]{2,12}")) throw bad("Tier code is capital letters only (like NORMAL).");
             m.put("__id", r.get("id") == null ? null : Long.valueOf(String.valueOf(r.get("id"))));
             clean.add(m);
         }
@@ -302,6 +318,13 @@ public class ParivarConfigAdminController {
             case "funds" -> jdbc.queryForList("select f.id, p.name as parivar, u.full_name as \"user\", f.delta, f.balance_after as balance, f.kind, f.created_at as \"createdAt\" from parivar_funds_ledger f"
                     + " join parivars p on p.id = f.parivar_id left join users u on u.id = f.user_id order by f.id desc limit 100");
             case "chests" -> jdbc.queryForList("select c.id, p.name as parivar, c.name, c.pieces, c.claimed, c.status, c.created_at as \"createdAt\" from parivar_chests c join parivars p on p.id = c.parivar_id order by c.id desc limit 100");
+            case "treasure" -> jdbc.queryForList("select d.id, p.name as parivar, d.chest_name as chest, d.tier_code as tier, d.mode, s.full_name as \"sentBy\", d.member_count as members, d.total_coins as coins, d.total_diamonds as diamonds, t.full_name as \"top\", d.created_at as \"createdAt\""
+                    + " from treasure_distributions d join parivars p on p.id = d.parivar_id left join users s on s.id = d.sent_by left join users t on t.id = d.top_user order by d.id desc limit 100");
+            case "treasure-members" -> jdbc.queryForList("select x.id, u.full_name as member, p.name as parivar, d.chest_name as chest, d.tier_code as tier, x.coins, x.diamonds, x.items, x.created_at as \"createdAt\""
+                    + " from treasure_payouts x join users u on u.id = x.user_id join parivars p on p.id = x.parivar_id join treasure_distributions d on d.id = x.distribution_id order by x.id desc limit 200");
+            case "treasure-chests" -> jdbc.queryForList("select c.id, p.name as parivar, c.name, c.status, c.pool_coins as coins, c.pool_diamonds as diamonds, u.full_name as \"claimedBy\", c.unlock_at as \"unlockAt\", c.earned_at as \"createdAt\""
+                    + " from treasure_chests c join parivars p on p.id = c.parivar_id left join users u on u.id = c.claimed_by order by c.id desc limit 100");
+            case "treasure-audit" -> jdbc.queryForList("select a.id, a.chest_id as chest, a.action, a.detail, u.full_name as \"user\", a.created_at as \"createdAt\" from treasure_audit a left join users u on u.id = a.user_id order by a.id desc limit 200");
             default -> throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Unknown log.");
         };
     }

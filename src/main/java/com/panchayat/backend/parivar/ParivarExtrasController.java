@@ -23,8 +23,11 @@ public class ParivarExtrasController {
     private final ParivarWarService war;
     private final ParivarMiscService misc;
     private final UserRepository users;
+    private final ParivarTreasureService treasure;
 
-    public ParivarExtrasController(ParivarEconomyService economy, ParivarGachaService gacha, ParivarChestService chests, ParivarWarService war, ParivarMiscService misc, UserRepository users) {
+    public ParivarExtrasController(ParivarEconomyService economy, ParivarGachaService gacha, ParivarChestService chests, ParivarWarService war, ParivarMiscService misc, UserRepository users,
+                                   ParivarTreasureService treasure) {
+        this.treasure = treasure;
         this.economy = economy;
         this.gacha = gacha;
         this.chests = chests;
@@ -195,6 +198,39 @@ public class ParivarExtrasController {
     @PostMapping("/chests/{chestId:[0-9]+}/claim")
     public Map<String, Object> claim(@PathVariable Long id, @PathVariable Long chestId, Authentication auth) {
         return chests.claim(me(auth), id, chestId);
+    }
+
+    /* Family Treasure */
+
+    @GetMapping("/treasure")
+    public Map<String, Object> treasure(@PathVariable Long id, Authentication auth) {
+        return treasure.state(me(auth), id);
+    }
+
+    @GetMapping("/treasure/me")
+    public Map<String, Object> treasureMine(@PathVariable Long id, Authentication auth) {
+        return treasure.mine(me(auth));
+    }
+
+    @PostMapping("/treasure/chests/{chestId:[0-9]+}/claim")
+    public Map<String, Object> treasureClaim(@PathVariable Long id, @PathVariable Long chestId, Authentication auth) {
+        return treasure.claim(me(auth), id, chestId);
+    }
+
+    @PostMapping("/treasure/chests/{chestId:[0-9]+}/send")
+    public Map<String, Object> treasureSend(@PathVariable Long id, @PathVariable Long chestId, @RequestBody ParivarTreasureService.SendRequest body, Authentication auth) {
+        return treasure.send(me(auth), id, chestId, body);
+    }
+
+    @GetMapping("/treasure/openings/{did:[0-9]+}")
+    public Map<String, Object> treasureOpening(@PathVariable Long id, @PathVariable Long did, Authentication auth) {
+        return treasure.distribution(me(auth), id, did);
+    }
+
+    @PostMapping("/treasure/openings/{did:[0-9]+}/seen")
+    public Map<String, Object> treasureSeen(@PathVariable Long id, @PathVariable Long did, Authentication auth) {
+        treasure.seen(me(auth), id, did);
+        return Map.of("ok", true);
     }
 
     /* Kavach and Chori */

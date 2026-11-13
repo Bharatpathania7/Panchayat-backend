@@ -858,20 +858,16 @@ public class ParivarService {
      */
     private void weeklyChests(Long id) {
         long week = l(jdbc.queryForObject("select coalesce(sum(exp), 0) from parivar_activity where parivar_id = ? and created_at >= ?", Long.class, id, weekStart()));
-        long hours = Math.max(1, l(settings().get("chest_expiry_hours")));
         String wk = weekStart().toInstant().toString().substring(0, 10);
-        List<Map<String, Object>> ms = jdbc.queryForList("select m.id, m.threshold, m.qty, t.id as type_id, t.name, t.pieces from parivar_activity_milestones m join parivar_chest_types t on t.id = m.chest_type_id where m.active and m.threshold <= ? order by m.threshold", week);
-        for (Map<String, Object> m : ms) {
-            String key = "milestone:" + id + ":" + wk + ":" + m.get("id");
-            int got = jdbc.update("insert into parivar_milestone_grants (key) values (?) on conflict do nothing", key);
+        // Family Treasure: each enabled tier whose weekly target was reached gives the Parivar one chest this week (once only: the key is unique)
+        List<Map<String, Object>> tiers = jdbc.queryForList("select * from treasure_tiers where enabled and weekly_target <= ? order by weekly_target", week);
+        for (Map<String, Object> t : tiers) {
+            String key = "wk:" + id + ":" + wk + ":" + t.get("id");
+            int got = jdbc.update("insert into treasure_chests (parivar_id, tier_id, tier_code, name, grant_key, pool_coins, pool_diamonds) values (?, ?, ?, ?, ?, ?, ?) on conflict (grant_key) do nothing",
+                    id, t.get("id"), t.get("code"), t.get("name"), key, t.get("pool_coins"), t.get("pool_diamonds"));
             if (got == 0) continue;
-            int qty = ((Number) m.get("qty")).intValue();
-            for (int i = 0; i < qty; i++) {
-                jdbc.update("insert into parivar_chests (parivar_id, type_id, name, price, pieces, sent_by, expires_at, send_key) values (?, ?, ?, 0, ?, null, ?, ?)",
-                        id, m.get("type_id"), m.get("name"), m.get("pieces"), Timestamp.from(java.time.Instant.now().plus(java.time.Duration.ofHours(hours))), key + ":" + i);
-            }
-            world("CHEST", id, null, "\uD83C\uDF81 " + jdbc.queryForObject("select name from parivars where id = ?", String.class, id) + " completed " + l(m.get("threshold")) / 1000 + "k activity and opened " + (qty > 1 ? qty + " x " : "a ") + m.get("name") + "!", l(m.get("threshold")));
-            system(id, "🎁 " + l(m.get("threshold")) / 1000 + "k activity this week! " + (qty > 1 ? qty + " × " : "A ") + m.get("name") + " opened for the Parivar. Open Chests to claim your piece!");
+            world("CHEST", id, null, "🎁 " + jdbc.queryForObject("select name from parivars where id = ?", String.class, id) + " completed " + l(t.get("weekly_target")) / 1000 + "k activity and earned a " + t.get("name") + "!", l(t.get("weekly_target")));
+            system(id, "🎁 " + l(t.get("weekly_target")) / 1000 + "k activity this week! A " + t.get("name") + " is ready. Open Family Treasure and claim it!");
         }
     }
 
