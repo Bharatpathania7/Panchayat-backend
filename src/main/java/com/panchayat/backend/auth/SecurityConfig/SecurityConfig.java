@@ -102,7 +102,8 @@ public class SecurityConfig {
                         // Public VIP cosmetics.
                         .requestMatchers(
                                 HttpMethod.GET,
-                                "/api/v1/vip/cosmetics"
+                                "/api/v1/vip/cosmetics",
+                                "/api/v1/festival/active"
                         ).permitAll()
 
                         // Gifts on sale (managed from the admin panel).
