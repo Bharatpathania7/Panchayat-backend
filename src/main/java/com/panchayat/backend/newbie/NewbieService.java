@@ -260,11 +260,23 @@ public class NewbieService {
         jdbc.query("select pg_advisory_xact_lock(?)", rs -> null, LOCK);
         if (hostId == null) throw bad("Pick a host.");
         if (jdbc.queryForObject("select count(*) from users where id = ?", Long.class, hostId) == 0) throw bad("That user doesn't exist.");
-        if (jdbc.queryForObject("select count(*) from newbie_rooms where host_id = ? and status = 'ACTIVE'", Long.class, hostId) > 0) throw conflict("That host already has an active welcome room.");
+        if (!isOfficialUser(hostId) && jdbc.queryForObject("select count(*) from newbie_rooms where host_id = ? and status = 'ACTIVE'", Long.class, hostId) > 0) throw conflict("That host already has an active welcome room.");
         if (activeCount() >= config().maxRooms()) throw conflict("You have reached the maximum number of welcome rooms (" + config().maxRooms() + ").");
         jdbc.update("insert into newbie_room_hosts (user_id, added_by) values (?, ?) on conflict (user_id) do update set active = true", hostId, by);
         Long roomId = createRoomLocked(hostId, by);
         return one(roomId);
+    }
+
+    private boolean isOfficialUser(Long userId) {
+        return userId != null && jdbc.queryForObject("select count(*) from users where id = ? and official", Long.class, userId) > 0;
+    }
+
+    /** A welcome room owned by the Sarpanch: an official room of Panchayat. */
+    @Transactional
+    public Map<String, Object> createOfficialRoom(String by) {
+        List<Long> s = jdbc.queryForList("select id from users where official order by id limit 1", Long.class);
+        if (s.isEmpty()) throw bad("The Sarpanch account is missing.");
+        return createRoom(s.get(0), by);
     }
 
     /**
@@ -360,6 +372,7 @@ public class NewbieService {
         room.setMaxParticipants(c.roomCapacity());
         room.setCategory("Newbie");
         room.setNewbie(true);
+        room.setOfficial(isOfficialUser(hostId));
         VoiceRoom saved = rooms.saveAndFlush(room);
         jdbc.update("insert into newbie_rooms (room_id, room_number, name, host_id, priority, expires_at, created_by) values (?, ?, ?, ?, ?, case when ? = 0 then null else now() + make_interval(hours => ?) end, ?)",
                 saved.getId(), (int) number, name, hostId, c.priority(), c.roomLifetimeHours(), c.roomLifetimeHours(), by);
@@ -381,7 +394,7 @@ public class NewbieService {
             + " u.full_name as host_name, u.avatar_url as host_avatar, u.public_id as host_public_id,"
             + " (select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED') as joined,"
             + " (select count(*) from voice_room_participants p join users x on x.id = p.user_id where p.room_id = nr.room_id and p.status = 'JOINED' and x.created_at > now() - make_interval(days => ?)) as newbies_in,"
-            + " exists (select 1 from voice_room_participants p where p.room_id = nr.room_id and p.user_id = nr.host_id and p.status = 'JOINED') as host_present,"
+            + " (exists (select 1 from voice_room_participants p where p.room_id = nr.room_id and p.user_id = nr.host_id and p.status = 'JOINED') or exists (select 1 from voice_rooms v where v.id = nr.room_id and v.official)) as host_present,"
             + " (select count(*) from newbie_room_participants q where q.room_id = nr.room_id) as visitors,"
             + " (select count(*) from newbie_welcome_gifts g where g.room_id = nr.room_id) as gifts,"
             + " (select count(*) from voice_room_admins a where a.room_id = nr.room_id) as admins"
@@ -794,7 +807,7 @@ public class NewbieService {
         }
         int grace = config().hostGraceMinutes();
         List<Map<String, Object>> live = jdbc.queryForList("select nr.room_id, nr.host_id, nr.host_absent_since,"
-                + " exists (select 1 from voice_room_participants p where p.room_id = nr.room_id and p.user_id = nr.host_id and p.status = 'JOINED') as present,"
+                + " (exists (select 1 from voice_room_participants p where p.room_id = nr.room_id and p.user_id = nr.host_id and p.status = 'JOINED') or exists (select 1 from voice_rooms v where v.id = nr.room_id and v.official)) as present,"
                 + " (select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED') as joined"
                 + " from newbie_rooms nr where nr.status = 'ACTIVE'");
         for (Map<String, Object> r : live) {

@@ -82,7 +82,9 @@ public class RoomStateService {
         boolean isAdmin(Long id) { return admins.contains(id); }
         boolean isMod(Long id) { return isOwner(id) || isAdmin(id); }
         boolean open() {
-            return joined.contains(room.getOwnerId())
+            // An official room is always open: the Sarpanch holds the owner seat without being in the call
+            return room.isOfficial()
+                    || joined.contains(room.getOwnerId())
                     || admins.stream().anyMatch(joined::contains);
         }
     }
@@ -706,6 +708,11 @@ public class RoomStateService {
                 || e.getValue().expiresAt().isBefore(now));
         if (live.seats[0] != null && !ctx.isOwner(live.seats[0])) live.seats[0] = null;
         if (live.seats[0] == null && ctx.joined().contains(ctx.ownerId())) {
+            unseat(live, ctx.ownerId());
+            live.seats[0] = ctx.ownerId();
+        }
+        // An official room: the owner (the Sarpanch) always sits on seat 0
+        if (ctx.room().isOfficial() && ctx.ownerId() != null) {
             unseat(live, ctx.ownerId());
             live.seats[0] = ctx.ownerId();
         }

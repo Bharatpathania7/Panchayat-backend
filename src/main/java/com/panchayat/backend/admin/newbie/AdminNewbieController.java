@@ -77,6 +77,12 @@ public class AdminNewbieController {
     }
 
     /** Makes a room that already exists (made in the app) a welcome room. */
+    /** A welcome room owned by the Sarpanch (an official room of Panchayat). */
+    @PostMapping("/rooms/official")
+    public Map<String, Object> createOfficial(Authentication auth) {
+        return newbie.createOfficialRoom(by(auth));
+    }
+
     @PostMapping("/rooms/attach")
     public Map<String, Object> attach(@RequestBody AttachBody b, Authentication auth) {
         return newbie.attachRoom(b == null ? null : b.room(), by(auth));

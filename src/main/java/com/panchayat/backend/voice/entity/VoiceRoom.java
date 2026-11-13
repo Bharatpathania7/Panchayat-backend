@@ -58,6 +58,18 @@ public class VoiceRoom {
     @Column(nullable = false)
     private boolean newbie = false;
 
+    /** An official room of Panchayat: owned by the Sarpanch, who always sits on the owner seat. */
+    @Column(nullable = false)
+    private boolean official = false;
+
+    public boolean isOfficial() {
+        return official;
+    }
+
+    public void setOfficial(boolean official) {
+        this.official = official;
+    }
+
     /** The host has opened the 6 extra welcome seats. */
     @Column(name = "extra_seats", nullable = false)
     private boolean extraSeats = false;

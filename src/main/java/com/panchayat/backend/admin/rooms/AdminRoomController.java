@@ -49,13 +49,14 @@ public class AdminRoomController {
         m.put("ownerId", rs.getLong("owner_id"));
         m.put("owner", rs.getString("owner_name"));
         m.put("ownerPublicId", rs.getObject("owner_public_id"));
+        m.put("official", rs.getBoolean("official"));
         m.put("online", rs.getLong("online"));
         m.put("createdAt", rs.getTimestamp("created_at") == null ? null : rs.getTimestamp("created_at").toInstant().toString());
         m.put("admins", jdbc.queryForList("select a.user_id as \"userId\", u.full_name as name, u.public_id as \"publicId\" from voice_room_admins a join users u on u.id = a.user_id where a.room_id = ? order by a.id", id));
         return m;
     }
 
-    private static final String SELECT = "select r.id, r.name, r.description, r.category, r.room_type, r.is_private, r.max_participants, r.status, r.owner_id, r.created_at,"
+    private static final String SELECT = "select r.id, r.name, r.description, r.category, r.room_type, r.is_private, r.official, r.max_participants, r.status, r.owner_id, r.created_at,"
             + " u.full_name as owner_name, u.public_id as owner_public_id,"
             + " (select count(*) from voice_room_participants p where p.room_id = r.id and p.status = 'JOINED') as online"
             + " from voice_rooms r left join users u on u.id = r.owner_id";
@@ -79,7 +80,14 @@ public class AdminRoomController {
         return l.get(0);
     }
 
-    public record RoomBody(String name, String description, String category, String roomType, Boolean isPrivate, Integer maxParticipants, Long ownerId, String password) {
+    public record RoomBody(String name, String description, String category, String roomType, Boolean isPrivate, Integer maxParticipants, Long ownerId, String password, Boolean official) {
+    }
+
+    /** The Sarpanch account (the official user). */
+    private Long sarpanchId() {
+        List<Long> l = jdbc.queryForList("select id from users where official order by id limit 1", Long.class);
+        if (l.isEmpty()) throw bad("The Sarpanch account is missing.");
+        return l.get(0);
     }
 
     private void userMustExist(Long id) {
@@ -91,10 +99,13 @@ public class AdminRoomController {
     @Transactional
     public Map<String, Object> create(@RequestBody RoomBody b) {
         if (b == null || b.name() == null || b.name().strip().length() < 3) throw bad("The room name must be at least 3 letters.");
-        if (b.ownerId() == null) throw bad("Pick the user who will own this room.");
-        userMustExist(b.ownerId());
+        boolean official = Boolean.TRUE.equals(b.official());
+        Long owner = official ? sarpanchId() : b.ownerId();
+        if (owner == null) throw bad("Pick the user who will own this room.");
+        userMustExist(owner);
         VoiceRoom room = new VoiceRoom();
-        room.setOwnerId(b.ownerId());
+        room.setOwnerId(owner);
+        room.setOfficial(official);
         room.setName(b.name().strip().substring(0, Math.min(100, b.name().strip().length())));
         room.setDescription(b.description() == null || b.description().isBlank() ? null : b.description().strip().substring(0, Math.min(500, b.description().strip().length())));
         VoiceRoomType type = VoiceRoomType.VOICE;
@@ -140,7 +151,11 @@ public class AdminRoomController {
             if (!pw.isEmpty() && !pw.matches("\\d{4}")) throw bad("The password must be 4 digits.");
             r.setPassword(pw.isEmpty() ? null : pw);
         }
-        if (b.ownerId() != null && !b.ownerId().equals(r.getOwnerId())) {
+        if (b.official() != null && b.official() != r.isOfficial()) {
+            r.setOfficial(b.official());
+            if (b.official()) r.setOwnerId(sarpanchId());
+        }
+        if (!r.isOfficial() && b.ownerId() != null && !b.ownerId().equals(r.getOwnerId())) {
             userMustExist(b.ownerId());
             r.setOwnerId(b.ownerId());
         }
