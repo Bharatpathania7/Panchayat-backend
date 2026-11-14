@@ -65,6 +65,12 @@ public class ParivarTreasureAdminController {
         return v;
     }
 
+    private static int days(Integer d) {
+        int v = d == null ? 0 : d;
+        if (v < 0 || v > 3650) throw bad("Valid days must be between 0 (never runs out) and 3650.");
+        return v;
+    }
+
     private static long amount(Long a, long min) {
         long v = a == null ? 1 : a;
         if (v < min || v > 1_000_000_000L) throw bad("Amount must be at least " + min + ".");
@@ -150,6 +156,7 @@ public class ParivarTreasureAdminController {
             m.put("rarity", rs.getString("rarity"));
             m.put("weight", rs.getInt("weight"));
             m.put("maxPerChest", rs.getInt("max_per_chest"));
+            m.put("validDays", rs.getInt("valid_days"));
             m.put("label", rs.getString("label"));
             m.put("active", rs.getBoolean("active"));
             String lib = rs.getString("lib_url");
@@ -161,7 +168,7 @@ public class ParivarTreasureAdminController {
         }, tierId);
     }
 
-    public record NewReward(String kind, Long ref, String giftId, Long amount, String rarity, Integer weight, Integer maxPerChest, String label, String imageUrl) {
+    public record NewReward(String kind, Long ref, String giftId, Long amount, String rarity, Integer weight, Integer maxPerChest, String label, String imageUrl, Integer validDays) {
     }
 
     /** Add one reward: a gift (GIFT + gift id), or any other kind (ITEM, VIP_CARD, COLLECTIBLE, PROFILE_TITLE, TITLE, BADGE). */
@@ -200,8 +207,8 @@ public class ParivarTreasureAdminController {
         long amt = amount(b.amount(), kind.equals("VIP_CARD") ? 1 : 0);
         String img = b.imageUrl() == null || b.imageUrl().isBlank() ? null : b.imageUrl().strip();
         if (img != null && img.length() > 500) throw bad("The picture link is too long.");
-        Long id = jdbc.queryForObject("insert into treasure_rewards (tier_id, kind, ref, gift_id, amount, rarity, weight, max_per_chest, label, image_url, active) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true) returning id",
-                Long.class, tierId, kind, ref, kind.equals("GIFT") ? giftId : null, amt, rarity(b.rarity()), weight(b.weight()), maxPer(b.maxPerChest()), label, img);
+        Long id = jdbc.queryForObject("insert into treasure_rewards (tier_id, kind, ref, gift_id, amount, rarity, weight, max_per_chest, valid_days, label, image_url, active) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true) returning id",
+                Long.class, tierId, kind, ref, kind.equals("GIFT") ? giftId : null, amt, rarity(b.rarity()), weight(b.weight()), maxPer(b.maxPerChest()), days(b.validDays()), label, img);
         audit(auth, "chest " + tierId + ": added " + kind + " \"" + label + "\" (reward " + id + ")");
         return Map.of("id", id);
     }
@@ -211,12 +218,13 @@ public class ParivarTreasureAdminController {
     @Transactional
     public Map<String, Object> upload(@PathVariable Long tierId, @RequestParam("file") List<MultipartFile> files, @RequestParam(value = "label", required = false) String label,
                                       @RequestParam(value = "rarity", defaultValue = "COMMON") String rarity, @RequestParam(value = "weight", required = false) Integer weight,
-                                      @RequestParam(value = "maxPerChest", required = false) Integer maxPerChest, Authentication auth) {
+                                      @RequestParam(value = "maxPerChest", required = false) Integer maxPerChest, @RequestParam(value = "validDays", required = false) Integer validDays, Authentication auth) {
         tier(tierId);
         if (files == null || files.isEmpty() || files.size() > 30) throw bad("Choose 1 to 30 files.");
         String r = rarity(rarity);
         int w = weight(weight);
         int mx = maxPer(maxPerChest);
+        int vd = days(validDays);
         long cat = category();
         int added = 0;
         for (MultipartFile f : files) {
@@ -231,23 +239,23 @@ public class ParivarTreasureAdminController {
             if (name.length() > 60) name = name.substring(0, 60);
             var up = media.upload(f, "parivar", AdminMediaService.VISUALS);
             Long itemId = jdbc.queryForObject("insert into parivar_collectibles (kind, category_id, name, media_url, media_format, rarity) values ('ITEM', ?, ?, ?, ?, ?) returning id", Long.class, cat, name, up.url(), up.format(), r);
-            jdbc.update("insert into treasure_rewards (tier_id, kind, ref, amount, rarity, weight, max_per_chest, label, active) values (?, 'COLLECTIBLE', ?, 1, ?, ?, ?, ?, true)", tierId, itemId, r, w, mx, name);
+            jdbc.update("insert into treasure_rewards (tier_id, kind, ref, amount, rarity, weight, max_per_chest, valid_days, label, active) values (?, 'COLLECTIBLE', ?, 1, ?, ?, ?, ?, ?, true)", tierId, itemId, r, w, mx, vd, name);
             added++;
         }
         audit(auth, "chest " + tierId + ": " + added + " uploaded reward(s)");
         return Map.of("ok", true, "added", added);
     }
 
-    public record EditReward(String label, String rarity, Integer weight, Integer maxPerChest, Long amount, Boolean active) {
+    public record EditReward(String label, String rarity, Integer weight, Integer maxPerChest, Long amount, Boolean active, Integer validDays) {
     }
 
     @PutMapping("/rewards/{id:[0-9]+}")
     public Map<String, Object> edit(@PathVariable Long id, @RequestBody EditReward e, Authentication auth) {
         if (e.label() != null && (e.label().isBlank() || e.label().length() > 60)) throw bad("Give the reward a name (up to 60 letters).");
         int n = jdbc.update("update treasure_rewards set label = coalesce(?, label), rarity = coalesce(?, rarity), weight = coalesce(?, weight), max_per_chest = coalesce(?, max_per_chest),"
-                        + " amount = coalesce(?, amount), active = coalesce(?, active) where id = ?",
+                        + " amount = coalesce(?, amount), active = coalesce(?, active), valid_days = coalesce(?, valid_days) where id = ?",
                 e.label() == null ? null : e.label().strip(), e.rarity() == null ? null : rarity(e.rarity()), e.weight() == null ? null : weight(e.weight()),
-                e.maxPerChest() == null ? null : maxPer(e.maxPerChest()), e.amount() == null ? null : amount(e.amount(), 0), e.active(), id);
+                e.maxPerChest() == null ? null : maxPer(e.maxPerChest()), e.amount() == null ? null : amount(e.amount(), 0), e.active(), e.validDays() == null ? null : days(e.validDays()), id);
         if (n == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That reward doesn't exist.");
         audit(auth, "reward " + id + " changed");
         return Map.of("ok", true);

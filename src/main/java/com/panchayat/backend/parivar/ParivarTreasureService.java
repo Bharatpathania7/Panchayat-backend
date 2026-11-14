@@ -226,9 +226,26 @@ public class ParivarTreasureService {
                     m.put("at", rs.getTimestamp("created_at").toInstant().toString());
                     return m;
                 }, userId));
-        out.put("collection", jdbc.query("select kind, label, image_url, source, created_at, category from user_collection where user_id = ? order by id desc limit 100",
+        out.put("collection", jdbc.query("select kind, label, image_url, source, created_at, category, expires_at from user_collection where user_id = ? and (expires_at is null or expires_at > now()) order by id desc limit 100",
                 (rs, i) -> Map.of("kind", rs.getString("kind"), "label", rs.getString("label"), "source", rs.getString("source"), "at", rs.getTimestamp("created_at").toInstant().toString(),
-                        "imageUrl", MediaUrls.link(rs.getString("image_url")) == null ? "" : MediaUrls.link(rs.getString("image_url")), "category", rs.getString("category") == null ? "" : rs.getString("category")), userId));
+                        "imageUrl", MediaUrls.link(rs.getString("image_url")) == null ? "" : MediaUrls.link(rs.getString("image_url")), "category", rs.getString("category") == null ? "" : rs.getString("category"),
+                        "expiresAt", rs.getTimestamp("expires_at") == null ? "" : rs.getTimestamp("expires_at").toInstant().toString()), userId));
+        // Gift cards and frames / bubbles / effects won from chests and Gacha that are still in the person's Bag
+        out.put("bag", jdbc.query("select r.item_type, r.item_name, r.gift_id, r.remaining, coalesce(r.media_url, g.image_url) as media_url, r.granted_at, r.expires_at from user_rewards r left join gifts g on g.id = r.gift_id where r.user_id = ? and r.rule_kind = 'GACHA'"
+                        + " and (r.expires_at is null or r.expires_at > now()) and (r.item_type <> 'GIFT' or coalesce(r.remaining, 0) > 0) order by r.id desc limit 100",
+                (rs, i) -> {
+                    boolean gift = "GIFT".equals(rs.getString("item_type"));
+                    String media = rs.getString("media_url");
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("kind", gift ? "GIFT" : "ITEM");
+                    m.put("label", rs.getString("item_name"));
+                    m.put("giftId", rs.getString("gift_id") == null ? "" : rs.getString("gift_id"));
+                    m.put("qty", gift ? rs.getInt("remaining") : 1);
+                    m.put("imageUrl", media == null || MediaUrls.link(media) == null ? "" : MediaUrls.link(media));
+                    m.put("expiresAt", rs.getTimestamp("expires_at") == null ? "" : rs.getTimestamp("expires_at").toInstant().toString());
+                    m.put("at", rs.getTimestamp("granted_at").toInstant().toString());
+                    return m;
+                }, userId));
         return out;
     }
 
@@ -388,6 +405,7 @@ public class ParivarTreasureService {
                 it.put("amount", l(pick.get("amount")));
                 it.put("ref", l(pick.get("ref")));
                 it.put("giftId", pick.get("gift_id"));
+                it.put("validDays", (int) l(pick.get("valid_days")));
                 String img = MediaUrls.link((String) ("COLLECTIBLE".equals(pick.get("kind")) ? pick.get("cmedia") : "PROFILE_TITLE".equals(pick.get("kind")) ? pick.get("ticon") : pick.get("image_url")));
                 it.put("imageUrl", img == null ? "" : img);
                 out.get(m).items.add(it);
@@ -442,23 +460,24 @@ public class ParivarTreasureService {
         for (Map<String, Object> it : p.items) {
             String kind = (String) it.get("kind");
             long amount = l(it.get("amount"));
+            int days = (int) l(it.get("validDays"));
             String label = (String) it.get("label");
             idx++;
             switch (kind) {
                 case "GIFT" -> {
-                    if (it.get("giftId") != null) bag.grantGachaGift(userId, (String) it.get("giftId"), (int) Math.max(1, amount), 0);
+                    if (it.get("giftId") != null) bag.grantGachaGift(userId, (String) it.get("giftId"), (int) Math.max(1, amount), days);
                 }
-                case "ITEM" -> bag.grantGachaItem(userId, l(it.get("ref")), (int) amount);
+                case "ITEM" -> bag.grantGachaItem(userId, l(it.get("ref")), days > 0 ? days : (int) amount);
                 case "VIP_CARD" -> vip.grantVip(userId, new AdminVipGrantRequest((int) Math.max(1, amount)));
-                case "PROFILE_TITLE" -> profileTitles.grantUsual(userId, l(it.get("ref")), "TREASURE", (int) amount);
+                case "PROFILE_TITLE" -> profileTitles.grantUsual(userId, l(it.get("ref")), "TREASURE", days > 0 ? days : (int) amount);
                 case "COLLECTIBLE" -> {
                     List<Map<String, Object>> cr = jdbc.queryForList("select c.kind, c.name, c.media_url, k.name as cat from parivar_collectibles c left join parivar_library_categories k on k.id = c.category_id where c.id = ?", l(it.get("ref")));
                     if (cr.isEmpty()) throw new IllegalStateException("A treasure collectible was removed");
-                    jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref, category) values (?, ?, ?, ?, 'TREASURE', ?, ?) on conflict do nothing",
-                            userId, cr.get(0).get("kind"), cr.get(0).get("name"), cr.get(0).get("media_url"), base + ":" + idx, cr.get(0).get("cat"));
+                    jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref, category, expires_at) values (?, ?, ?, ?, 'TREASURE', ?, ?, case when ? > 0 then now() + make_interval(days => ?) end) on conflict do nothing",
+                            userId, cr.get(0).get("kind"), cr.get(0).get("name"), cr.get(0).get("media_url"), base + ":" + idx, cr.get(0).get("cat"), days, days);
                 }
-                case "TITLE", "BADGE" -> jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref) values (?, ?, ?, ?, 'TREASURE', ?) on conflict do nothing",
-                        userId, kind, label, ((String) it.get("imageUrl")).isEmpty() ? null : it.get("imageUrl"), base + ":" + idx);
+                case "TITLE", "BADGE" -> jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref, expires_at) values (?, ?, ?, ?, 'TREASURE', ?, case when ? > 0 then now() + make_interval(days => ?) end) on conflict do nothing",
+                        userId, kind, label, ((String) it.get("imageUrl")).isEmpty() ? null : it.get("imageUrl"), base + ":" + idx, days, days);
                 default -> throw new IllegalStateException("Unknown treasure reward " + kind);
             }
         }

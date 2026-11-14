@@ -52,7 +52,7 @@ public class ParivarConfigAdminController {
                 Col.integer("minLevel", "min_level", 1, 100), Col.integer("sortOrder", "sort_order", 0, 100000), Col.bool("active", "active")), false, null));
         SECTIONS.put("gacha-rewards", new Section("parivar_gacha_rewards", "machine_id, weight desc, id", List.of(
                 Col.num("machineId", "machine_id", 1, BIG), Col.oneOf("kind", "kind", "COINS", "FUNDS", "CHARM", "CHEST", "CARD", "BARRIER", "GIFT_CARD", "WEAPON", "ITEM"), Col.num("ref", "ref", 0, BIG), Col.str("giftId", "gift_id", 64, false), Col.num("amount", "amount", 1, BIG),
-                Col.integer("weight", "weight", 1, 1_000_000), Col.oneOf("rarity", "rarity", "COMMON", "RARE", "EPIC", "LEGENDARY"), Col.str("label", "label", 60, true),
+                Col.integer("weight", "weight", 1, 1_000_000), Col.integer("validDays", "valid_days", 0, 3650), Col.oneOf("rarity", "rarity", "COMMON", "RARE", "EPIC", "LEGENDARY"), Col.str("label", "label", 60, true),
                 Col.str("imageUrl", "image_url", 500, false), Col.bool("active", "active")), true, "machineId"));
         SECTIONS.put("chests", new Section("parivar_chest_types", "sort_order, id", List.of(
                 Col.str("name", "name", 40, true), Col.str("imageUrl", "image_url", 500, false), Col.num("priceFunds", "price_funds", 0, BIG), Col.integer("pieces", "pieces", 1, 1000),
@@ -68,7 +68,7 @@ public class ParivarConfigAdminController {
         SECTIONS.put("treasure-rewards", new Section("treasure_rewards", "tier_id, weight desc, id", List.of(
                 Col.num("tierId", "tier_id", 1, BIG), Col.oneOf("kind", "kind", "GIFT", "ITEM", "VIP_CARD", "TITLE", "BADGE", "COLLECTIBLE", "PROFILE_TITLE"), Col.num("ref", "ref", 0, BIG), Col.str("giftId", "gift_id", 64, false),
                 Col.num("amount", "amount", 0, BIG), Col.oneOf("rarity", "rarity", "COMMON", "PREMIUM", "EPIC", "LEGENDARY", "ULTRA_RARE"), Col.integer("weight", "weight", 1, 1_000_000),
-                Col.integer("maxPerChest", "max_per_chest", 0, 1000), Col.str("label", "label", 60, true), Col.str("imageUrl", "image_url", 500, false), Col.bool("active", "active")), true, "tierId"));
+                Col.integer("maxPerChest", "max_per_chest", 0, 1000), Col.integer("validDays", "valid_days", 0, 3650), Col.str("label", "label", 60, true), Col.str("imageUrl", "image_url", 500, false), Col.bool("active", "active")), true, "tierId"));
         SECTIONS.put("shop", new Section("parivar_shop_items", "sort_order, id", List.of(
                 Col.str("name", "name", 40, true), Col.str("imageUrl", "image_url", 500, false), Col.oneOf("kind", "kind", "GACHA_CARD", "CHEST", "BARRIER"), Col.num("ref", "ref", 1, BIG),
                 Col.integer("qty", "qty", 1, 1000), Col.num("priceFunds", "price_funds", 0, BIG), Col.num("priceCoins", "price_coins", 0, BIG), Col.integer("dailyLimit", "daily_limit", 0, 100000),

@@ -166,9 +166,9 @@ public class ParivarGachaService {
             String ref = base + ":" + i;
             String kind = (String) r.get("kind");
             if ("GIFT_CARD".equals(kind)) {
-                if (r.get("gift_id") != null) bag.grantGachaGift(userId, (String) r.get("gift_id"), (int) Math.max(1, l(r.get("amount"))), 30);
+                if (r.get("gift_id") != null) bag.grantGachaGift(userId, (String) r.get("gift_id"), (int) Math.max(1, l(r.get("amount"))), (int) l(r.get("valid_days")));
             } else if ("ITEM".equals(kind)) {
-                bag.grantGachaItem(userId, l(r.get("ref")), (int) l(r.get("amount")));
+                bag.grantGachaItem(userId, l(r.get("ref")), l(r.get("valid_days")) > 0 ? (int) l(r.get("valid_days")) : (int) l(r.get("amount")));
             } else {
                 economy.applyReward(parivarId, userId, kind, l(r.get("ref")), l(r.get("amount")), ref, "Gacha win: " + r.get("label"));
             }
