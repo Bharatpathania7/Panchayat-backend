@@ -418,6 +418,15 @@ public class ChatSocialService {
         for (Long id : ids) if (id == null || users.findById(id).isEmpty()) throw bad("Someone you added wasn't found.");
     }
 
+    /** An unsent message: everyone in the chat removes it from their screen. */
+    public void messageDeleted(Long conversationId, Long messageId) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("type", "MESSAGE_DELETED");
+        body.put("conversationId", String.valueOf(conversationId));
+        body.put("messageId", String.valueOf(messageId));
+        for (Long id : memberIds(conversationId)) users.findById(id).ifPresent(u -> send(u.getEmail(), "/queue/chat.events", body));
+    }
+
     private void notifyMembers(Long conversationId, String type, Long actor, Long target) {
         notifyUsers(memberIds(conversationId), conversationId, type, actor, target);
     }

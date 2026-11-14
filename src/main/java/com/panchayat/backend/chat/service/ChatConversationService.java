@@ -183,7 +183,7 @@ public class ChatConversationService {
                         return null;
                     }
                     java.util.Map<String, Object> meta = jdbc.queryForMap(
-                            "select c.kind, c.name, p.role, p.muted, p.request_state, c.system_conversation, c.pinned,"
+                            "select c.kind, c.name, p.role, p.muted, p.request_state, c.system_conversation, c.pinned, (p.cleared_at is not null) as cleared,"
                                     + " (select count(*) from chat_conversation_participants x where x.conversation_id = c.id) as members"
                                     + " from chat_conversations c join chat_conversation_participants p on p.conversation_id = c.id and p.user_id = ?"
                                     + " where c.id = ?", userId, conversation.getId());
@@ -207,11 +207,18 @@ public class ChatConversationService {
                         }
                     }
 
-                    ChatMessage lastMessage = messageRepository
-                            .findFirstByConversationIdAndDeletedAtIsNullOrderByCreatedAtDescIdDesc(
-                                    conversation.getId()
-                            )
-                            .orElse(null);
+                    // The newest message you can still see (not unsent, not deleted by you, after you cleared the chat)
+                    Long visibleId = jdbc.query(
+                            "select m.id from chat_messages m left join chat_conversation_participants p on p.conversation_id = m.conversation_id and p.user_id = ?"
+                                    + " where m.conversation_id = ? and m.deleted_at is null and (p.cleared_at is null or m.created_at > p.cleared_at)"
+                                    + " and not exists (select 1 from chat_message_hidden h where h.message_id = m.id and h.user_id = ?)"
+                                    + " order by m.created_at desc, m.id desc limit 1",
+                            rs -> rs.next() ? rs.getLong(1) : null, userId, conversation.getId(), userId);
+                    ChatMessage lastMessage = visibleId == null ? null : messageRepository.findById(visibleId).orElse(null);
+                    // A chat you deleted stays out of your list until someone writes again
+                    if (lastMessage == null && Boolean.TRUE.equals(meta.get("cleared"))) {
+                        return null;
+                    }
 
                     String lastMessagePreview = null;
                     String lastMessageType = null;

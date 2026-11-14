@@ -34,6 +34,9 @@ public class ChatMessageService {
     @org.springframework.beans.factory.annotation.Autowired
     private ChatSocialService chatSocial;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
 
     private final ChatConversationParticipantRepository participantRepository;
     private final ChatMessageRepository messageRepository;
@@ -264,10 +267,23 @@ public class ChatMessageService {
 
         verifyParticipant(conversationId, authenticatedUserId);
 
-        return messageRepository.findByConversationIdAndDeletedAtIsNull(
+        Page<ChatMessage> page = messageRepository.findByConversationIdAndDeletedAtIsNull(
                 conversationId,
                 pageable
         );
+        // What you deleted for yourself (one message, or the whole chat) stays hidden from you
+        java.util.Set<Long> hidden = new java.util.HashSet<>(jdbc.queryForList(
+                "select h.message_id from chat_message_hidden h join chat_messages m on m.id = h.message_id where h.user_id = ? and m.conversation_id = ?",
+                Long.class, authenticatedUserId, conversationId));
+        Instant cleared = jdbc.query(
+                "select cleared_at from chat_conversation_participants where conversation_id = ? and user_id = ?",
+                rs -> rs.next() && rs.getTimestamp(1) != null ? rs.getTimestamp(1).toInstant() : null,
+                conversationId, authenticatedUserId);
+        if (hidden.isEmpty() && cleared == null) return page;
+        List<ChatMessage> keep = page.getContent().stream()
+                .filter(m -> !hidden.contains(m.getId()) && (cleared == null || m.getCreatedAt().isAfter(cleared)))
+                .toList();
+        return new org.springframework.data.domain.PageImpl<>(keep, pageable, page.getTotalElements());
     }
 
     /**
