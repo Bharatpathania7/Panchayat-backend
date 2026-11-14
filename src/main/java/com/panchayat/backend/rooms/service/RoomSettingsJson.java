@@ -16,7 +16,7 @@ import java.util.regex.Pattern;
 public final class RoomSettingsJson {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final Set<String> FLAGS = Set.of("highQuality", "banText", "noImages", "banRedPacket", "event");
+    private static final Set<String> FLAGS = Set.of("highQuality", "banText", "noImages", "banRedPacket", "banGiftAnimation", "event");
     private static final Set<String> PARTNER = Set.of("all", "owner", "off");
     private static final Pattern WORD = Pattern.compile("^[A-Za-z0-9_-]{1,30}$");
 
