@@ -60,7 +60,13 @@ public class ManualTopupService {
         out.put("qrUrl", s.get("qr_url"));
         out.put("note", s.get("note"));
         out.put("name", s.get("helper_name"));
+        List<String> av = jdbc.queryForList("select avatar_url from users where official_role = 'MUNSHI' limit 1", String.class);
+        out.put("avatarUrl", av.isEmpty() ? null : av.get(0));
         return out;
+    }
+
+    public void saveAvatar(String url) {
+        jdbc.update("update users set avatar_url = ?, updated_at = now() where official_role = 'MUNSHI'", url);
     }
 
     /** The name people see for the person who checks payments (set in the admin panel). */
@@ -80,6 +86,8 @@ public class ManualTopupService {
         if (who == null) who = "Mukhiya ji";
         if (who.length() < 2) throw bad("The name needs at least 2 letters.");
         jdbc.update("update manual_topup_settings set enabled = ?, upi_id = ?, payee_name = ?, note = ?, helper_name = ? where id = 1", enabled, upi, name, n, who);
+        // The payments desk account carries this name in the chat list and its chat
+        jdbc.update("update users set full_name = ?, updated_at = now() where official_role = 'MUNSHI'", who);
         return settings();
     }
 
@@ -149,7 +157,7 @@ public class ManualTopupService {
         String who = String.valueOf(info.get("name"));
         String amountText = new BigDecimal(String.valueOf(p.get("price_in_rupees"))).stripTrailingZeros().toPlainString();
         long total = ((Number) p.get("coins")).longValue() + ((Number) p.get("bonus_coins")).longValue();
-        sarpanch.sendSafely(userId, new SarpanchService.Message(who + ": your top-up request",
+        sarpanch.sendSafely(userId, new SarpanchService.Message("Your top-up request",
                 "Namaste! Request " + ref + ": " + p.get("name") + " for ₹" + amountText + " (" + total + " coins)." + "\n\n"
                         + "1) Pay ₹" + amountText + " to UPI ID " + info.get("upiId") + (info.get("payeeName") == null ? "" : " (" + info.get("payeeName") + ")") + ". Write " + ref + " in the payment note if you can." + "\n"
                         + "2) Tap the button below and send the transaction ID (UTR) with a screenshot." + "\n"
@@ -199,7 +207,7 @@ public class ManualTopupService {
             media.delete(up.publicId(), null);
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This transaction ID was already used for another top-up.");
         }
-        sarpanch.sendSafely(userId, new SarpanchService.Message(helperName() + ": proof received",
+        sarpanch.sendSafely(userId, new SarpanchService.Message("Proof received",
                 "I got your transaction ID " + utr + " and the screenshot (reference " + found.get(0).get("reference") + "). I am checking it in the bank now. Your coins will be added as soon as it is verified, and I will message you here.",
                 null, "See status", "/topup?id=" + id, "PAYMENT"), "manual-topup:" + id + ":submitted");
         return view(jdbc.queryForMap("select * from manual_topups where id = ?", id), publicInfo());
@@ -296,7 +304,7 @@ public class ManualTopupService {
         } else {
             after.run();
         }
-        sarpanch.sendSafely(userId, new SarpanchService.Message(helperName() + ": payment verified",
+        sarpanch.sendSafely(userId, new SarpanchService.Message("Payment verified",
                 "Payment verified ✅ ₹" + amount.stripTrailingZeros().toPlainString() + " paid. " + coins + " coins have been added to your wallet. Reference " + t.get("reference") + ".",
                 null, "Open wallet", "/wallet", "PAYMENT"), "manual-topup:" + id + ":approved");
         return Map.of("approved", true, "coins", coins);
@@ -312,7 +320,7 @@ public class ManualTopupService {
         if (!"SUBMITTED".equals(t.get("status"))) throw new ResponseStatusException(HttpStatus.CONFLICT, "Only a top-up that was sent for checking can be rejected.");
         jdbc.update("update manual_topups set status = 'REJECTED', reviewed_by = ?, reviewed_at = now(), reject_reason = ? where id = ?", admin, why, id);
         long userId = ((Number) t.get("user_id")).longValue();
-        sarpanch.sendSafely(userId, new SarpanchService.Message(helperName() + ": payment not verified",
+        sarpanch.sendSafely(userId, new SarpanchService.Message("Payment not verified",
                 "We couldn't verify your top-up (reference " + t.get("reference") + "). Reason: " + why + " If you did pay, try again with the right transaction ID and a clear screenshot, or contact us.",
                 null, "Open wallet", "/wallet", "PAYMENT"), "manual-topup:" + id + ":rejected");
         return Map.of("rejected", true);

@@ -79,7 +79,7 @@ public class AccountBanService {
         if (days != null && (days < 1 || days > 3650)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Days must be 1 to 3650, or leave it empty for a permanent ban.");
         Integer exists = jdbc.queryForObject("select count(*) from users where id = ?", Integer.class, userId);
         if (exists == null || exists == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
-        if (sarpanch.isSarpanch(userId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Sarpanch can't be banned.");
+        if (sarpanch.isOfficialAccount(userId)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Official accounts can't be banned.");
         String why = reason == null || reason.isBlank() ? null : reason.strip().substring(0, Math.min(300, reason.strip().length()));
         Instant until = days == null ? null : Instant.now().plus(Duration.ofDays(days));
         jdbc.update("update users set ban_permanent = ?, banned_until = ?, ban_reason = ?, banned_at = now() where id = ?",

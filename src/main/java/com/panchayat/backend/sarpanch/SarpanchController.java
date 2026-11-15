@@ -43,8 +43,9 @@ public class SarpanchController {
         p.put("followers", jdbc.queryForObject("select count(*) from user_follows where followee_id = ?", Long.class, id));
         p.put("following", 0);
         p.put("youFollow", Boolean.TRUE.equals(jdbc.queryForObject("select count(*) > 0 from user_follows where follower_id = ? and followee_id = ?", Boolean.class, me, id)));
-        Long conv = jdbc.query("select c.id from chat_conversations c join chat_conversation_participants p on p.conversation_id = c.id where c.system_conversation and p.user_id = ? limit 1",
-                rs -> rs.next() ? rs.getLong(1) : null, me);
+        Long conv = jdbc.query("select c.id from chat_conversations c join chat_conversation_participants p on p.conversation_id = c.id"
+                        + " join chat_conversation_participants o on o.conversation_id = c.id and o.user_id = ? where c.system_conversation and p.user_id = ? limit 1",
+                rs -> rs.next() ? rs.getLong(1) : null, id, me);
         p.put("conversationId", conv == null ? null : String.valueOf(conv));
         p.put("notices", announcements(5));
         return p;

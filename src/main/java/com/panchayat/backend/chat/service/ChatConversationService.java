@@ -89,9 +89,9 @@ public class ChatConversationService {
                         "Recipient user was not found."
                 ));
 
-        // Sarpanch: always the one read-only system conversation
-        if (sarpanchService.isSarpanch(recipientUserId)) {
-            Long sys = sarpanchService.systemConversationFor(authenticatedUserId);
+        // Sarpanch and Munshi ji: always their one read-only system conversation
+        if (sarpanchService.isOfficialAccount(recipientUserId)) {
+            Long sys = sarpanchService.systemConversationFor(recipientUserId, authenticatedUserId);
             return conversationRepository.findById(sys).orElseThrow();
         }
 
@@ -298,9 +298,10 @@ public class ChatConversationService {
                             group ? "ACCEPTED" : theirState,
                             Boolean.TRUE.equals(meta.get("system_conversation")),
                             Boolean.TRUE.equals(meta.get("pinned")),
-                            otherUser != null && sarpanchService.isSarpanch(otherUser.getId()),
+                            otherUser != null && sarpanchService.isOfficialAccount(otherUser.getId()),
                             // The public room they're in now (if they show their online status)
-                            otherId != null && email != null && online.contains(email.toLowerCase(java.util.Locale.ROOT)) ? friendService.publicRoomOf(otherId) : null
+                            otherId != null && email != null && online.contains(email.toLowerCase(java.util.Locale.ROOT)) ? friendService.publicRoomOf(otherId) : null,
+                            Boolean.TRUE.equals(meta.get("system_conversation")) && otherUser != null ? sarpanchService.officialKind(otherUser.getId()) : null
                     );
                 })
                 .filter(Objects::nonNull)
@@ -347,6 +348,8 @@ public class ChatConversationService {
             /* The other person is the official account (verified badge) */
             boolean official,
             /* { roomId, roomCode, name, type, coverUrl, game } or null */
-            java.util.Map<String, Object> otherRoom
+            java.util.Map<String, Object> otherRoom,
+            /* SARPANCH or MUNSHI for the official read-only chats, else null */
+            String systemKind
     ) {}
 }

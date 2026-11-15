@@ -69,6 +69,14 @@ public class AdminManualTopupController {
         return service.settings();
     }
 
+    /** The picture of the payments desk account (Munshi ji) people see in the chat list. */
+    @PostMapping(value = "/settings/avatar", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> avatar(@RequestPart("file") MultipartFile file) {
+        Map<String, Object> saved = store.uploadImage(file, "munshi");
+        service.saveAvatar(String.valueOf(saved.get("secure_url")));
+        return service.settings();
+    }
+
     @PostMapping("/{id:[0-9]+}/approve")
     public Map<String, Object> approve(@PathVariable long id, Authentication auth) {
         return service.approve(id, auth == null ? null : auth.getName());

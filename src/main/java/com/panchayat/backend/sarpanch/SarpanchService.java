@@ -68,6 +68,7 @@ public class SarpanchService {
         return t;
     });
     private volatile Long sarpanchId;
+    private volatile Long munshiId;
 
     public SarpanchService(JdbcTemplate jdbc, ChatEncryptionService encryption, SimpMessagingTemplate messaging, PlatformTransactionManager txm) {
         this.jdbc = jdbc;
@@ -100,6 +101,33 @@ public class SarpanchService {
 
     public boolean isSarpanch(Long userId) {
         return userId != null && userId.equals(sarpanchId());
+    }
+
+    /** Munshi ji: the payments desk, a second official account (its own read-only chat). null when the account is missing. */
+    public Long munshiId() {
+        Long id = munshiId;
+        if (id == null) {
+            List<Long> l = jdbc.queryForList("select id from users where official_role = 'MUNSHI' order by id limit 1", Long.class);
+            if (l.isEmpty()) return null;
+            id = l.get(0);
+            munshiId = id;
+        }
+        return id;
+    }
+
+    public boolean isMunshi(Long userId) {
+        Long m = munshiId();
+        return userId != null && m != null && userId.equals(m);
+    }
+
+    /** Sarpanch or Munshi ji. */
+    public boolean isOfficialAccount(Long userId) {
+        return isSarpanch(userId) || isMunshi(userId);
+    }
+
+    /** "SARPANCH", "MUNSHI", or null for anybody else. */
+    public String officialKind(Long userId) {
+        return isSarpanch(userId) ? "SARPANCH" : isMunshi(userId) ? "MUNSHI" : null;
     }
 
     public boolean isSystemConversation(Long conversationId) {
@@ -145,25 +173,27 @@ public class SarpanchService {
 
     @Transactional(propagation = Propagation.REQUIRED)
     public boolean send(Long userId, Message m, String eventKey) {
-        if (userId == null || isSarpanch(userId)) return false;
+        if (userId == null || isOfficialAccount(userId)) return false;
         String body = m.body() == null ? "" : m.body().strip();
         if (body.isEmpty()) throw bad("The message is empty.");
         if (body.length() > 1000) throw bad("Message is too long.");
         String category = m.category() != null && CATEGORIES.contains(m.category()) ? m.category() : "OTHER";
+        // Everything about payments comes from Munshi ji (its own chat); the rest from Sarpanch
+        Long from = "PAYMENT".equals(category) && munshiId() != null ? munshiId() : sarpanchId();
         if (eventKey != null) {
             Integer seen = jdbc.queryForObject("select count(*) from chat_messages where event_key = ?", Integer.class, eventKey);
             if (seen != null && seen > 0) return false;
         }
         String email = jdbc.query("select email from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, userId);
         if (email == null) return false;
-        Long conv = conversationFor(userId);
+        Long conv = conversationFor(from, userId);
         var enc = encryption.encrypt(body);
         Long id;
         try {
             id = jdbc.queryForObject(
                     "insert into chat_messages (conversation_id, sender_user_id, ciphertext, nonce, encryption_key_version, created_at, message_type, title, image_url, action_label, action_url, event_key, category)"
                             + " values (?, ?, ?, ?, ?, now(), 'SYSTEM', ?, ?, ?, ?, ?, ?) returning id",
-                    Long.class, conv, sarpanchId(), enc.ciphertext(), enc.nonce(), enc.keyVersion(),
+                    Long.class, conv, from, enc.ciphertext(), enc.nonce(), enc.keyVersion(),
                     cut(m.title(), 120), cut(m.imageUrl(), 500), cut(m.actionLabel(), 40), cut(m.actionUrl(), 300), eventKey, category);
         } catch (DuplicateKeyException twice) {
             return false; // the same event at the same moment: sent once
@@ -245,18 +275,27 @@ public class SarpanchService {
 
     /** The person's conversation with Sarpanch (made the first time). */
     Long conversationFor(Long userId) {
-        List<Long> l = jdbc.queryForList(
-                "select c.id from chat_conversations c join chat_conversation_participants p on p.conversation_id = c.id"
-                        + " where c.system_conversation and p.user_id = ? order by c.id limit 1", Long.class, userId);
+        return conversationFor(sarpanchId(), userId);
+    }
+
+    /** The person's read-only conversation with one official account (Sarpanch or Munshi ji), made the first time. */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public Long systemConversationFor(Long officialId, Long userId) {
+        return conversationFor(officialId, userId);
+    }
+
+    Long conversationFor(Long officialId, Long userId) {
+        String find = "select c.id from chat_conversations c join chat_conversation_participants p on p.conversation_id = c.id and p.user_id = ?"
+                + " join chat_conversation_participants o on o.conversation_id = c.id and o.user_id = ?"
+                + " where c.system_conversation order by c.id limit 1";
+        List<Long> l = jdbc.queryForList(find, Long.class, userId, officialId);
         if (!l.isEmpty()) return l.get(0);
         // One per person even when two messages race: lock the person's row
         jdbc.queryForList("select id from users where id = ? for no key update", userId);
-        l = jdbc.queryForList(
-                "select c.id from chat_conversations c join chat_conversation_participants p on p.conversation_id = c.id"
-                        + " where c.system_conversation and p.user_id = ? order by c.id limit 1", Long.class, userId);
+        l = jdbc.queryForList(find, Long.class, userId, officialId);
         if (!l.isEmpty()) return l.get(0);
         Long id = jdbc.queryForObject("insert into chat_conversations (created_at, updated_at, kind, system_conversation, pinned) values (now(), now(), 'DIRECT', true, true) returning id", Long.class);
-        jdbc.update("insert into chat_conversation_participants (conversation_id, user_id) values (?, ?), (?, ?)", id, sarpanchId(), id, userId);
+        jdbc.update("insert into chat_conversation_participants (conversation_id, user_id) values (?, ?), (?, ?)", id, officialId, id, userId);
         return id;
     }
 
@@ -313,6 +352,7 @@ public class SarpanchService {
                         + " (select r.read_at from chat_message_receipts r where r.message_id = m.id and r.user_id = p.user_id limit 1) as read_at"
                         + " from chat_messages m join chat_conversations c on c.id = m.conversation_id and c.system_conversation"
                         + " join chat_conversation_participants p on p.conversation_id = c.id and p.user_id = ?"
+                        + " join chat_conversation_participants o on o.conversation_id = c.id and o.user_id = " + sarpanchId()
                         + " where m.message_type = 'SYSTEM' and m.deleted_at is null" + extra + " order by m.created_at desc, m.id desc limit ? offset ?",
                 rs -> {
                     String body = encryption.decrypt(rs.getString("ciphertext"), rs.getString("nonce"), rs.getInt("encryption_key_version"));
