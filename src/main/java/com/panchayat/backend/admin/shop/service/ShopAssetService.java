@@ -1,8 +1,7 @@
 
         package com.panchayat.backend.admin.shop.service;
 
-import com.cloudinary.Cloudinary;
-import com.cloudinary.utils.ObjectUtils;
+import com.panchayat.backend.admin.media.PublicImageStorage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -29,10 +28,10 @@ public class ShopAssetService {
             "png", "jpg", "jpeg", "webp", "svg", "svga"
     );
 
-    private final Cloudinary cloudinary;
+    private final PublicImageStorage store;
 
-    public ShopAssetService(Cloudinary cloudinary) {
-        this.cloudinary = cloudinary;
+    public ShopAssetService(PublicImageStorage store) {
+        this.store = store;
     }
 
     public String upload(MultipartFile file) {
@@ -68,62 +67,17 @@ public class ShopAssetService {
 
         validateContentType(file, extension);
 
-        boolean isSvga = "svga".equals(extension);
-
-        try {
-            String publicId = UUID.randomUUID().toString();
-
-            Map<?, ?> result;
-
-            if (isSvga) {
-                // SVGA is an animation file, not a regular image.
-                result = cloudinary.uploader().upload(
-                        file.getBytes(),
-                        ObjectUtils.asMap(
-                                "resource_type", "raw",
-                                "folder", "panchayat/shop-products",
-                                "public_id", publicId + ".svga"
-                        )
-                );
-            } else {
-                result = cloudinary.uploader().upload(
-                        file.getBytes(),
-                        ObjectUtils.asMap(
-                                "resource_type", "image",
-                                "folder", "panchayat/shop-products",
-                                "public_id", publicId
-                        )
-                );
-            }
-
-            Object secureUrl = result.get("secure_url");
-
-            if (!(secureUrl instanceof String url)
-                    || url.isBlank()
-                    || !url.startsWith("https://")) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_GATEWAY,
-                        "Cloudinary did not return a valid HTTPS asset URL"
-                );
-            }
-
-            return url;
-
-        } catch (ResponseStatusException exception) {
-            throw exception;
-
-        } catch (IOException | RuntimeException exception) {
-            log.error(
-                    "Cloudinary upload failed for extension: {}",
-                    extension,
-                    exception
-            );
-
+        if ("svg".equals(extension)) {
+            // SVG files can carry scripts, so they aren't kept on our own address. Use PNG, JPG, WEBP or SVGA.
             throw new ResponseStatusException(
-                    HttpStatus.BAD_GATEWAY,
-                    "Unable to upload asset to Cloudinary. Check backend logs."
+                    HttpStatus.BAD_REQUEST,
+                    "SVG files aren't supported. Export the picture as PNG, JPG or WEBP (or use SVGA for an animation)."
             );
         }
+
+        // Kept on this server (it used to go to Cloudinary)
+        Map<String, Object> saved = store.uploadAsset(file, "shop/products");
+        return String.valueOf(saved.get("secure_url"));
     }
 
     private String getExtension(String filename) {

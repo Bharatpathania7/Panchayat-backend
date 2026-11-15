@@ -1,8 +1,7 @@
 
         package com.panchayat.backend.user.service;
 
-import com.cloudinary.Cloudinary;
-import com.cloudinary.utils.ObjectUtils;
+import com.panchayat.backend.admin.media.PublicImageStorage;
 import com.panchayat.backend.auth.entity.User;
 import com.panchayat.backend.auth.repository.UserRepository;
 import org.springframework.http.HttpStatus;
@@ -28,14 +27,14 @@ public class UserMediaStorageService {
             "image/webp"
     );
 
-    private final Cloudinary cloudinary;
+    private final PublicImageStorage store;
     private final UserRepository userRepository;
 
     public UserMediaStorageService(
-            Cloudinary cloudinary,
+            PublicImageStorage store,
             UserRepository userRepository
     ) {
-        this.cloudinary = cloudinary;
+        this.store = store;
         this.userRepository = userRepository;
     }
 
@@ -64,7 +63,7 @@ public class UserMediaStorageService {
         if (newUrl == null || newPublicId == null) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_GATEWAY,
-                    "Cloudinary did not return the uploaded image details"
+                    "The uploaded image details could not be read"
             );
         }
 
@@ -109,7 +108,7 @@ public class UserMediaStorageService {
         if (newUrl == null || newPublicId == null) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_GATEWAY,
-                    "Cloudinary did not return the uploaded image details"
+                    "The uploaded image details could not be read"
             );
         }
 
@@ -267,26 +266,12 @@ public class UserMediaStorageService {
         return jpeg || png || webp;
     }
 
+    /** The picture is kept on this server (it used to go to Cloudinary). */
     private Map<String, Object> uploadToCloudinary(
             MultipartFile file,
             String folder
     ) {
-        try {
-            return cloudinary.uploader().upload(
-                    file.getBytes(),
-                    ObjectUtils.asMap(
-                            "folder", folder,
-                            "resource_type", "image",
-                            "overwrite", false
-                    )
-            );
-        } catch (IOException exception) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_GATEWAY,
-                    "Unable to upload image to Cloudinary",
-                    exception
-            );
-        }
+        return store.uploadImage(file, folder);
     }
 
     private void deleteOldImageIfDifferent(
@@ -299,18 +284,6 @@ public class UserMediaStorageService {
             return;
         }
 
-        try {
-            cloudinary.uploader().destroy(
-                    oldPublicId,
-                    ObjectUtils.asMap("resource_type", "image")
-            );
-        } catch (Exception exception) {
-            // The database already contains the new state.
-            // Log this failure and retry cleanup operationally.
-            System.err.println(
-                    "Failed to delete old Cloudinary image: "
-                            + oldPublicId
-            );
-        }
+        store.delete(oldPublicId);
     }
 }

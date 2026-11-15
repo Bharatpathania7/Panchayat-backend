@@ -35,6 +35,11 @@ public class ShopAssetWebConfig implements WebMvcConfigurer {
                 .addResourceLocations(uploadPath.resolve("media").toUri().toString())
                 .setCacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePublic().immutable());
 
+        // Pictures kept on this server with a plain link (profile photos, banners, wallpapers, covers, shop images)
+        registry.addResourceHandler("/uploads/public/**")
+                .addResourceLocations(uploadPath.resolve("public").toUri().toString())
+                .setCacheControl(CacheControl.maxAge(30, TimeUnit.DAYS).cachePublic());
+
         registry.addResourceHandler("/uploads/**")
                 .addResourceLocations(
                         uploadPath.toUri().toString()

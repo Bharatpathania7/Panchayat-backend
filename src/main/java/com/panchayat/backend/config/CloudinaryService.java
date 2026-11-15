@@ -1,7 +1,6 @@
 package com.panchayat.backend.config;
 
-import com.cloudinary.Cloudinary;
-import com.cloudinary.utils.ObjectUtils;
+import com.panchayat.backend.admin.media.PublicImageStorage;
 import com.panchayat.backend.vip.entity.VipCosmetic;
 import com.panchayat.backend.vip.repository.VipCosmeticRepository;
 import org.springframework.stereotype.Service;
@@ -16,18 +15,18 @@ public class CloudinaryService {
 
     private static final long MAX_FILE_SIZE = 15L * 1024 * 1024;
 
-    private final Cloudinary cloudinary;
+    private final PublicImageStorage store;
     private final VipCosmeticRepository vipCosmeticRepository;
 
     public CloudinaryService(
-            Cloudinary cloudinary,
+            PublicImageStorage store,
             VipCosmeticRepository vipCosmeticRepository
     ) {
-        this.cloudinary = cloudinary;
+        this.store = store;
         this.vipCosmeticRepository = vipCosmeticRepository;
     }
 
-    public Map<?, ?> uploadVipAsset(
+    public Map<String, Object> uploadVipAsset(
             MultipartFile file,
             int vipLevel,
             VipCosmetic.CosmeticType type,
@@ -58,22 +57,8 @@ public class CloudinaryService {
         String publicId = type.name().toLowerCase(Locale.ROOT)
                 + "_" + extension;
 
-        String resourceType = format == VipCosmetic.CosmeticFormat.SVGA
-                ? "raw"
-                : "image";
-
-        Map<?, ?> result = cloudinary.uploader().upload(
-                file.getBytes(),
-                ObjectUtils.asMap(
-                        "resource_type", resourceType,
-                        "folder", folder,
-                        "public_id", publicId,
-                        "overwrite", false,
-                        "unique_filename", false,
-                        "use_filename", false,
-                        "invalidate", true
-                )
-        );
+        // Kept on this server (it used to go to Cloudinary)
+        Map<String, Object> result = store.uploadAsset(file, folder);
 
         if (result.get("secure_url") == null
                 || result.get("public_id") == null) {

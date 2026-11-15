@@ -47,10 +47,15 @@ public class AdminMediaService {
     private static final String URL_PREFIX = "/uploads/media/";
 
     private final Path mediaRoot;
+    private final Path publicRoot;
+    private static final String PUBLIC_PREFIX = "/uploads/public/";
 
     public AdminMediaService(@Value("${app.upload.directory:uploads}") String uploadDirectory) throws IOException {
-        this.mediaRoot = Paths.get(uploadDirectory).toAbsolutePath().normalize().resolve("media");
+        Path root = Paths.get(uploadDirectory).toAbsolutePath().normalize();
+        this.mediaRoot = root.resolve("media");
+        this.publicRoot = root.resolve("public");
         Files.createDirectories(mediaRoot);
+        Files.createDirectories(publicRoot);
     }
 
     /** url: the path to store ("/uploads/media/…"); publicId: the same path, used to delete it later. */
@@ -58,6 +63,43 @@ public class AdminMediaService {
     }
 
     public Uploaded upload(MultipartFile file, String folder, Set<String> allowed) {
+        return store(file, folder, allowed, mediaRoot, URL_PREFIX);
+    }
+
+    /**
+     * For pictures people see all over the app (profile photos, banners, wallpapers, room covers, shop images): kept on this
+     * server like the media above, but with a plain public link (no signature), so it can be stored and sent anywhere a
+     * normal https link was. url: the full link to store; publicId: the path, used to delete the file later.
+     */
+    public Uploaded uploadPublic(MultipartFile file, String folder, Set<String> allowed) {
+        Uploaded u = store(file, folder, allowed, publicRoot, PUBLIC_PREFIX);
+        return new Uploaded(MediaUrls.publicLink(u.url()), u.publicId(), u.format());
+    }
+
+    /** Same as uploadPublic for bytes already in hand (copying a file over from another host). */
+    public Uploaded savePublic(byte[] bytes, String folder, String format) {
+        String f = format == null ? "" : format.toUpperCase(Locale.ROOT);
+        if (!ANY.contains(f)) throw bad("This file type isn't allowed here.");
+        if (bytes == null || bytes.length == 0) throw bad("The file is empty.");
+        if (bytes.length > maxBytes(f)) throw bad(f + " files can be up to " + (maxBytes(f) / MB) + " MB.");
+        if (!looksLike(f, bytes, Math.min(bytes.length, 12))) throw bad("This isn't a real " + f + " file.");
+        if (!FOLDER.matcher(folder).matches()) throw new IllegalArgumentException("Bad media folder");
+        String name = UUID.randomUUID().toString().replace("-", "") + "." + f.toLowerCase(Locale.ROOT);
+        Path dir = publicRoot.resolve(folder).normalize();
+        Path target = dir.resolve(name).normalize();
+        if (!target.startsWith(publicRoot)) throw new IllegalArgumentException("Bad media path");
+        try {
+            Files.createDirectories(dir);
+            Files.write(target, bytes);
+        } catch (IOException e) {
+            log.warn("Couldn't save media file: {}", e.getMessage());
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "The server couldn't save the file. Try again.");
+        }
+        String path = PUBLIC_PREFIX + folder + "/" + name;
+        return new Uploaded(MediaUrls.publicLink(path), path, f);
+    }
+
+    private Uploaded store(MultipartFile file, String folder, Set<String> allowed, Path root, String prefix) {
         if (file == null || file.isEmpty()) throw bad("Choose a file to upload.");
         if (!FOLDER.matcher(folder).matches()) throw new IllegalArgumentException("Bad media folder");
         String format = formatOf(file.getOriginalFilename());
@@ -68,9 +110,9 @@ public class AdminMediaService {
         if (file.getSize() > max) throw bad(format + " files can be up to " + (max / MB) + " MB.");
 
         String name = UUID.randomUUID().toString().replace("-", "") + "." + format.toLowerCase(Locale.ROOT);
-        Path dir = mediaRoot.resolve(folder).normalize();
+        Path dir = root.resolve(folder).normalize();
         Path target = dir.resolve(name).normalize();
-        if (!target.startsWith(mediaRoot)) throw new IllegalArgumentException("Bad media path");
+        if (!target.startsWith(root)) throw new IllegalArgumentException("Bad media path");
         try {
             Files.createDirectories(dir);
             byte[] head = new byte[12];
@@ -88,16 +130,19 @@ public class AdminMediaService {
             log.warn("Couldn't save media file: {}", e.getMessage());
             throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "The server couldn't save the file. Try again.");
         }
-        String url = URL_PREFIX + folder + "/" + name;
+        String url = prefix + folder + "/" + name;
         return new Uploaded(url, url, format);
     }
 
     /** Deletes a file saved by upload(). Anything else (older Cloudinary ids, foreign paths) is left alone. */
     public void delete(String publicId, String format) {
-        if (publicId == null || !publicId.startsWith(URL_PREFIX)) return;
+        if (publicId == null) return;
         try {
-            Path p = mediaRoot.resolve(publicId.substring(URL_PREFIX.length())).normalize();
-            if (p.startsWith(mediaRoot)) Files.deleteIfExists(p);
+            Path root = publicId.startsWith(URL_PREFIX) ? mediaRoot : publicId.startsWith(PUBLIC_PREFIX) ? publicRoot : null;
+            if (root == null) return;
+            String prefix = root == mediaRoot ? URL_PREFIX : PUBLIC_PREFIX;
+            Path p = root.resolve(publicId.substring(prefix.length())).normalize();
+            if (p.startsWith(root)) Files.deleteIfExists(p);
         } catch (Exception e) {
             log.debug("Couldn't delete media {}: {}", publicId, e.getMessage());
         }

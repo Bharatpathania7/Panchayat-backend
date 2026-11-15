@@ -55,6 +55,11 @@ public class MediaUrls {
         return base.isEmpty() ? path : base + path;
     }
 
+    /** The plain (unsigned) link for a file in /uploads/public: stored as a full link, like the old Cloudinary ones. */
+    public static String publicLink(String path) {
+        return base.isEmpty() ? path : base + path;
+    }
+
     /**
      * For a picture shown to people in the app (a profile photo): signed when it is stored under /uploads/media (the admin
      * panel's uploads, such as the Sarpanch picture), otherwise left exactly as it is.

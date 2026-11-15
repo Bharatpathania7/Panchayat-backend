@@ -1,7 +1,6 @@
 package com.panchayat.backend.rooms.service;
 
-import com.cloudinary.Cloudinary;
-import com.cloudinary.utils.ObjectUtils;
+import com.panchayat.backend.admin.media.PublicImageStorage;
 import com.panchayat.backend.rooms.entity.RoomFollower;
 import com.panchayat.backend.rooms.entity.RoomMember;
 import com.panchayat.backend.rooms.repository.RoomFollowerRepository;
@@ -55,7 +54,7 @@ public class RoomSettingsService {
     private final RoomFollowerRepository followerRepository;
     private final RoomStateService roomState;
     private final SimpMessagingTemplate messaging;
-    private final Cloudinary cloudinary;
+    private final PublicImageStorage store;
 
     /** "roomId:userId" -> recent wrong password attempts. */
     private final Map<String, Deque<Instant>> wrongGuesses = new ConcurrentHashMap<>();
@@ -66,14 +65,14 @@ public class RoomSettingsService {
             RoomFollowerRepository followerRepository,
             RoomStateService roomState,
             SimpMessagingTemplate messaging,
-            Cloudinary cloudinary
+            PublicImageStorage store
     ) {
         this.roomRepository = roomRepository;
         this.memberRepository = memberRepository;
         this.followerRepository = followerRepository;
         this.roomState = roomState;
         this.messaging = messaging;
-        this.cloudinary = cloudinary;
+        this.store = store;
     }
 
     /** Fields left null are not changed. password "" removes it; announcement "" clears it. */
@@ -208,13 +207,12 @@ public class RoomSettingsService {
         String type = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
         if (!IMAGE_TYPES.contains(type)) throw bad("Use a JPG, PNG or WebP picture");
 
-        Map<?, ?> uploaded;
+        // Kept on this server (it used to go to Cloudinary)
+        Map<String, Object> uploaded;
         try {
-            uploaded = cloudinary.uploader().upload(file.getBytes(), ObjectUtils.asMap(
-                    "folder", "panchayat/rooms/" + roomId + "/cover",
-                    "resource_type", "image",
-                    "overwrite", true
-            ));
+            uploaded = store.uploadImage(file, "rooms/" + roomId + "/cover");
+        } catch (ResponseStatusException e) {
+            throw e;
         } catch (Exception e) {
             log.warn("Room cover upload failed. room={}: {}", roomId, e.getMessage());
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Couldn't upload the picture. Try again.");
@@ -309,7 +307,7 @@ public class RoomSettingsService {
 
     private void destroyQuietly(String publicId) {
         try {
-            cloudinary.uploader().destroy(publicId, ObjectUtils.asMap("resource_type", "image"));
+            store.delete(publicId);
         } catch (Exception e) {
             log.debug("Old room cover not deleted: {}", e.getMessage());
         }

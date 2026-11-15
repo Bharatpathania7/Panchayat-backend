@@ -1,7 +1,6 @@
 package com.panchayat.backend.cp;
 
-import com.cloudinary.Cloudinary;
-import com.cloudinary.utils.ObjectUtils;
+import com.panchayat.backend.admin.media.PublicImageStorage;
 import com.panchayat.backend.wallet.service.CoinWalletService;
 import com.panchayat.backend.wallet.service.WalletPushService;
 import jakarta.annotation.PreDestroy;
@@ -81,7 +80,7 @@ public class CpService {
     private final CoinWalletService wallet;
     private final WalletPushService walletPush;
     private final SimpMessagingTemplate messaging;
-    private final Cloudinary cloudinary;
+    private final PublicImageStorage store;
     private final TransactionTemplate tx;
     private final ObjectMapper json = new ObjectMapper();
     private final ScheduledExecutorService janitor = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -91,12 +90,12 @@ public class CpService {
     });
 
     public CpService(JdbcTemplate jdbc, CoinWalletService wallet, WalletPushService walletPush,
-                     SimpMessagingTemplate messaging, Cloudinary cloudinary, PlatformTransactionManager txm) {
+                     SimpMessagingTemplate messaging, PublicImageStorage store, PlatformTransactionManager txm) {
         this.jdbc = jdbc;
         this.wallet = wallet;
         this.walletPush = walletPush;
         this.messaging = messaging;
-        this.cloudinary = cloudinary;
+        this.store = store;
         this.tx = new TransactionTemplate(txm);
         janitor.scheduleWithFixedDelay(this::expire, 1, 10, TimeUnit.MINUTES);
     }
@@ -409,12 +408,8 @@ public class CpService {
     public Map<String, Object> setWallpaper(Long me, MultipartFile file) {
         Long cid = requireCouple(me);
         validateImage(file);
-        Map<?, ?> up;
-        try {
-            up = cloudinary.uploader().upload(file.getBytes(), ObjectUtils.asMap("folder", "panchayat/cp-wallpapers", "resource_type", "image", "overwrite", false));
-        } catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Couldn't upload the wallpaper. Try again");
-        }
+        // Kept on this server (it used to go to Cloudinary)
+        Map<String, Object> up = store.uploadImage(file, "cpwallpapers");
         String old = jdbc.queryForObject("select wallpaper_public_id from cp_couples where id = ?", String.class, cid);
         jdbc.update("update cp_couples set wallpaper_url = ?, wallpaper_public_id = ? where id = ?",
                 String.valueOf(up.get("secure_url")), String.valueOf(up.get("public_id")), cid);
@@ -917,7 +912,7 @@ public class CpService {
     private void destroy(String publicId) {
         if (publicId == null || publicId.isBlank()) return;
         try {
-            cloudinary.uploader().destroy(publicId, ObjectUtils.asMap("resource_type", "image"));
+            store.delete(publicId);
         } catch (Exception e) {
             log.debug("Old wallpaper not removed: {}", e.getMessage());
         }

@@ -56,7 +56,7 @@ public class ShopAssetController {
 
         extension = extension.toLowerCase(Locale.ROOT);
 
-        // Upload asset through the existing Cloudinary service.
+        // The asset is kept on this server.
         String assetUrl = shopAssetService.upload(file);
 
         String assetType = "svga".equals(extension)

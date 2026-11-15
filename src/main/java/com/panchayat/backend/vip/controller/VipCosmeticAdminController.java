@@ -1,6 +1,6 @@
 package com.panchayat.backend.vip.controller;
 
-import com.cloudinary.Cloudinary;
+import com.panchayat.backend.admin.media.PublicImageStorage;
 import com.panchayat.backend.config.CloudinaryService;
 import com.panchayat.backend.vip.entity.VipCosmetic;
 import com.panchayat.backend.vip.repository.VipCosmeticRepository;
@@ -23,16 +23,16 @@ public class VipCosmeticAdminController {
 
     private final CloudinaryService cloudinaryService;
     private final VipCosmeticRepository repository;
-    private final Cloudinary cloudinary;
+    private final PublicImageStorage store;
 
     public VipCosmeticAdminController(
             CloudinaryService cloudinaryService,
             VipCosmeticRepository repository,
-            Cloudinary cloudinary
+            PublicImageStorage store
     ) {
         this.cloudinaryService = cloudinaryService;
         this.repository = repository;
-        this.cloudinary = cloudinary;
+        this.store = store;
     }
 
     @PostMapping(
@@ -53,7 +53,7 @@ public class VipCosmeticAdminController {
             );
         }
 
-        Map<?, ?> uploadResult;
+        Map<String, Object> uploadResult;
 
         try {
             uploadResult = cloudinaryService.uploadVipAsset(
@@ -70,7 +70,7 @@ public class VipCosmeticAdminController {
         } catch (IOException ex) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_GATEWAY,
-                    "Cloudinary upload failed."
+                    "The upload failed."
             );
         }
 
@@ -86,18 +86,8 @@ public class VipCosmeticAdminController {
             return repository.save(cosmetic);
         } catch (RuntimeException ex) {
             // The uploaded asset may need cleanup if database persistence fails.
-            String resourceType = format == VipCosmetic.CosmeticFormat.SVGA
-                    ? "raw"
-                    : "image";
-
             try {
-                cloudinary.uploader().destroy(
-                        uploadResult.get("public_id").toString(),
-                        com.cloudinary.utils.ObjectUtils.asMap(
-                                "resource_type", resourceType,
-                                "invalidate", true
-                        )
-                );
+                store.delete(uploadResult.get("public_id").toString());
             } catch (Exception cleanupException) {
                 ex.addSuppressed(cleanupException);
             }
