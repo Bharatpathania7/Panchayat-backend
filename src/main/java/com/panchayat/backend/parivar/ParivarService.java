@@ -254,6 +254,12 @@ public class ParivarService {
         jdbc.update("insert into parivar_chat (parivar_id, user_id, kind, text) values (?, null, 'SYSTEM', ?)", parivarId, text.length() > 500 ? text.substring(0, 500) : text);
     }
 
+    /** The person's name for a line in the family chat. */
+    private String nameOf(Long userId) {
+        String n = jdbc.query("select full_name from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, userId);
+        return n == null || n.isBlank() ? "A member" : n.strip();
+    }
+
     /* ======================= create ======================= */
 
     public record CreateRequest(String name, String sign, String emblem, String color, String intro, String joinMode, String logo) {
@@ -515,6 +521,8 @@ public class ParivarService {
         if (memberCount(id) >= capacity(level)) throw conflict("This Parivar is full.");
         jdbc.update("insert into parivar_members (parivar_id, user_id, role) values (?, ?, 'MEMBER')", id, userId);
         activity(id, userId, null, "JOINED", 0, 0, "joined the Parivar", null);
+        // Everyone in the family chat sees who just arrived
+        system(id, "\uD83D\uDC4B Welcome " + nameOf(userId) + " to the Parivar!");
     }
 
     @Transactional
@@ -566,11 +574,16 @@ public class ParivarService {
         Long id = myParivarId(userId);
         if (id == null) throw conflict("You are not in a Parivar.");
         String role = roleOf(id, userId);
+        String who = nameOf(userId);
+        boolean disbanded = false;
         if ("LEADER".equals(role)) {
             if (memberCount(id) > 1) throw conflict("Make someone else the leader before you leave.");
             jdbc.update("update parivars set status = 'DISBANDED' where id = ?", id);
+            disbanded = true;
         }
         jdbc.update("delete from parivar_members where parivar_id = ? and user_id = ?", id, userId);
+        // The family chat says who left (not when the last person closes the Parivar)
+        if (!disbanded) system(id, "\uD83D\uDEAA " + who + " left the Parivar.");
         return Map.of("left", true);
     }
 
@@ -581,8 +594,10 @@ public class ParivarService {
         String tr = roleOf(id, target);
         if (tr == null) throw conflict("They are not in this Parivar.");
         if (rank(roleOf(id, actor)) <= rank(tr)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can only remove people below your role.");
+        String removed = nameOf(target);
         jdbc.update("delete from parivar_members where parivar_id = ? and user_id = ?", id, target);
         activity(id, actor, target, "REMOVED", 0, 0, "removed a member", null);
+        system(id, "\uD83D\uDEAA " + removed + " was removed from the Parivar.");
         return profile(actor, id);
     }
 
