@@ -87,6 +87,7 @@ public class ParivarTreasureService {
             m.put("enabled", t.get("enabled"));
             m.put("target", l(t.get("weekly_target")));
             m.put("unlockMinutes", l(t.get("unlock_minutes")));
+            m.put("skipCoinsPerMinute", l(t.get("skip_coins_per_minute")));
             m.put("poolCoins", l(t.get("pool_coins")));
             m.put("poolDiamonds", l(t.get("pool_diamonds")));
             m.put("imageUrl", MediaUrls.link((String) t.get("image_url")));
@@ -113,6 +114,8 @@ public class ParivarTreasureService {
             long left = treasure ? Math.max(0, Duration.between(Instant.now(), ((Timestamp) c.get("unlock_at")).toInstant()).getSeconds()) : 0;
             m.put("secondsLeft", left);
             m.put("ready", treasure && left == 0);
+            long rate = l(jdbc.queryForObject("select skip_coins_per_minute from treasure_tiers where id = ?", Long.class, c.get("tier_id")));
+            m.put("openNowCost", treasure && left > 0 ? skipCost(left, rate) : 0);
             chests.add(m);
         }
         Map<String, Object> out = new LinkedHashMap<>();
@@ -265,6 +268,42 @@ public class ParivarTreasureService {
         audit(chestId, parivarId, userId, "CLAIM", c.get("name") + " moved to the Treasure, unlocks " + unlock);
         core.system(parivarId, "🗝️ The " + c.get("name") + " was claimed and moved to the Family Treasure. It unlocks in " + mins + " min.");
         return Map.of("ok", true, "unlockAt", unlock.toString());
+    }
+
+    /** What opening a locked chest at once costs: the coins per minute for every minute still left (a started minute counts). 0 = not offered. */
+    static long skipCost(long secondsLeft, long coinsPerMinute) {
+        if (secondsLeft <= 0 || coinsPerMinute <= 0) return 0;
+        return ((secondsLeft + 59) / 60) * coinsPerMinute;
+    }
+
+    public record OpenNowRequest(Long expectedCost) {
+    }
+
+    /** A member pays coins from their own wallet to open the chest right now instead of waiting for the timer. */
+    @Transactional
+    public Map<String, Object> openNow(Long userId, Long parivarId, Long chestId, OpenNowRequest req) {
+        core.activeParivar(parivarId);
+        if (core.roleOf(parivarId, userId) == null) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only members can open the chest.");
+        List<Map<String, Object>> cl = jdbc.queryForList("select * from treasure_chests where id = ? and parivar_id = ? for update", chestId, parivarId);
+        if (cl.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That chest doesn't exist.");
+        Map<String, Object> c = cl.get(0);
+        if (!"TREASURE".equals(c.get("status"))) throw new ResponseStatusException(HttpStatus.CONFLICT, "Claim the chest first.");
+        long left = Math.max(0, Duration.between(Instant.now(), ((Timestamp) c.get("unlock_at")).toInstant()).getSeconds());
+        if (left == 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "The chest is already open.");
+        long rate = l(jdbc.queryForObject("select skip_coins_per_minute from treasure_tiers where id = ?", Long.class, c.get("tier_id")));
+        long cost = skipCost(left, rate);
+        if (cost <= 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "Opening at once isn't offered for this chest.");
+        if (req != null && req.expectedCost() != null && cost > req.expectedCost()) throw new ResponseStatusException(HttpStatus.CONFLICT, "The price changed to " + cost + " coins. Check it and try again.");
+        try {
+            wallet.debit(userId, cost, "PARIVAR_TREASURE_OPEN", "treasure:" + chestId, "treasure-open:" + chestId, "Open Family Treasure chest now");
+        } catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Not enough coins. Opening now costs " + cost + " coins.");
+        }
+        walletPush.pushBalance(userId, "PARIVAR_TREASURE_OPEN", -cost);
+        jdbc.update("update treasure_chests set unlock_at = now() where id = ?", chestId);
+        audit(chestId, parivarId, userId, "OPEN_NOW", c.get("name") + " opened at once for " + cost + " coins");
+        core.system(parivarId, "\u26A1 " + jdbc.queryForObject("select full_name from users where id = ?", String.class, userId) + " opened the " + c.get("name") + " at once. It is ready to send!");
+        return Map.of("ok", true, "cost", cost);
     }
 
     /* ======================= send ======================= */

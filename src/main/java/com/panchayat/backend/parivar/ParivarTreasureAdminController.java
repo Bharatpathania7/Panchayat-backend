@@ -95,6 +95,7 @@ public class ParivarTreasureAdminController {
             m.put("enabled", rs.getBoolean("enabled"));
             m.put("weeklyTarget", rs.getLong("weekly_target"));
             m.put("unlockMinutes", rs.getInt("unlock_minutes"));
+            m.put("skipCoinsPerMinute", rs.getLong("skip_coins_per_minute"));
             m.put("poolCoins", rs.getLong("pool_coins"));
             m.put("poolDiamonds", rs.getLong("pool_diamonds"));
             m.put("drawsPerMember", rs.getInt("draws_per_member"));
@@ -107,7 +108,7 @@ public class ParivarTreasureAdminController {
         });
     }
 
-    public record TierEdit(String name, Boolean enabled, Long weeklyTarget, Integer unlockMinutes, Long poolCoins, Long poolDiamonds, Integer drawsPerMember, Integer eligibleMinHours) {
+    public record TierEdit(String name, Boolean enabled, Long weeklyTarget, Integer unlockMinutes, Long poolCoins, Long poolDiamonds, Integer drawsPerMember, Integer eligibleMinHours, Long skipCoinsPerMinute) {
     }
 
     /** The chest's own numbers change what Parivars earn, so only a Super Admin saves them. */
@@ -121,9 +122,10 @@ public class ParivarTreasureAdminController {
         if (e.poolDiamonds() != null && (e.poolDiamonds() < 0 || e.poolDiamonds() > 1_000_000_000_000L)) throw bad("The diamond pool can't be negative.");
         if (e.drawsPerMember() != null && (e.drawsPerMember() < 0 || e.drawsPerMember() > 10)) throw bad("Draws per member is 0 to 10.");
         if (e.eligibleMinHours() != null && (e.eligibleMinHours() < 0 || e.eligibleMinHours() > 8760)) throw bad("Eligible-after hours is 0 to 8760.");
+        if (e.skipCoinsPerMinute() != null && (e.skipCoinsPerMinute() < 0 || e.skipCoinsPerMinute() > 1_000_000_000L)) throw bad("Open-now price is 0 (off) to 1,000,000,000 coins per minute.");
         int n = jdbc.update("update treasure_tiers set name = coalesce(?, name), enabled = coalesce(?, enabled), weekly_target = coalesce(?, weekly_target), unlock_minutes = coalesce(?, unlock_minutes),"
-                        + " pool_coins = coalesce(?, pool_coins), pool_diamonds = coalesce(?, pool_diamonds), draws_per_member = coalesce(?, draws_per_member), eligible_min_hours = coalesce(?, eligible_min_hours) where id = ?",
-                e.name() == null ? null : e.name().strip(), e.enabled(), e.weeklyTarget(), e.unlockMinutes(), e.poolCoins(), e.poolDiamonds(), e.drawsPerMember(), e.eligibleMinHours(), id);
+                        + " pool_coins = coalesce(?, pool_coins), pool_diamonds = coalesce(?, pool_diamonds), draws_per_member = coalesce(?, draws_per_member), eligible_min_hours = coalesce(?, eligible_min_hours), skip_coins_per_minute = coalesce(?, skip_coins_per_minute) where id = ?",
+                e.name() == null ? null : e.name().strip(), e.enabled(), e.weeklyTarget(), e.unlockMinutes(), e.poolCoins(), e.poolDiamonds(), e.drawsPerMember(), e.eligibleMinHours(), e.skipCoinsPerMinute(), id);
         if (n == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That chest doesn't exist.");
         audit(auth, "chest " + id + " settings changed");
         return Map.of("ok", true);

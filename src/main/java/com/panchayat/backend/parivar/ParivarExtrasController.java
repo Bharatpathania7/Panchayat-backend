@@ -217,6 +217,11 @@ public class ParivarExtrasController {
         return treasure.claim(me(auth), id, chestId);
     }
 
+    @PostMapping("/treasure/chests/{chestId:[0-9]+}/open-now")
+    public Map<String, Object> treasureOpenNow(@PathVariable Long id, @PathVariable Long chestId, @RequestBody(required = false) ParivarTreasureService.OpenNowRequest body, Authentication auth) {
+        return treasure.openNow(me(auth), id, chestId, body);
+    }
+
     @PostMapping("/treasure/chests/{chestId:[0-9]+}/send")
     public Map<String, Object> treasureSend(@PathVariable Long id, @PathVariable Long chestId, @RequestBody ParivarTreasureService.SendRequest body, Authentication auth) {
         return treasure.send(me(auth), id, chestId, body);

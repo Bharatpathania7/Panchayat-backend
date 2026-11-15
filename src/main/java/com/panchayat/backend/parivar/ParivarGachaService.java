@@ -54,6 +54,18 @@ public class ParivarGachaService {
         if (!Boolean.TRUE.equals(on)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Gacha is switched off right now.");
     }
 
+    /**
+     * Once the Parivar reaches a better machine's level, the plainer one goes away (Normal at level 4 when Advanced opens, Advanced at level 8 when Super opens).
+     * Only the three standard machines (NORMAL, ADVANCED, SUPER) take part; any other machine the admin adds stays as it is.
+     */
+    private boolean replaced(int level, Map<String, Object> machine) {
+        String tier = String.valueOf(machine.get("tier"));
+        if (!List.of("NORMAL", "ADVANCED", "SUPER").contains(tier)) return false;
+        Long better = jdbc.queryForObject("select count(*) from parivar_gacha_machines o where o.active and o.tier in ('NORMAL', 'ADVANCED', 'SUPER') and o.min_level <= ? and o.min_level > ?",
+                Long.class, level, ((Number) machine.get("min_level")).intValue());
+        return better != null && better > 0;
+    }
+
     /** The machines with their rewards and the real chance of each reward (weight / total weight). */
     public Map<String, Object> machines(Long userId, Long parivarId) {
         Map<String, Object> p = core.activeParivar(parivarId);
@@ -62,6 +74,7 @@ public class ParivarGachaService {
         int level = ((Number) p.get("level")).intValue();
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> m : jdbc.queryForList("select * from parivar_gacha_machines where active order by sort_order, id")) {
+            if (replaced(level, m)) continue;
             long id = l(m.get("id"));
             List<Map<String, Object>> rewards = jdbc.queryForList("select id, kind, ref, amount, weight, rarity, label, image_url, gift_id from parivar_gacha_rewards where machine_id = ? and active order by weight desc, id", id);
             long total = rewards.stream().mapToLong(r -> l(r.get("weight"))).sum();
@@ -118,6 +131,7 @@ public class ParivarGachaService {
         List<Map<String, Object>> ml = jdbc.queryForList("select * from parivar_gacha_machines where id = ? and active", machineId);
         if (ml.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That machine isn't available.");
         Map<String, Object> machine = ml.get(0);
+        if (replaced(((Number) p.get("level")).intValue(), machine)) throw new ResponseStatusException(HttpStatus.CONFLICT, "Your Parivar has moved on to a better machine. This one is no longer available.");
         if (((Number) p.get("level")).intValue() < ((Number) machine.get("min_level")).intValue()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Your Parivar needs level " + machine.get("min_level") + " for this machine.");
 
         String base = "gacha:" + userId + ":" + key.strip();
