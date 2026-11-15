@@ -495,6 +495,7 @@ public class VoiceRoomService {
             afterCommit(() -> roomStateService.onJoined(roomId, joinedUserId));
         }
         if (arriving && room.isNewbie()) newbieService.onJoin(roomId, joinedUserId);
+        if (arriving && familyId != null) familyRoomLine(familyId, joinedUserId, "\uD83D\uDC4B Welcome %s to the family room!");
 
         return new JoinVoiceRoomResponse(
                 liveKitUrl,
@@ -583,6 +584,19 @@ public class VoiceRoomService {
 
         Long leftUserId = user.getId();
         afterCommit(() -> roomStateService.onLeft(roomId, leftUserId));
+        Long leftFamily = parivarJdbc.query("select parivar_id from voice_rooms where id = ?", rs -> rs.next() ? (Long) rs.getObject(1) : null, roomId);
+        if (leftFamily != null) familyRoomLine(leftFamily, leftUserId, "\uD83D\uDEAA %s left the family room.");
+    }
+
+    /** A line in the family chat when someone comes into or leaves the Parivar's voice room. */
+    private void familyRoomLine(Long familyId, Long userId, String format) {
+        try {
+            String n = parivarJdbc.query("select full_name from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, userId);
+            String name = n == null || n.isBlank() ? "A member" : n.strip();
+            parivarJdbc.update("insert into parivar_chat (parivar_id, user_id, kind, text) values (?, null, 'SYSTEM', ?)", familyId, String.format(format, name));
+        } catch (RuntimeException ignored) {
+            // a chat line must never stop someone from entering or leaving the room
+        }
     }
 
     // --------------------------------------------------

@@ -66,7 +66,12 @@ public class RoomPkService {
         String winner;
     }
 
+    /** 1v1: the host (seat 0) only hosts; seat 1 fights for red, seat 2 for blue. */
+    public static final int RED_SEAT = 1;
+    public static final int BLUE_SEAT = 2;
+
     public static String sideOfSeat(String mode, int index) {
+        if ("1v1".equals(mode)) return index == RED_SEAT ? "red" : index == BLUE_SEAT ? "blue" : null;
         if (index == 0) return "red";
         if (index == 1) return "blue";
         if (!"team".equals(mode) || index < 0) return null;
@@ -111,6 +116,12 @@ public class RoomPkService {
         if (pk == null) throw conflict("Set up a PK first");
         synchronized (pk) {
             if (!"ready".equals(pk.phase)) throw conflict("This PK has already started");
+            if ("1v1".equals(pk.mode)) {
+                List<String> seats = roomState.getState(roomId).seats();
+                boolean red = seats.size() > RED_SEAT && seats.get(RED_SEAT) != null;
+                boolean blue = seats.size() > BLUE_SEAT && seats.get(BLUE_SEAT) != null;
+                if (!red || !blue) throw conflict("PvP participant not on the seat");
+            }
             pk.phase = "live";
             pk.endsAt = System.currentTimeMillis() + pk.minutes * 60_000L;
             timer.schedule(() -> finish(roomId, pk), pk.minutes * 60_000L + 200, TimeUnit.MILLISECONDS);
