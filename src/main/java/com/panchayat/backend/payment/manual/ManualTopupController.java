@@ -1,0 +1,72 @@
+package com.panchayat.backend.payment.manual;
+
+import com.panchayat.backend.auth.repository.UserRepository;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Manual UPI top-up, the person's side (for when Google Pay / Paytm doesn't like the payment gateway).
+ *
+ *   GET  /api/v1/manual-topup/info                   is it on, the UPI ID / QR / note to pay
+ *   POST /api/v1/manual-topup/requests  { packId }   ask for a coin pack (amount and coins come from the pack)
+ *   POST /api/v1/manual-topup/requests/{id}/submit   multipart: utr, screenshot
+ *   POST /api/v1/manual-topup/requests/{id}/cancel
+ *   GET  /api/v1/manual-topup/mine                   my latest requests and their status
+ */
+@RestController
+@RequestMapping("/api/v1/manual-topup")
+public class ManualTopupController {
+
+    private final ManualTopupService service;
+    private final UserRepository users;
+
+    public ManualTopupController(ManualTopupService service, UserRepository users) {
+        this.service = service;
+        this.users = users;
+    }
+
+    public record Ask(String packId) {
+    }
+
+    @GetMapping("/info")
+    public Map<String, Object> info() {
+        return service.publicInfo();
+    }
+
+    @PostMapping("/requests")
+    public Map<String, Object> request(@org.springframework.web.bind.annotation.RequestBody Ask body, Authentication auth) {
+        long packId;
+        try {
+            packId = Long.parseLong(body == null || body.packId() == null ? "" : body.packId().trim());
+        } catch (NumberFormatException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose a pack.");
+        }
+        return service.request(uid(auth), packId);
+    }
+
+    @PostMapping(value = "/requests/{id:[0-9]+}/submit", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> submit(@PathVariable long id, @RequestParam("utr") String utr, @RequestPart("screenshot") MultipartFile screenshot, Authentication auth) {
+        return service.submit(uid(auth), id, utr, screenshot);
+    }
+
+    @PostMapping("/requests/{id:[0-9]+}/cancel")
+    public Map<String, Object> cancel(@PathVariable long id, Authentication auth) {
+        return service.cancel(uid(auth), id);
+    }
+
+    @GetMapping("/mine")
+    public List<Map<String, Object>> mine(Authentication auth) {
+        return service.mine(uid(auth));
+    }
+
+    private Long uid(Authentication auth) {
+        if (auth == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first");
+        return users.findByEmailIgnoreCase(auth.getName()).orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first")).getId();
+    }
+}

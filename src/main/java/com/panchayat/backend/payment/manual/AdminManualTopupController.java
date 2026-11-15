@@ -1,0 +1,75 @@
+package com.panchayat.backend.payment.manual;
+
+import com.panchayat.backend.admin.media.PublicImageStorage;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.Map;
+
+/**
+ * Manual UPI top-up, Mukhiya ji's side (admin panel, Super Admin and Admin).
+ *
+ *   GET  /api/v1/admin/manage/manual-topups?status=SUBMITTED|APPROVED|REJECTED|REQUESTED|ALL&q=&page=
+ *   GET  /api/v1/admin/manage/manual-topups/settings
+ *   PUT  /api/v1/admin/manage/manual-topups/settings   { enabled, upiId, payeeName, note }
+ *   POST /api/v1/admin/manage/manual-topups/settings/qr   multipart: file (the QR picture people can scan)
+ *   POST /api/v1/admin/manage/manual-topups/{id}/approve
+ *   POST /api/v1/admin/manage/manual-topups/{id}/reject  { reason }
+ */
+@RestController
+@RequestMapping("/api/v1/admin/manage/manual-topups")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+public class AdminManualTopupController {
+
+    private final ManualTopupService service;
+    private final PublicImageStorage store;
+
+    public AdminManualTopupController(ManualTopupService service, PublicImageStorage store) {
+        this.service = service;
+        this.store = store;
+    }
+
+    public record SettingsBody(Boolean enabled, String upiId, String payeeName, String note) {
+    }
+
+    public record RejectBody(String reason) {
+    }
+
+    @GetMapping
+    public Map<String, Object> list(@RequestParam(defaultValue = "SUBMITTED") String status, @RequestParam(required = false) String q,
+                                    @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "30") int size) {
+        return service.list(status, q, page, size);
+    }
+
+    @GetMapping("/settings")
+    public Map<String, Object> settings() {
+        return service.settings();
+    }
+
+    @PutMapping("/settings")
+    public Map<String, Object> save(@org.springframework.web.bind.annotation.RequestBody SettingsBody b) {
+        if (b == null || b.enabled() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Send enabled.");
+        return service.saveSettings(b.enabled(), b.upiId(), b.payeeName(), b.note());
+    }
+
+    @PostMapping(value = "/settings/qr", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> qr(@RequestPart("file") MultipartFile file) {
+        Map<String, Object> saved = store.uploadImage(file, "topupqr");
+        service.saveQr(String.valueOf(saved.get("secure_url")));
+        return service.settings();
+    }
+
+    @PostMapping("/{id:[0-9]+}/approve")
+    public Map<String, Object> approve(@PathVariable long id, Authentication auth) {
+        return service.approve(id, auth == null ? null : auth.getName());
+    }
+
+    @PostMapping("/{id:[0-9]+}/reject")
+    public Map<String, Object> reject(@PathVariable long id, @org.springframework.web.bind.annotation.RequestBody RejectBody b, Authentication auth) {
+        return service.reject(id, b == null ? null : b.reason(), auth == null ? null : auth.getName());
+    }
+}
