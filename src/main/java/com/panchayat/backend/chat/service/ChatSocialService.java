@@ -170,11 +170,12 @@ public class ChatSocialService {
 
     public Map<String, Object> group(Long conversationId, Long me) {
         Map<String, Object> mine = membership(conversationId, me);
-        Map<String, Object> g = jdbc.queryForMap("select id, kind, name, created_by, created_at from chat_conversations where id = ?", conversationId);
+        Map<String, Object> g = jdbc.queryForMap("select id, kind, name, created_by, created_at, image_path from chat_conversations where id = ?", conversationId);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("conversationId", conversationId);
         out.put("kind", g.get("kind"));
         out.put("name", g.get("name"));
+        out.put("imageUrl", g.get("image_path") == null ? null : com.panchayat.backend.admin.media.MediaUrls.link((String) g.get("image_path")));
         out.put("myRole", mine.get("role"));
         out.put("muted", mine.get("muted"));
         out.put("members", members(conversationId));
@@ -271,6 +272,22 @@ public class ChatSocialService {
         requireGroup(conversationId);
         requireAdmin(conversationId, actor);
         jdbc.update("update chat_conversations set name = ?, updated_at = now() where id = ?", groupName(rawName), conversationId);
+        notifyMembers(conversationId, "RENAMED", actor, null);
+        return group(conversationId, actor);
+    }
+
+    /** Throws unless this is a group and the person is its owner or an admin (checked before a picture is stored). */
+    public void requireGroupAdmin(Long conversationId, Long actor) {
+        requireGroup(conversationId);
+        requireAdmin(conversationId, actor);
+    }
+
+    /** Owner or an admin sets (or, with null, removes) the group's picture. */
+    @Transactional
+    public Map<String, Object> setGroupImage(Long conversationId, Long actor, String path) {
+        requireGroup(conversationId);
+        requireAdmin(conversationId, actor);
+        jdbc.update("update chat_conversations set image_path = ?, updated_at = now() where id = ?", path, conversationId);
         notifyMembers(conversationId, "RENAMED", actor, null);
         return group(conversationId, actor);
     }

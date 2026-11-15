@@ -30,9 +30,12 @@ public class ChatSocialController {
     private final ChatSocialService social;
     private final UserRepository users;
 
-    public ChatSocialController(ChatSocialService social, UserRepository users) {
+    private final com.panchayat.backend.admin.media.AdminMediaService media;
+
+    public ChatSocialController(ChatSocialService social, UserRepository users, com.panchayat.backend.admin.media.AdminMediaService media) {
         this.social = social;
         this.users = users;
+        this.media = media;
     }
 
     public record CreateGroup(String name, List<Long> memberIds) {
@@ -64,6 +67,20 @@ public class ChatSocialController {
     @PatchMapping("/api/v1/chat/conversations/{id:[0-9]+}")
     public Map<String, Object> rename(@PathVariable Long id, @RequestBody Rename body, Authentication auth) {
         return social.rename(id, me(auth), body == null ? null : body.name());
+    }
+
+    /** The group's picture (owner or admin). */
+    @PostMapping(value = "/api/v1/chat/conversations/{id:[0-9]+}/image", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> setImage(@PathVariable Long id, @RequestPart("file") org.springframework.web.multipart.MultipartFile file, Authentication auth) {
+        Long me = me(auth);
+        social.requireGroupAdmin(id, me);
+        var up = media.upload(file, "chatgroups", com.panchayat.backend.admin.media.AdminMediaService.PICTURES);
+        return social.setGroupImage(id, me, up.url());
+    }
+
+    @DeleteMapping("/api/v1/chat/conversations/{id:[0-9]+}/image")
+    public Map<String, Object> removeImage(@PathVariable Long id, Authentication auth) {
+        return social.setGroupImage(id, me(auth), null);
     }
 
     @PostMapping("/api/v1/chat/conversations/{id:[0-9]+}/members")

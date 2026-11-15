@@ -183,7 +183,7 @@ public class ChatConversationService {
                         return null;
                     }
                     java.util.Map<String, Object> meta = jdbc.queryForMap(
-                            "select c.kind, c.name, p.role, p.muted, p.request_state, c.system_conversation, c.pinned, (p.cleared_at is not null) as cleared,"
+                            "select c.kind, c.name, p.role, p.muted, p.request_state, c.system_conversation, c.pinned, c.image_path, (p.cleared_at is not null) as cleared,"
                                     + " (select count(*) from chat_conversation_participants x where x.conversation_id = c.id) as members"
                                     + " from chat_conversations c join chat_conversation_participants p on p.conversation_id = c.id and p.user_id = ?"
                                     + " where c.id = ?", userId, conversation.getId());
@@ -280,7 +280,7 @@ public class ChatConversationService {
                             conversation.getId(),
                             otherId,
                             group ? (String) meta.get("name") : otherUser.getFullName(),
-                            group ? null : com.panchayat.backend.admin.media.MediaUrls.protectedLink(otherUser.getAvatarUrl()),
+                            group ? (meta.get("image_path") == null ? null : com.panchayat.backend.admin.media.MediaUrls.link((String) meta.get("image_path"))) : com.panchayat.backend.admin.media.MediaUrls.protectedLink(otherUser.getAvatarUrl()),
                             lastMessagePreview,
                             lastMessageType,
                             lastMessageAt,
