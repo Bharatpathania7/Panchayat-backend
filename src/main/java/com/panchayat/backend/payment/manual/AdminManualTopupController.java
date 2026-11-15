@@ -14,8 +14,9 @@ import java.util.Map;
  * Manual UPI top-up, Mukhiya ji's side (admin panel, Super Admin and Admin).
  *
  *   GET  /api/v1/admin/manage/manual-topups?status=SUBMITTED|APPROVED|REJECTED|REQUESTED|ALL&q=&page=
+ *   GET  /api/v1/admin/manage/manual-topups/revenue?range=today|7d|30d|month|all   what was collected (approved), by day and pack
  *   GET  /api/v1/admin/manage/manual-topups/settings
- *   PUT  /api/v1/admin/manage/manual-topups/settings   { enabled, upiId, payeeName, note }
+ *   PUT  /api/v1/admin/manage/manual-topups/settings   { enabled, upiId, payeeName, note, name }
  *   POST /api/v1/admin/manage/manual-topups/settings/qr   multipart: file (the QR picture people can scan)
  *   POST /api/v1/admin/manage/manual-topups/{id}/approve
  *   POST /api/v1/admin/manage/manual-topups/{id}/reject  { reason }
@@ -33,7 +34,7 @@ public class AdminManualTopupController {
         this.store = store;
     }
 
-    public record SettingsBody(Boolean enabled, String upiId, String payeeName, String note) {
+    public record SettingsBody(Boolean enabled, String upiId, String payeeName, String note, String name) {
     }
 
     public record RejectBody(String reason) {
@@ -45,6 +46,11 @@ public class AdminManualTopupController {
         return service.list(status, q, page, size);
     }
 
+    @GetMapping("/revenue")
+    public Map<String, Object> revenue(@RequestParam(defaultValue = "30d") String range) {
+        return service.revenue(range);
+    }
+
     @GetMapping("/settings")
     public Map<String, Object> settings() {
         return service.settings();
@@ -53,7 +59,7 @@ public class AdminManualTopupController {
     @PutMapping("/settings")
     public Map<String, Object> save(@org.springframework.web.bind.annotation.RequestBody SettingsBody b) {
         if (b == null || b.enabled() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Send enabled.");
-        return service.saveSettings(b.enabled(), b.upiId(), b.payeeName(), b.note());
+        return service.saveSettings(b.enabled(), b.upiId(), b.payeeName(), b.note(), b.name());
     }
 
     @PostMapping(value = "/settings/qr", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)

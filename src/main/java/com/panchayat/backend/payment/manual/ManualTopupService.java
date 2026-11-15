@@ -52,24 +52,34 @@ public class ManualTopupService {
     /* ---------------- settings ---------------- */
 
     public Map<String, Object> settings() {
-        Map<String, Object> s = jdbc.queryForMap("select enabled, upi_id, payee_name, qr_url, note from manual_topup_settings where id = 1");
+        Map<String, Object> s = jdbc.queryForMap("select enabled, upi_id, payee_name, qr_url, note, helper_name from manual_topup_settings where id = 1");
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("enabled", Boolean.TRUE.equals(s.get("enabled")));
         out.put("upiId", s.get("upi_id"));
         out.put("payeeName", s.get("payee_name"));
         out.put("qrUrl", s.get("qr_url"));
         out.put("note", s.get("note"));
+        out.put("name", s.get("helper_name"));
         return out;
     }
 
-    public Map<String, Object> saveSettings(boolean enabled, String upiId, String payeeName, String note) {
+    /** The name people see for the person who checks payments (set in the admin panel). */
+    public String helperName() {
+        Object n = settings().get("name");
+        return n == null || String.valueOf(n).isBlank() ? "Mukhiya ji" : String.valueOf(n);
+    }
+
+    public Map<String, Object> saveSettings(boolean enabled, String upiId, String payeeName, String note, String helperName) {
         String upi = upiId == null ? null : upiId.trim();
         if (upi != null && upi.isEmpty()) upi = null;
         if (upi != null && !upi.matches("[A-Za-z0-9._\\-]{2,60}@[A-Za-z0-9]{2,30}")) throw bad("That doesn't look like a UPI ID (for example name@bank).");
         if (enabled && upi == null) throw bad("Add the UPI ID before switching this on.");
         String name = clip(payeeName, 100);
         String n = clip(note, 500);
-        jdbc.update("update manual_topup_settings set enabled = ?, upi_id = ?, payee_name = ?, note = ? where id = 1", enabled, upi, name, n);
+        String who = clip(helperName, 40);
+        if (who == null) who = "Mukhiya ji";
+        if (who.length() < 2) throw bad("The name needs at least 2 letters.");
+        jdbc.update("update manual_topup_settings set enabled = ?, upi_id = ?, payee_name = ?, note = ?, helper_name = ? where id = 1", enabled, upi, name, n, who);
         return settings();
     }
 
@@ -83,6 +93,7 @@ public class ManualTopupService {
         Map<String, Object> out = new LinkedHashMap<>();
         boolean on = Boolean.TRUE.equals(s.get("enabled")) && s.get("upiId") != null;
         out.put("enabled", on);
+        out.put("name", s.get("name"));
         if (on) {
             out.put("upiId", s.get("upiId"));
             out.put("payeeName", s.get("payeeName"));
@@ -135,9 +146,10 @@ public class ManualTopupService {
         Long id = jdbc.queryForObject("insert into manual_topups (user_id, pack_id, pack_name, coins, bonus_coins, amount_inr, reference) values (?, ?, ?, ?, ?, ?, ?) returning id",
                 Long.class, userId, packId, p.get("name"), ((Number) p.get("coins")).longValue(), ((Number) p.get("bonus_coins")).longValue(), p.get("price_in_rupees"), ref);
         // Mukhiya ji writes it in the chat too (an automated message with a button that opens the payment steps)
+        String who = String.valueOf(info.get("name"));
         String amountText = new BigDecimal(String.valueOf(p.get("price_in_rupees"))).stripTrailingZeros().toPlainString();
         long total = ((Number) p.get("coins")).longValue() + ((Number) p.get("bonus_coins")).longValue();
-        sarpanch.sendSafely(userId, new SarpanchService.Message("Mukhiya ji: your top-up request",
+        sarpanch.sendSafely(userId, new SarpanchService.Message(who + ": your top-up request",
                 "Namaste! Request " + ref + ": " + p.get("name") + " for ₹" + amountText + " (" + total + " coins)." + "\n\n"
                         + "1) Pay ₹" + amountText + " to UPI ID " + info.get("upiId") + (info.get("payeeName") == null ? "" : " (" + info.get("payeeName") + ")") + ". Write " + ref + " in the payment note if you can." + "\n"
                         + "2) Tap the button below and send the transaction ID (UTR) with a screenshot." + "\n"
@@ -187,7 +199,7 @@ public class ManualTopupService {
             media.delete(up.publicId(), null);
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This transaction ID was already used for another top-up.");
         }
-        sarpanch.sendSafely(userId, new SarpanchService.Message("Mukhiya ji: proof received",
+        sarpanch.sendSafely(userId, new SarpanchService.Message(helperName() + ": proof received",
                 "I got your transaction ID " + utr + " and the screenshot (reference " + found.get(0).get("reference") + "). I am checking it in the bank now. Your coins will be added as soon as it is verified, and I will message you here.",
                 null, "See status", "/topup?id=" + id, "PAYMENT"), "manual-topup:" + id + ":submitted");
         return view(jdbc.queryForMap("select * from manual_topups where id = ?", id), publicInfo());
@@ -284,7 +296,7 @@ public class ManualTopupService {
         } else {
             after.run();
         }
-        sarpanch.sendSafely(userId, new SarpanchService.Message("Mukhiya ji: payment verified",
+        sarpanch.sendSafely(userId, new SarpanchService.Message(helperName() + ": payment verified",
                 "Payment verified ✅ ₹" + amount.stripTrailingZeros().toPlainString() + " paid. " + coins + " coins have been added to your wallet. Reference " + t.get("reference") + ".",
                 null, "Open wallet", "/wallet", "PAYMENT"), "manual-topup:" + id + ":approved");
         return Map.of("approved", true, "coins", coins);
@@ -300,10 +312,49 @@ public class ManualTopupService {
         if (!"SUBMITTED".equals(t.get("status"))) throw new ResponseStatusException(HttpStatus.CONFLICT, "Only a top-up that was sent for checking can be rejected.");
         jdbc.update("update manual_topups set status = 'REJECTED', reviewed_by = ?, reviewed_at = now(), reject_reason = ? where id = ?", admin, why, id);
         long userId = ((Number) t.get("user_id")).longValue();
-        sarpanch.sendSafely(userId, new SarpanchService.Message("Mukhiya ji: payment not verified",
+        sarpanch.sendSafely(userId, new SarpanchService.Message(helperName() + ": payment not verified",
                 "We couldn't verify your top-up (reference " + t.get("reference") + "). Reason: " + why + " If you did pay, try again with the right transaction ID and a clear screenshot, or contact us.",
                 null, "Open wallet", "/wallet", "PAYMENT"), "manual-topup:" + id + ":rejected");
         return Map.of("rejected", true);
+    }
+
+    /** What was collected through manual top-ups (approved ones), by day and by pack, India time. range: today, 7d, 30d, month, all. */
+    public Map<String, Object> revenue(String range) {
+        String from = switch (range == null ? "30d" : range.toLowerCase(Locale.ROOT)) {
+            case "today" -> "(now() at time zone 'Asia/Kolkata')::date";
+            case "7d" -> "(now() at time zone 'Asia/Kolkata')::date - 6";
+            case "month" -> "date_trunc('month', now() at time zone 'Asia/Kolkata')::date";
+            case "all" -> "date '2000-01-01'";
+            default -> "(now() at time zone 'Asia/Kolkata')::date - 29";
+        };
+        String day = "(reviewed_at at time zone 'Asia/Kolkata')::date";
+        String where = " from manual_topups where status = 'APPROVED' and " + day + " >= " + from;
+        Map<String, Object> t = jdbc.queryForMap("select count(*) as n, coalesce(sum(amount_inr), 0) as rupees, coalesce(sum(coins + bonus_coins), 0) as coins" + where);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("range", range == null ? "30d" : range);
+        out.put("count", ((Number) t.get("n")).longValue());
+        out.put("rupees", ((Number) t.get("rupees")).doubleValue());
+        out.put("coins", ((Number) t.get("coins")).longValue());
+        out.put("byDay", jdbc.query("select " + day + " as d, count(*) as n, sum(amount_inr) as rupees, sum(coins + bonus_coins) as coins" + where + " group by 1 order by 1 desc limit 400", (rs, i) -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("day", rs.getDate("d").toString());
+            m.put("count", rs.getLong("n"));
+            m.put("rupees", rs.getBigDecimal("rupees").doubleValue());
+            m.put("coins", rs.getLong("coins"));
+            return m;
+        }));
+        out.put("byPack", jdbc.query("select pack_name, count(*) as n, sum(amount_inr) as rupees, sum(coins + bonus_coins) as coins" + where + " group by pack_name order by sum(amount_inr) desc", (rs, i) -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("pack", rs.getString("pack_name"));
+            m.put("count", rs.getLong("n"));
+            m.put("rupees", rs.getBigDecimal("rupees").doubleValue());
+            m.put("coins", rs.getLong("coins"));
+            return m;
+        }));
+        Map<String, Object> w = jdbc.queryForMap("select count(*) as n, coalesce(sum(amount_inr), 0) as rupees from manual_topups where status = 'SUBMITTED'");
+        out.put("waitingCount", ((Number) w.get("n")).longValue());
+        out.put("waitingRupees", ((Number) w.get("rupees")).doubleValue());
+        return out;
     }
 
     private static String clip(String s, int max) {
