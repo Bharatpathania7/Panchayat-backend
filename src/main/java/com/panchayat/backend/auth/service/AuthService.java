@@ -49,6 +49,24 @@ public class AuthService {
 
     private final SecureRandom secureRandom = new SecureRandom();
 
+    /*
+     * Store-review account. When BOTH are set in the server environment
+     * (PANCHAYAT_REVIEW_EMAIL / PANCHAYAT_REVIEW_OTP), that one email gets the fixed
+     * code instead of an emailed one, so a Google Play reviewer can sign in. Leave
+     * them empty to switch it off. The account is an ordinary user (no coins, no admin).
+     */
+    @org.springframework.beans.factory.annotation.Value("${panchayat.review.email:}")
+    private String reviewEmail;
+
+    @org.springframework.beans.factory.annotation.Value("${panchayat.review.otp:}")
+    private String reviewOtp;
+
+    private boolean isReviewAccount(String email) {
+        return reviewEmail != null && !reviewEmail.isBlank()
+                && reviewOtp != null && reviewOtp.matches("[0-9]{6}")
+                && email.equalsIgnoreCase(reviewEmail.trim());
+    }
+
     public AuthService(
             UserRepository userRepository,
             EmailOtpRepository emailOtpRepository,
@@ -72,7 +90,8 @@ public class AuthService {
 
         String email = normalizeEmail(request.email());
 
-        String otp = String.format(
+        boolean review = isReviewAccount(email);
+        String otp = review ? reviewOtp : String.format(
                 Locale.ROOT,
                 "%06d",
                 secureRandom.nextInt(1_000_000)
@@ -94,8 +113,8 @@ public class AuthService {
         // Save the existing record or insert a new one.
         emailOtpRepository.saveAndFlush(emailOtp);
 
-        // Send the new OTP using the configured email service.
-        emailService.sendOtp(email, otp);
+        // Send the new OTP using the configured email service (the review account gets none).
+        if (!review) emailService.sendOtp(email, otp);
     }
 
     /*
