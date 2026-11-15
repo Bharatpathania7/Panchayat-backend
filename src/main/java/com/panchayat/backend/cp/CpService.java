@@ -528,10 +528,45 @@ public class CpService {
         if (c.get("end_request_by") == null) throw conflict("There's no request to end this CP");
         long by = num(c.get("end_request_by"));
         if (by == me) throw forbidden("Only your partner can accept this");
-        jdbc.update("update cp_couples set ended_at = now(), end_request_by = null, end_request_at = null where id = ?", cid);
+        return finishEnd(cid, c, me, "AGREED", null);
+    }
+
+    /** What ending a CP at once costs and whether it's switched on (set in the admin panel). */
+    public Map<String, Object> forceEndInfo(Long me) {
+        Map<String, Object> s = jdbc.queryForMap("select force_end_enabled, force_end_price from cp_settings where id = 1");
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("enabled", Boolean.TRUE.equals(s.get("force_end_enabled")));
+        out.put("price", num(s.get("force_end_price")));
+        return out;
+    }
+
+    /** One partner ends the CP right away, without the other's yes, and pays the price set in the admin panel. */
+    @Transactional
+    public Map<String, Object> forceEnd(Long me) {
+        Long cid = requireCouple(me);
+        Map<String, Object> c = lockCouple(cid);
+        Map<String, Object> info = forceEndInfo(me);
+        if (!Boolean.TRUE.equals(info.get("enabled"))) throw forbidden("Ending a CP at once isn't available right now");
+        long price = num(info.get("price"));
+        if (price > 0) debit(me, price, "CP_FORCE_END", "cp:" + cid, null, "Ended a CP at once");
+        return finishEnd(cid, c, me, "FORCED", price);
+    }
+
+    /** Staff end a CP from the admin panel. */
+    @Transactional
+    public Map<String, Object> adminEnd(long coupleId) {
+        Map<String, Object> c = lockCouple(coupleId);
+        return finishEnd(coupleId, c, null, "ADMIN", null);
+    }
+
+    /** The CP is over: the couple and its ring box are gone, both people are told. */
+    private Map<String, Object> finishEnd(long cid, Map<String, Object> c, Long by, String how, Long paid) {
+        jdbc.update("update cp_couples set ended_at = now(), end_request_by = null, end_request_at = null, ended_how = ?, ended_by = ?, force_paid = ? where id = ?", how, by, paid, cid);
         jdbc.update("delete from cp_members where couple_id = ?", cid);
-        notify(num(c.get("user_a")), "CP_ENDED", cid, null, me);
-        notify(num(c.get("user_b")), "CP_ENDED", cid, null, me);
+        // The couple's ring collection goes with the CP
+        jdbc.update("delete from cp_couple_rings where couple_id = ?", cid);
+        notify(num(c.get("user_a")), "CP_ENDED", cid, null, by);
+        notify(num(c.get("user_b")), "CP_ENDED", cid, null, by);
         long ua = num(c.get("user_a")), ub = num(c.get("user_b"));
         for (long[] pair : new long[][]{{ua, ub}, {ub, ua}}) {
             String other = jdbc.query("select full_name from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, pair[1]);

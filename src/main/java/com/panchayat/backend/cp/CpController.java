@@ -167,6 +167,18 @@ public class CpController {
         return cp.declineEnd(me(auth));
     }
 
+    /** Whether ending at once is on, and what it costs. */
+    @GetMapping("/api/v1/cp/me/force-end")
+    public Map<String, Object> forceEndInfo(Authentication auth) {
+        return cp.forceEndInfo(me(auth));
+    }
+
+    /** End the CP right away for coins (no yes from the partner needed). */
+    @PostMapping("/api/v1/cp/me/force-end")
+    public Map<String, Object> forceEnd(Authentication auth) {
+        return cp.forceEnd(me(auth));
+    }
+
     @PostMapping("/api/v1/cp/me/end-request/accept")
     public Map<String, Object> endAccept(Authentication auth) {
         return cp.acceptEnd(me(auth));
