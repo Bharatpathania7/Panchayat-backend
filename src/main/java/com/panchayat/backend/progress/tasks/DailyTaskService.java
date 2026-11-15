@@ -42,6 +42,7 @@ public class DailyTaskService {
     @Autowired @Lazy private CoinWalletService wallet;
     @Autowired @Lazy private WalletPushService walletPush;
     @Autowired @Lazy private ExpService exp;
+    @Autowired @Lazy private com.panchayat.backend.treasure.RoomTreasureService roomTreasure;
 
     public DailyTaskService(JdbcTemplate jdbc, PlatformTransactionManager txm) {
         this.jdbc = jdbc;
@@ -62,6 +63,8 @@ public class DailyTaskService {
         Runnable r = () -> {
             try {
                 txNew.executeWithoutResult(s -> bump(userId, kind, amount));
+                // A gift or a message also takes minutes off the room treasure wait
+                roomTreasure.mark(userId, kind);
             } catch (Exception e) {
                 log.debug("Task progress not saved: {}", e.getMessage());
             }

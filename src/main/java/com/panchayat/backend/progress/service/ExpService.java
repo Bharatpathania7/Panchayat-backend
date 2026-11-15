@@ -36,6 +36,8 @@ public class ExpService {
     @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.progress.tasks.DailyTaskService dailyTasks;
+    @org.springframework.beans.factory.annotation.Autowired @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.treasure.RoomTreasureService roomTreasure;
 
 
     private static final Logger log = LoggerFactory.getLogger(ExpService.class);
@@ -166,6 +168,7 @@ public class ExpService {
                 dailyTasks.track(uid, "VOICE_MINUTES", 1);
             }
             voiceCarry.keySet().retainAll(seen);
+            roomTreasure.addMinute(seen);
         } catch (Exception e) {
             log.debug("Voice EXP tick failed: {}", e.getMessage());
         }

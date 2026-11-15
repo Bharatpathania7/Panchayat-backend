@@ -34,6 +34,9 @@ import java.util.regex.Pattern;
 @Service
 public class RoomSettingsService {
 
+    @org.springframework.beans.factory.annotation.Autowired @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.treasure.RoomTreasureService roomTreasure;
+
     @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.social.invites.InviteService invites;
@@ -268,6 +271,7 @@ public class RoomSettingsService {
             roomState.dropAdminRole(roomId, userId);
         }
         room.setFanCount((int) followerRepository.countByRoomId(roomId));
+        if (on) roomTreasure.mark(userId, "FOLLOW_ROOM");
         return broadcast(roomRepository.save(room), on ? "FOLLOWED" : "UNFOLLOWED", userId, List.of("fanCount"));
     }
 
