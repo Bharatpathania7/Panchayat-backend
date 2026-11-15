@@ -65,6 +65,7 @@ public class SpendRewardService {
         if (itemType.contains("ENTRY")) return "ENTRY";
         if (itemType.contains("PROFILE")) return "PROFILE";
         if (itemType.contains("FRAME")) return "FRAME";
+        if (itemType.contains("BADGE")) return "BADGE";
         return null;
     }
 
