@@ -795,7 +795,8 @@ public class ParivarService {
     /** Adds EXP to the Parivar and the member's contribution, and levels the Parivar up when it passes a threshold. */
     void addExp(Long id, Long userId, long exp) {
         if (exp <= 0) return;
-        jdbc.update("update parivars set exp = exp + ? where id = ?", exp, id);
+        // Activeness stops at what the next level asks for; it goes on again after the Parivar levels up. (The top level has no limit.)
+        jdbc.update("update parivars set exp = least(exp + ?, coalesce((select l.exp_needed from parivar_levels l where l.level = parivars.level + 1), exp + ?)) where id = ?", exp, exp, id);
         jdbc.update("update parivar_members set contribution = contribution + ? where parivar_id = ? and user_id = ?", exp, id, userId);
         // Levelling up is a decision: when the activity and the fund are both enough, the Mukhiya presses Level up (see levelUp)
     }
