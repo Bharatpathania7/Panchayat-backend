@@ -38,13 +38,13 @@ public class UserTagService {
     }
 
     /** The admin's slot rules: how many everyone starts with, the most, what a coin slot costs, and whether VIP levels add slots. */
-    public record SlotRules(int base, int max, long price, boolean vipBonus) {
+    public record SlotRules(int base, int max, long price, boolean vipBonus, boolean unlimited) {
     }
 
     public SlotRules rules() {
-        SlotRules r = jdbc.query("select base_slots, max_slots, slot_price, vip_bonus from tag_settings where id = 1",
-                rs -> rs.next() ? new SlotRules(rs.getInt(1), rs.getInt(2), rs.getLong(3), rs.getBoolean(4)) : null);
-        return r != null ? r : new SlotRules(BASE_SLOTS, MAX_SLOTS, 5000, true);
+        SlotRules r = jdbc.query("select base_slots, max_slots, slot_price, vip_bonus, unlimited from tag_settings where id = 1",
+                rs -> rs.next() ? new SlotRules(rs.getInt(1), rs.getInt(2), rs.getLong(3), rs.getBoolean(4), rs.getBoolean(5)) : null);
+        return r != null ? r : new SlotRules(BASE_SLOTS, MAX_SLOTS, 5000, true, true);
     }
 
     public Map<String, Object> rulesMap() {
@@ -54,6 +54,7 @@ public class UserTagService {
         m.put("maxSlots", r.max());
         m.put("slotPrice", r.price());
         m.put("vipBonus", r.vipBonus());
+        m.put("unlimited", r.unlimited());
         return m;
     }
 
@@ -64,10 +65,11 @@ public class UserTagService {
         int max = in.get("maxSlots") instanceof Number n ? n.intValue() : c.max();
         long price = in.get("slotPrice") instanceof Number n ? n.longValue() : c.price();
         boolean vip = in.get("vipBonus") instanceof Boolean b ? b : c.vipBonus();
+        boolean unlimited = in.get("unlimited") instanceof Boolean u ? u : c.unlimited();
         if (base < 0 || base > 100) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Free slots must be 0 to 100.");
         if (max < 1 || max > 200 || max < base) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The most slots must be at least the free slots (and up to 200).");
         if (price < 0 || price > 1_000_000_000L) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The slot price must be 0 or more.");
-        jdbc.update("update tag_settings set base_slots = ?, max_slots = ?, slot_price = ?, vip_bonus = ? where id = 1", base, max, price, vip);
+        jdbc.update("update tag_settings set base_slots = ?, max_slots = ?, slot_price = ?, vip_bonus = ?, unlimited = ? where id = 1", base, max, price, vip, unlimited);
         return rulesMap();
     }
 
@@ -79,6 +81,8 @@ public class UserTagService {
     /** How many tags this person can hold: the free slots, plus slots opened with coins, plus 1 per VIP level while VIP (if the admin allows), up to the most. */
     public int slotsFor(Long userId) {
         SlotRules r = rules();
+        // Unlimited: nobody runs out of slots
+        if (r.unlimited()) return Integer.MAX_VALUE;
         int vipExtra = 0;
         if (r.vipBonus()) {
             Integer vip = jdbc.queryForObject(
@@ -91,13 +95,15 @@ public class UserTagService {
 
     public Map<String, Object> slots(Long userId) {
         SlotRules r = rules();
-        int slots = slotsFor(userId);
+        int used = (int) tags.countFor(userId);
+        int slots = r.unlimited() ? used : slotsFor(userId);
         Map<String, Object> m = new LinkedHashMap<>();
-        m.put("used", tags.countFor(userId));
+        m.put("used", used);
         m.put("slots", slots);
-        m.put("max", r.max());
+        m.put("max", r.unlimited() ? used : r.max());
         m.put("price", r.price());
-        m.put("canBuy", slots < r.max());
+        m.put("unlimited", r.unlimited());
+        m.put("canBuy", !r.unlimited() && slots < r.max());
         return m;
     }
 
@@ -105,6 +111,7 @@ public class UserTagService {
     @Transactional
     public Map<String, Object> buySlot(Long userId) {
         SlotRules r = rules();
+        if (r.unlimited()) throw new ResponseStatusException(HttpStatus.CONFLICT, "BFF slots are unlimited. There is nothing to buy.");
         jdbc.queryForObject("select pg_advisory_xact_lock(?)", Object.class, 8_000_000_000L + userId);
         if (slotsFor(userId) >= r.max()) throw new ResponseStatusException(HttpStatus.CONFLICT, "You already have the most slots (" + r.max() + ").");
         int next = bought(userId) + 1;
