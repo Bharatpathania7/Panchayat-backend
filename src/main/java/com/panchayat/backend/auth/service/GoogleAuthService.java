@@ -96,7 +96,7 @@ public class GoogleAuthService {
         user.setEmailVerified(true);
 
         user = userRepository.saveAndFlush(user);
-        deviceGuard.remember(user.getId());
+        deviceGuard.remember(user.getId(), created[0]);
         if (created[0]) newbieService.onRegistered(user.getId());
 
         // Our own Panchayat access token plus a refresh token (session).

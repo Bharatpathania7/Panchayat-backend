@@ -249,6 +249,7 @@ public class SecurityConfig {
                 "Content-Type",
                 "Accept",
                 "X-Device-Id",
+                "X-Device-Fp",
                 "ngrok-skip-browser-warning"
         ));
 

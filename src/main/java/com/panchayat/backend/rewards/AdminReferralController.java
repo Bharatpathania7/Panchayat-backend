@@ -120,7 +120,7 @@ public class AdminReferralController {
         String a = b == null || b.account() == null ? "" : b.account().strip();
         if (!a.matches("\\d{1,15}")) throw bad("Enter the account ID (the number on their profile).");
         long n = Long.parseLong(a);
-        int changed = jdbc.update("update users set signup_device = null where public_id = ? and signup_device is not null", n);
+        int changed = jdbc.update("update users set signup_device = null, signup_fp = null where public_id = ? and (signup_device is not null or signup_fp is not null)", n);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("released", changed);
         return out;

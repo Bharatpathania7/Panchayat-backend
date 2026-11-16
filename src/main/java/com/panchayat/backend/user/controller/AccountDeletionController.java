@@ -73,7 +73,7 @@ public class AccountDeletionController {
         jdbc.update("delete from refresh_tokens where user_id = ?", id);
         jdbc.update("delete from push_devices where user_id = ?", id);
         jdbc.update("update users set email = ?, full_name = 'Deleted user', avatar_url = null, avatar_public_id = null, bio = null,"
-                + " vip_active = false, vip_expires_at = null, ban_permanent = true, ban_reason = 'Account deleted by the user', signup_device = null, updated_at = now() where id = ?",
+                + " vip_active = false, vip_expires_at = null, ban_permanent = true, ban_reason = 'Account deleted by the user', signup_device = null, signup_fp = null, updated_at = now() where id = ?",
                 "deleted-" + id + "@deleted.invalid", id);
         bans.forget(id);
         log.info("Account {} deleted by the user", id);

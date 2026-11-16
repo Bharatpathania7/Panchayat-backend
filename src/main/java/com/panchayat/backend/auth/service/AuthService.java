@@ -199,7 +199,7 @@ public class AuthService {
 
         user.setEmailVerified(true);
         user = userRepository.saveAndFlush(user);
-        deviceGuard.remember(user.getId());
+        deviceGuard.remember(user.getId(), created[0]);
         if (created[0]) newbieService.onRegistered(user.getId());
 
         return refreshTokenService.signIn(user, "Email verified successfully");

@@ -16,18 +16,25 @@ import java.util.HexFormat;
  * opened on (users.signup_device, stored as a hash). Opening a second account on that phone is refused until the first
  * one is deleted (or an admin frees the phone). Signing in to an account that already exists is never blocked.
  *
+ * In a browser the id can be lost (a private window, cleared data), so the browser also sends a fingerprint (X-Device-Fp,
+ * a hash of its screen, graphics chip and so on). Many phones of one model look alike, so a fingerprint only counts
+ * together with the network: the same fingerprint from the same connection as an existing account is the same phone.
+ *
  * A request without a device id (an old app version) is not blocked, because the phone can't be told apart.
  */
 @Component
 public class DeviceGuard {
 
     public static final String HEADER = "X-Device-Id";
+    public static final String FP_HEADER = "X-Device-Fp";
     public static final String MESSAGE = "You already have an account on this phone. Delete that account first (Profile, then Delete account), then you can open a new one.";
 
     private final JdbcTemplate jdbc;
+    private final com.panchayat.backend.rewards.NetworkGuard network;
 
-    public DeviceGuard(JdbcTemplate jdbc) {
+    public DeviceGuard(JdbcTemplate jdbc, com.panchayat.backend.rewards.NetworkGuard network) {
         this.jdbc = jdbc;
+        this.network = network;
     }
 
     public boolean enabled() {
@@ -40,6 +47,15 @@ public class DeviceGuard {
         if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs)) return null;
         HttpServletRequest req = attrs.getRequest();
         return hashOf(req.getHeader(HEADER));
+    }
+
+    /** The browser fingerprint of this request (already a SHA-256 hex from the website), or null. */
+    public String currentFingerprint() {
+        if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs)) return null;
+        String fp = attrs.getRequest().getHeader(FP_HEADER);
+        if (fp == null) return null;
+        String f = fp.strip().toLowerCase();
+        return f.matches("[0-9a-f]{64}") ? f : null;
     }
 
     static String hashOf(String raw) {
@@ -57,15 +73,24 @@ public class DeviceGuard {
     /** Refuses opening a new account on a phone that already has one. */
     public void assertCanOpenAccount() {
         String h = currentHash();
-        if (h == null || !enabled()) return;
-        Integer n = jdbc.queryForObject("select count(*) from users where signup_device = ?", Integer.class, h);
+        String fp = currentFingerprint();
+        String net = network.currentNetwork();
+        if ((h == null && fp == null) || !enabled()) return;
+        // The same phone id, or the same fingerprint from the same connection (a private window or cleared data)
+        Integer n = jdbc.queryForObject("select count(*) from users where (?::text is not null and signup_device = ?)"
+                + " or (?::text is not null and ?::text is not null and signup_fp = ? and signup_ip = ?)", Integer.class, h, h, fp, net, fp, net);
         if (n != null && n > 0) throw new AuthService.AuthException(MESSAGE);
     }
 
     /** Ties the account to this phone if it isn't tied to one yet (a new account, or an older one signing in). */
-    public void remember(Long userId) {
+    public void remember(Long userId, boolean created) {
+        if (userId == null) return;
         String h = currentHash();
-        if (h == null || userId == null) return;
-        jdbc.update("update users set signup_device = ? where id = ? and signup_device is null", h, userId);
+        if (h != null) jdbc.update("update users set signup_device = ? where id = ? and signup_device is null", h, userId);
+        String fp = currentFingerprint();
+        if (fp != null) jdbc.update("update users set signup_fp = ? where id = ? and signup_fp is null", fp, userId);
+        // Only a new account records its network here (an older account signing in must not start counting against its Wi-Fi)
+        String net = network.currentNetwork();
+        if (created && net != null) jdbc.update("update users set signup_ip = ? where id = ? and signup_ip is null", net, userId);
     }
 }
