@@ -46,6 +46,12 @@ public class DirectGiftController {
         return gifts.received(userId, limit);
     }
 
+    @ExceptionHandler(ResponseStatusException.class)
+    public org.springframework.http.ResponseEntity<Map<String, String>> handle(ResponseStatusException e) {
+        return org.springframework.http.ResponseEntity.status(e.getStatusCode())
+                .body(Map.of("message", e.getReason() == null ? "That didn't work" : e.getReason()));
+    }
+
     private Long me(Authentication auth) {
         return users.findByEmailIgnoreCase(auth.getName())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Please sign in again.")).getId();

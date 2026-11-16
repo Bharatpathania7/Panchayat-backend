@@ -27,13 +27,15 @@ public class AdminReferralController {
 
     private final JdbcTemplate jdbc;
     private final WelcomeAndReferralController referrals;
+    private final NetworkGuard network;
 
-    public AdminReferralController(JdbcTemplate jdbc, WelcomeAndReferralController referrals) {
+    public AdminReferralController(JdbcTemplate jdbc, WelcomeAndReferralController referrals, NetworkGuard network) {
         this.jdbc = jdbc;
         this.referrals = referrals;
+        this.network = network;
     }
 
-    public record SettingsBody(Boolean enabled, Long reward, Long welcomeGift) {
+    public record SettingsBody(Boolean enabled, Long reward, Long welcomeGift, Integer maxWelcomePerNetwork, Boolean blockSameNetworkGifts) {
     }
 
     private Map<String, Object> overview() {
@@ -42,6 +44,9 @@ public class AdminReferralController {
         settings.put("enabled", r.enabled());
         settings.put("reward", r.reward());
         settings.put("welcomeGift", r.welcomeGift());
+        NetworkGuard.Policy np = network.policy();
+        settings.put("maxWelcomePerNetwork", np.maxWelcomePerNetwork());
+        settings.put("blockSameNetworkGifts", np.blockSameNetworkGifts());
 
         Map<String, Object> stats = jdbc.queryForObject(
                 "select count(*) as total,"
@@ -94,7 +99,11 @@ public class AdminReferralController {
         if (b.reward() < 0 || b.reward() > MAX_COINS || b.welcomeGift() < 0 || b.welcomeGift() > MAX_COINS) {
             throw bad("Coins must be 0 to 100,000,000.");
         }
-        jdbc.update("update referral_settings set enabled = ?, inviter_reward = ?, welcome_gift = ? where id = 1", b.enabled(), b.reward(), b.welcomeGift());
+        int per = b.maxWelcomePerNetwork() == null ? network.policy().maxWelcomePerNetwork() : b.maxWelcomePerNetwork();
+        if (per < 0 || per > 1000) throw bad("Accounts per network must be 0 to 1000 (0 = no limit).");
+        boolean block = b.blockSameNetworkGifts() == null ? network.policy().blockSameNetworkGifts() : b.blockSameNetworkGifts();
+        jdbc.update("update referral_settings set enabled = ?, inviter_reward = ?, welcome_gift = ?, max_welcome_per_network = ?, block_same_network_gifts = ? where id = 1",
+                b.enabled(), b.reward(), b.welcomeGift(), per, block);
         return overview();
     }
 
@@ -131,7 +140,7 @@ public class AdminReferralController {
         pageArgs.add(s);
         pageArgs.add((long) p * s);
         List<Map<String, Object>> items = jdbc.query(
-                "select u.id as uid, u.public_id as upub, u.full_name as uname, u.email as uemail, u.created_at as ucreated, u.referred_at, u.referral_reward,"
+                "select u.id as uid, u.public_id as upub, u.full_name as uname, u.email as uemail, u.created_at as ucreated, u.referred_at, u.referral_reward, u.referral_note,"
                         + " i.id as iid, i.public_id as ipub, i.full_name as iname, i.email as iemail"
                         + from + " order by u.referred_at desc nulls last, u.id desc limit ? offset ?",
                 (rs, n) -> {
@@ -141,6 +150,7 @@ public class AdminReferralController {
                     m.put("joinedAt", rs.getTimestamp("referred_at") == null ? null : rs.getTimestamp("referred_at").toInstant().toString());
                     m.put("accountCreatedAt", rs.getTimestamp("ucreated") == null ? null : rs.getTimestamp("ucreated").toInstant().toString());
                     m.put("reward", rs.getLong("referral_reward"));
+                    m.put("note", rs.getString("referral_note"));
                     return m;
                 }, pageArgs.toArray());
 

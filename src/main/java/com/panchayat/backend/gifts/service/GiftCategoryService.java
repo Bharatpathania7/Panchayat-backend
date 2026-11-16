@@ -18,6 +18,10 @@ public class GiftCategoryService {
 
     private final JdbcTemplate jdbc;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.rewards.NetworkGuard networkGuard;
+
     public GiftCategoryService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
     }
@@ -54,6 +58,9 @@ public class GiftCategoryService {
 
     /** Refuses a send the gift's category doesn't allow. */
     public void check(String giftId, Long senderId, Long receiverId) {
+        if (networkGuard.giftBlocked(senderId, receiverId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can't send gifts to an account on the same network as yours.");
+        }
         String kind = jdbc.query("select c.kind from gifts g join gift_categories c on lower(c.name) = lower(g.category) where g.id = ?", rs -> rs.next() ? rs.getString(1) : "NORMAL", giftId);
         if ("VIP".equals(kind)) {
             Boolean vip = jdbc.query("select vip_active and vip_expires_at > now() from users where id = ?", rs -> rs.next() ? rs.getBoolean(1) : false, senderId);

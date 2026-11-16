@@ -41,6 +41,7 @@ public class WelcomeAndReferralController {
     @Autowired @Lazy private WalletPushService walletPush;
     @Autowired @Lazy private SarpanchService sarpanch;
     @Autowired @Lazy private com.panchayat.backend.rooms.service.RoomStateService roomState;
+    @Autowired @Lazy private NetworkGuard networkGuard;
 
     public WelcomeAndReferralController(JdbcTemplate jdbc, UserRepository users) {
         this.jdbc = jdbc;
@@ -145,11 +146,22 @@ public class WelcomeAndReferralController {
         if (inviter == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That invite link isn't valid.");
         if (inviter.equals(me)) return Map.of("applied", false, "message", "You can't invite yourself.");
         long reward = rates.reward();
-        jdbc.update("update users set referred_by = ?, referred_at = now(), referral_reward = ? where id = ? and referred_by is null", inviter, reward, me);
+        String note = null;
+        if (networkGuard.sameNetwork(me, inviter)) {
+            reward = 0;
+            note = "Joined from the inviter's own network";
+        } else if (!Boolean.TRUE.equals(jdbc.queryForObject("select welcome_gift_offered from users where id = ?", Boolean.class, me))) {
+            reward = 0;
+            note = "This network already got its welcome gift";
+        }
+        jdbc.update("update users set referred_by = ?, referred_at = now(), referral_reward = ?, referral_note = ? where id = ? and referred_by is null", inviter, reward, note, me);
         if (reward > 0) wallet.credit(inviter, reward, "REFERRAL_REWARD", "referral:" + me, "referral:" + me, "Friend joined with your link");
         String name = u.get("full_name") == null ? "A friend" : (String) u.get("full_name");
-        if (reward > 0) afterCommit(() -> walletPush.pushBalance(inviter, "REFERRAL_REWARD", reward));
-        sarpanch.notifySafely(inviter, "REFERRAL_JOINED", Map.of("name", name, "reward", coins(reward), "gift", coins(rates.welcomeGift())), "referral:" + me);
+        final long paid = reward;
+        if (paid > 0) {
+            afterCommit(() -> walletPush.pushBalance(inviter, "REFERRAL_REWARD", paid));
+            sarpanch.notifySafely(inviter, "REFERRAL_JOINED", Map.of("name", name, "reward", coins(paid), "gift", coins(rates.welcomeGift())), "referral:" + me);
+        }
         return Map.of("applied", true);
     }
 

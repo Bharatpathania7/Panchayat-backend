@@ -26,6 +26,11 @@ public class AuthService {
 
     @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.rewards.NetworkGuard networkGuard;
+
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.newbie.NewbieService newbieService;
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.jdbc.core.JdbcTemplate welcomeJdbc;
@@ -257,7 +262,16 @@ public class AuthService {
         User saved = userRepository.saveAndFlush(user);
         if (firstTime) {
             // New user: Sarpanch's welcome red packet (the amount is set in the admin panel), opened from the message
-            welcomeJdbc.update("update users set welcome_gift_offered = true where id = ?", saved.getId());
+            // ...but only for the first accounts from one network (the admin sets how many), so fake accounts don't farm it
+            String network = networkGuard.currentNetwork();
+            int cap = networkGuard.policy().maxWelcomePerNetwork();
+            boolean offerGift = true;
+            if (network != null) {
+                welcomeJdbc.update("update users set signup_ip = ? where id = ?", network, saved.getId());
+                Integer already = welcomeJdbc.queryForObject("select count(*) from users where signup_ip = ? and welcome_gift_offered and id <> ?", Integer.class, network, saved.getId());
+                offerGift = cap == 0 || already == null || already < cap;
+            }
+            welcomeJdbc.update("update users set welcome_gift_offered = ? where id = ?", offerGift, saved.getId());
             // Every new user gets 3 days of free VIP 1 (then they can buy VIP)
             // (how many days is set in the admin panel: VIP management)
             Integer trialDays = welcomeJdbc.query("select coalesce((select free_trial_days from vip_settings where id = 1), 3)", rs -> rs.next() ? rs.getInt(1) : 3);
@@ -272,7 +286,7 @@ public class AuthService {
             }
             long[] rates = welcomeJdbc.query("select inviter_reward, welcome_gift from referral_settings where id = 1", rs -> rs.next() ? new long[]{rs.getLong(1), rs.getLong(2)} : new long[]{20_000, 50_000});
             java.text.NumberFormat inr = java.text.NumberFormat.getInstance(new java.util.Locale("en", "IN"));
-            sarpanch.notifySafely(saved.getId(), "WELCOME_GIFT", java.util.Map.of("name", fullName, "reward", inr.format(rates[0]), "gift", inr.format(rates[1])), "welcome:" + saved.getId());
+            if (offerGift) sarpanch.notifySafely(saved.getId(), "WELCOME_GIFT", java.util.Map.of("name", fullName, "reward", inr.format(rates[0]), "gift", inr.format(rates[1])), "welcome:" + saved.getId());
         }
         return saved;
     }
