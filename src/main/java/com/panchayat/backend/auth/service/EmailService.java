@@ -13,10 +13,14 @@ public class EmailService {
 
     public EmailService(
             JavaMailSender mailSender,
-            @Value("${spring.mail.username}") String fromEmail
+            @Value("${spring.mail.username}") String username,
+            @Value("${app.mail.from:}") String from,
+            @Value("${app.mail.from-name:Panchayat}") String fromName
     ) {
         this.mailSender = mailSender;
-        this.fromEmail = fromEmail;
+        // A domain sender (MAIL_FROM) when set, else the login address (Gmail). Shown as "Panchayat <no-reply@...>".
+        String address = from == null || from.isBlank() ? username : from.strip();
+        this.fromEmail = fromName == null || fromName.isBlank() ? address : fromName.strip() + " <" + address + ">";
     }
 
     public void sendOtp(String recipientEmail, String otp) {
