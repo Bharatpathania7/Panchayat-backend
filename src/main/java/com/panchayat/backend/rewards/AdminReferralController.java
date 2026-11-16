@@ -28,14 +28,16 @@ public class AdminReferralController {
     private final JdbcTemplate jdbc;
     private final WelcomeAndReferralController referrals;
     private final NetworkGuard network;
+    private final com.panchayat.backend.auth.service.DeviceGuard devices;
 
-    public AdminReferralController(JdbcTemplate jdbc, WelcomeAndReferralController referrals, NetworkGuard network) {
+    public AdminReferralController(JdbcTemplate jdbc, WelcomeAndReferralController referrals, NetworkGuard network, com.panchayat.backend.auth.service.DeviceGuard devices) {
+        this.devices = devices;
         this.jdbc = jdbc;
         this.referrals = referrals;
         this.network = network;
     }
 
-    public record SettingsBody(Boolean enabled, Long reward, Long welcomeGift, Integer maxWelcomePerNetwork, Boolean blockSameNetworkGifts) {
+    public record SettingsBody(Boolean enabled, Long reward, Long welcomeGift, Integer maxWelcomePerNetwork, Boolean blockSameNetworkGifts, Boolean oneAccountPerDevice) {
     }
 
     private Map<String, Object> overview() {
@@ -47,6 +49,7 @@ public class AdminReferralController {
         NetworkGuard.Policy np = network.policy();
         settings.put("maxWelcomePerNetwork", np.maxWelcomePerNetwork());
         settings.put("blockSameNetworkGifts", np.blockSameNetworkGifts());
+        settings.put("oneAccountPerDevice", devices.enabled());
 
         Map<String, Object> stats = jdbc.queryForObject(
                 "select count(*) as total,"
@@ -102,9 +105,25 @@ public class AdminReferralController {
         int per = b.maxWelcomePerNetwork() == null ? network.policy().maxWelcomePerNetwork() : b.maxWelcomePerNetwork();
         if (per < 0 || per > 1000) throw bad("Accounts per network must be 0 to 1000 (0 = no limit).");
         boolean block = b.blockSameNetworkGifts() == null ? network.policy().blockSameNetworkGifts() : b.blockSameNetworkGifts();
-        jdbc.update("update referral_settings set enabled = ?, inviter_reward = ?, welcome_gift = ?, max_welcome_per_network = ?, block_same_network_gifts = ? where id = 1",
-                b.enabled(), b.reward(), b.welcomeGift(), per, block);
+        boolean oneDevice = b.oneAccountPerDevice() == null ? devices.enabled() : b.oneAccountPerDevice();
+        jdbc.update("update referral_settings set enabled = ?, inviter_reward = ?, welcome_gift = ?, max_welcome_per_network = ?, block_same_network_gifts = ?, one_account_per_device = ? where id = 1",
+                b.enabled(), b.reward(), b.welcomeGift(), per, block, oneDevice);
         return overview();
+    }
+
+    public record ReleaseBody(String account) {
+    }
+
+    /** Lets the person open another account: forgets which phone this account was opened on. Takes the account ID (the number on their profile, not the internal id). */
+    @PostMapping("/release-device")
+    public Map<String, Object> release(@RequestBody ReleaseBody b) {
+        String a = b == null || b.account() == null ? "" : b.account().strip();
+        if (!a.matches("\\d{1,15}")) throw bad("Enter the account ID (the number on their profile).");
+        long n = Long.parseLong(a);
+        int changed = jdbc.update("update users set signup_device = null where public_id = ? and signup_device is not null", n);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("released", changed);
+        return out;
     }
 
     @GetMapping("/list")

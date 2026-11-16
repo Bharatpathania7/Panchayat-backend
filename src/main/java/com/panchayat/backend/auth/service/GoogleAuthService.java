@@ -20,6 +20,11 @@ public class GoogleAuthService {
 
     @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
+    private DeviceGuard deviceGuard;
+
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.newbie.NewbieService newbieService;
 
     private final GoogleIdTokenVerifier googleIdTokenVerifier;
@@ -80,6 +85,7 @@ public class GoogleAuthService {
         boolean[] created = {false};
         User user = userRepository.findByEmailIgnoreCase(email)
                 .orElseGet(() -> {
+                    deviceGuard.assertCanOpenAccount();
                     User newUser = new User();
                     newUser.setEmail(email);
                     newUser.setEmailVerified(true);
@@ -89,7 +95,8 @@ public class GoogleAuthService {
 
         user.setEmailVerified(true);
 
-        user = userRepository.save(user);
+        user = userRepository.saveAndFlush(user);
+        deviceGuard.remember(user.getId());
         if (created[0]) newbieService.onRegistered(user.getId());
 
         // Our own Panchayat access token plus a refresh token (session).

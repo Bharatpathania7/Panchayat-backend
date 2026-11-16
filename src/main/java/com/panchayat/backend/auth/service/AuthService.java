@@ -26,6 +26,11 @@ public class AuthService {
 
     @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
+    private DeviceGuard deviceGuard;
+
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.rewards.NetworkGuard networkGuard;
 
 
@@ -94,6 +99,9 @@ public class AuthService {
     public void sendOtp(SendOtpRequest request) {
 
         String email = normalizeEmail(request.email());
+
+        // A new account on a phone that already has one: say so now, before a code is sent
+        if (userRepository.findByEmailIgnoreCase(email).isEmpty()) deviceGuard.assertCanOpenAccount();
 
         boolean review = isReviewAccount(email);
         String otp = review ? reviewOtp : String.format(
@@ -182,6 +190,7 @@ public class AuthService {
         User user = userRepository
                 .findByEmailIgnoreCase(email)
                 .orElseGet(() -> {
+                    deviceGuard.assertCanOpenAccount();
                     User newUser = new User();
                     newUser.setEmail(email);
                     created[0] = true;
@@ -190,6 +199,7 @@ public class AuthService {
 
         user.setEmailVerified(true);
         user = userRepository.saveAndFlush(user);
+        deviceGuard.remember(user.getId());
         if (created[0]) newbieService.onRegistered(user.getId());
 
         return refreshTokenService.signIn(user, "Email verified successfully");

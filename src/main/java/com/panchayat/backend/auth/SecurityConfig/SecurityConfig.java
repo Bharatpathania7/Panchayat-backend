@@ -248,6 +248,7 @@ public class SecurityConfig {
                 "Authorization",
                 "Content-Type",
                 "Accept",
+                "X-Device-Id",
                 "ngrok-skip-browser-warning"
         ));
 
