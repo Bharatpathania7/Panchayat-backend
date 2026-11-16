@@ -127,6 +127,39 @@ public class InviteService {
         return out;
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.games.gaddar.GaddarService gaddarGames;
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.games.rmcs.RmcsService rmcsGames;
+
+    /** Invite a friend to a table that has no voice room (Gaon ka Gaddaar, Raja Mantri Chor Sipahi): a card with the code and Join. */
+    @Transactional
+    public Map<String, Object> sendTable(Long me, Long conversationId, String game, String code) {
+        String g = game == null ? "" : game.toUpperCase(Locale.ROOT);
+        String c = code == null ? "" : code.trim().toUpperCase(Locale.ROOT);
+        boolean ok = "GADDAR".equals(g) ? gaddarGames.hasTable(c) : "RMCS".equals(g) ? rmcsGames.hasTable(c) : false;
+        if (!"GADDAR".equals(g) && !"RMCS".equals(g)) throw bad("Unknown game.");
+        if (!ok) throw conflict("That table is closed.");
+        dailyTasks.track(me, "INVITE_FRIEND", 1);
+        Map<String, Object> card = new LinkedHashMap<>();
+        card.put("kind", "TABLE");
+        card.put("game", g);
+        card.put("gameCode", c);
+        card.put("roomName", "GADDAR".equals(g) ? "Gaon ka Gaddaar" : "Raja Mantri Chor Sipahi");
+        card.put("byUserId", String.valueOf(me));
+        card.put("expiresAt", Instant.now().plus(Duration.ofHours(6)).toString());
+        String text = MARK + json.writeValueAsString(card);
+        ChatMessage saved = messages.sendTextMessage(me, conversationId, text);
+        ChatMessageResponse response = ChatMessageResponse.from(saved, text);
+        social.deliver(conversationId, response);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("message", response);
+        out.put("invite", card);
+        return out;
+    }
+
     /** A game table by its code: where it is and how to get in. */
     @Transactional
     public Map<String, Object> byCode(String code, Long me) {

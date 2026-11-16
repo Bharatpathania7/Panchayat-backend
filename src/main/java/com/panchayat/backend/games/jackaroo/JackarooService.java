@@ -140,15 +140,15 @@ public class JackarooService {
             // The other team wins if one side is empty
             Set<Integer> teams = new HashSet<>();
             g.s.players.stream().filter(q -> !q.left).forEach(q -> teams.add(q.team));
-            if (teams.size() <= 1) {
+            if (teams.size() <= 1 || g.s.players.stream().filter(q -> !q.left).allMatch(q -> q.bot)) {
                 g.s.winnerTeam = teams.isEmpty() ? null : teams.iterator().next();
                 g.status = "FINISHED";
                 if (g.s.winnerTeam != null) {
                     g.s.last += ". " + JackarooEngine.teamName(g.s, g.s.winnerTeam) + " won!";
-                    List<Long> winners = g.s.players.stream().filter(q -> q.team == g.s.winnerTeam && !q.left).map(q -> q.userId).toList();
+                    List<Long> winners = g.s.players.stream().filter(q -> q.team == g.s.winnerTeam && !q.left && !q.bot).map(q -> q.userId).toList();
                     afterCommit(() -> winners.forEach(u -> exp.add(u, "GAME", com.panchayat.backend.progress.service.ExpService.GAME_WIN)));
                 }
-                g.s.players.forEach(q -> dailyTasks.track(q.userId, "PLAY_GAME", 1));
+                g.s.players.stream().filter(q -> !q.bot).forEach(q -> dailyTasks.track(q.userId, "PLAY_GAME", 1));
             } else if (JackarooEngine.current(g.s) == x) {
                 // Pass the turn on
                 int n = g.s.players.size();
@@ -170,6 +170,41 @@ public class JackarooService {
         Row g = lock(gameId);
         if (!"WAITING".equals(g.status)) throw conflict("This game already started.");
         if (g.createdBy != me) throw forbidden("Only the one who opened the table can start.");
+        startNow(g);
+        return view(gameId, me);
+    }
+
+    /** Fill empty chairs with computer players (to 2 or 4), then start. */
+    @Transactional
+    public Map<String, Object> withBots(Long gameId, Long me) {
+        Row g = lock(gameId);
+        if (!"WAITING".equals(g.status)) throw conflict("This game already started.");
+        if (g.createdBy != me) throw forbidden("Only the one who opened the table can do this.");
+        addBots(g);
+        startNow(g);
+        return view(gameId, me);
+    }
+
+    private static final String[] BOT_NAMES = {"Bhola", "Gabbar", "Basanti", "Munna", "Chhotu", "Pappu", "Rinku", "Guddu", "Babli", "Sonu", "Kallu", "Pinky"};
+
+    /** 1 person gets one computer partner across the board; 3 people get one; 2 people get two. */
+    private void addBots(Row g) {
+        int have = g.s.players.size();
+        int target = have <= 2 ? (have == 1 ? 2 : 4) : 4;
+        List<String> names = new ArrayList<>(Arrays.asList(BOT_NAMES));
+        Collections.shuffle(names);
+        long id = -1;
+        while (g.s.players.size() < target) {
+            Player b = new Player();
+            b.userId = id--;
+            b.name = names.remove(0);
+            b.bot = true;
+            b.seat = firstFree(g.s);
+            g.s.players.add(b);
+        }
+    }
+
+    private void startNow(Row g) {
         int n = g.s.players.size();
         if (n != 2 && n != 4) throw conflict("Ludo needs 2 or 4 players. Now: " + n + ".");
         if (n == 2 && g.s.players.get(0).seat % 2 == g.s.players.get(1).seat % 2) {
@@ -181,7 +216,6 @@ public class JackarooService {
         JackarooEngine.start(g.s);
         g.status = "PLAYING";
         save(g, Instant.now().plusSeconds(TURN_SECONDS));
-        return view(gameId, me);
     }
 
     @Transactional
@@ -225,13 +259,14 @@ public class JackarooService {
             // Game win EXP for the winning team
             List<Long> winners = g.s.players.stream().filter(p -> p.team == g.s.winnerTeam && !p.left).map(p -> p.userId).toList();
             afterCommit(() -> winners.forEach(u -> exp.add(u, "GAME", com.panchayat.backend.progress.service.ExpService.GAME_WIN)));
-            g.s.players.forEach(q -> dailyTasks.track(q.userId, "PLAY_GAME", 1));
+            g.s.players.stream().filter(q -> !q.bot).forEach(q -> dailyTasks.track(q.userId, "PLAY_GAME", 1));
         }
         save(g, "PLAYING".equals(g.status) ? Instant.now().plusSeconds(TURN_SECONDS) : null);
     }
 
     /** Turns that ran out of time: the server plays for them. */
     private void timeouts() {
+        autoBots();
         try {
             List<Long> due = jdbc.queryForList("select id from room_games where game = 'JACKAROO' and status = 'PLAYING' and turn_ends_at < now() limit 20", Long.class);
             for (Long id : due) {
@@ -239,10 +274,11 @@ public class JackarooService {
                     tx.executeWithoutResult(t -> {
                         Row g = lock(id);
                         if (!"PLAYING".equals(g.status) || g.turnEndsAt == null || g.turnEndsAt.isAfter(Instant.now())) return;
+                        boolean botTurn = JackarooEngine.current(g.s).bot;
                         List<Move> legal = JackarooEngine.legal(g.s);
                         if (legal.isEmpty()) JackarooEngine.burn(g.s, 0);
                         else JackarooEngine.apply(g.s, legal.get(0));
-                        g.s.last = "⏱ " + g.s.last;
+                        if (!botTurn) g.s.last = "⏱ " + g.s.last;
                         afterMove(g);
                     });
                 } catch (Exception e) {
@@ -251,6 +287,27 @@ public class JackarooService {
             }
         } catch (Exception e) {
             log.debug("Jackaroo timer: {}", e.getMessage());
+        }
+    }
+
+    /** A table that has waited 60 seconds with just one person: a computer partner joins and the game starts. */
+    private void autoBots() {
+        try {
+            List<Long> waiting = jdbc.queryForList("select id from room_games where game = 'JACKAROO' and status = 'WAITING' and created_at < now() - interval '60 seconds' limit 10", Long.class);
+            for (Long id : waiting) {
+                try {
+                    tx.executeWithoutResult(t -> {
+                        Row g = lock(id);
+                        if (!"WAITING".equals(g.status) || g.s.players.size() != 1 || g.s.players.get(0).bot) return;
+                        addBots(g);
+                        startNow(g);
+                    });
+                } catch (Exception e) {
+                    log.warn("Jackaroo bots for game {} failed: {}", id, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Jackaroo bots: {}", e.getMessage());
         }
     }
 
@@ -385,6 +442,7 @@ public class JackarooService {
     }
 
     private void save(Row g, Instant turnEnds) {
+        if ("PLAYING".equals(g.status) && !g.s.players.isEmpty() && JackarooEngine.current(g.s).bot) turnEnds = Instant.now().plusMillis(1800);
         g.version++;
         jdbc.update("update room_games set state = ?::jsonb, status = ?, version = ?, turn_ends_at = ?, updated_at = now() where id = ?",
                 json.writeValueAsString(g.s), g.status, g.version, turnEnds == null ? null : Timestamp.from(turnEnds), g.id);

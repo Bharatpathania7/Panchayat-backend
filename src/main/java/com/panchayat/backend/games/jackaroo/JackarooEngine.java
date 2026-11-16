@@ -43,6 +43,7 @@ public final class JackarooEngine {
         public int[] marbles = {-1, -1, -1, -1};
         public List<String> hand = new ArrayList<>();
         public boolean left;
+        public boolean bot; // a computer player: its id is negative and it is not a user
     }
 
     public static final class State {

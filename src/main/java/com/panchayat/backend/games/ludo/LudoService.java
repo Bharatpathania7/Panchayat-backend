@@ -136,8 +136,8 @@ public class LudoService {
             x.left = true;
             g.s.last = x.name + " left the game";
             List<Player> still = g.s.players.stream().filter(q -> !q.left).toList();
-            if (still.size() <= 1) {
-                finish(g, still.isEmpty() ? null : still.get(0));
+            if (still.size() <= 1 || still.stream().allMatch(q -> q.bot)) {
+                finish(g, still.size() == 1 && !still.get(0).bot ? still.get(0) : null);
             } else if (wasTurn) {
                 LudoEngine.nextTurn(g.s);
             }
@@ -151,6 +151,41 @@ public class LudoService {
         Row g = lock(gameId);
         if (!"WAITING".equals(g.status)) throw conflict("This game already started.");
         if (g.createdBy != me) throw forbidden("Only the one who opened the table can start.");
+        startNow(g);
+        return view(gameId, me);
+    }
+
+    /** Fill the empty chairs with computer players, then start. Only for tables with no stake. */
+    @Transactional
+    public Map<String, Object> withBots(Long gameId, Long me) {
+        Row g = lock(gameId);
+        if (!"WAITING".equals(g.status)) throw conflict("This game already started.");
+        if (g.createdBy != me) throw forbidden("Only the one who opened the table can do this.");
+        if (g.s.stake > 0) throw conflict("A table with coins at stake needs real players.");
+        addBots(g, 4);
+        startNow(g);
+        return view(gameId, me);
+    }
+
+    private static final String[] BOT_NAMES = {"Bhola", "Gabbar", "Basanti", "Munna", "Chhotu", "Pappu", "Rinku", "Guddu", "Babli", "Sonu", "Kallu", "Pinky"};
+
+    private void addBots(Row g, int upTo) {
+        List<String> names = new ArrayList<>(Arrays.asList(BOT_NAMES));
+        Collections.shuffle(names);
+        long id = -1;
+        while (g.s.players.size() < upTo) {
+            Player b = new Player();
+            b.userId = id--;
+            b.name = names.remove(0);
+            b.bot = true;
+            b.seat = firstFree(g.s);
+            g.s.players.add(b);
+        }
+    }
+
+    private void startNow(Row g) {
+        Long me = g.createdBy;
+        long gameId = g.id;
         int n = g.s.players.size();
         if (n < 2) throw conflict("Ludo needs at least 2 players.");
         // Stakes: everyone pays now, or nobody does
@@ -175,7 +210,6 @@ public class LudoService {
         g.s.last = "Game on! " + LudoEngine.current(g.s).name + " rolls first" + (g.s.pot > 0 ? " · pot " + g.s.pot + " coins" : "");
         g.status = "PLAYING";
         save(g, Instant.now().plusSeconds(TURN_SECONDS));
-        return view(gameId, me);
     }
 
     @Transactional
@@ -227,20 +261,21 @@ public class LudoService {
         g.s.winner = winner == null ? null : winner.userId;
         if (winner != null) {
             g.s.last = winner.name + " won" + (g.s.pot > 0 ? " " + g.s.pot + " coins" : "") + "! 🏆";
-            if (g.s.pot > 0) {
+            if (g.s.pot > 0 && !winner.bot) {
                 wallet.credit(winner.userId, g.s.pot, "GAME_WIN", "ludo:" + g.id, "ludo:" + g.id + ":win", "Ludo win");
                 long pot = g.s.pot;
                 long uid = winner.userId;
                 afterCommit(() -> walletPush.pushBalance(uid, "GAME_WIN", pot));
             }
             long uid = winner.userId;
-            afterCommit(() -> exp.add(uid, "GAME", com.panchayat.backend.progress.service.ExpService.GAME_WIN));
+            if (!winner.bot) afterCommit(() -> exp.add(uid, "GAME", com.panchayat.backend.progress.service.ExpService.GAME_WIN));
         }
-        g.s.players.forEach(q -> dailyTasks.track(q.userId, "PLAY_GAME", 1));
+        g.s.players.stream().filter(q -> !q.bot).forEach(q -> dailyTasks.track(q.userId, "PLAY_GAME", 1));
     }
 
     /** Steps that ran out of time: the server rolls / moves for the player. */
     private void timeouts() {
+        autoBots();
         try {
             List<Long> due = jdbc.queryForList("select id from room_games where game = 'LUDO' and status = 'PLAYING' and turn_ends_at < now() limit 20", Long.class);
             for (Long id : due) {
@@ -248,15 +283,16 @@ public class LudoService {
                     tx.executeWithoutResult(t -> {
                         Row g = lock(id);
                         if (!"PLAYING".equals(g.status) || g.turnEndsAt == null || g.turnEndsAt.isAfter(Instant.now())) return;
+                        boolean botTurn = LudoEngine.current(g.s).bot;
                         if ("ROLL".equals(g.s.phase)) {
                             LudoEngine.roll(g.s);
-                            g.s.last = "⏱ " + g.s.last;
+                            if (!botTurn) g.s.last = "⏱ " + g.s.last;
                             save(g, Instant.now().plusSeconds(TURN_SECONDS));
                         } else {
                             List<Move> legal = LudoEngine.legal(g.s);
                             if (legal.isEmpty()) LudoEngine.nextTurn(g.s);
                             else LudoEngine.apply(g.s, LudoEngine.bestMove(legal));
-                            g.s.last = "⏱ " + g.s.last;
+                            if (!botTurn) g.s.last = "⏱ " + g.s.last;
                             afterMove(g);
                         }
                     });
@@ -266,6 +302,28 @@ public class LudoService {
             }
         } catch (Exception e) {
             log.debug("Ludo timer: {}", e.getMessage());
+        }
+    }
+
+    /** A table that has waited 60 seconds with just one person (and no coins at stake): computer players join and the game starts. */
+    private void autoBots() {
+        try {
+            List<Long> waiting = jdbc.queryForList("select id from room_games where game = 'LUDO' and status = 'WAITING' and created_at < now() - interval '60 seconds' limit 10", Long.class);
+            for (Long id : waiting) {
+                try {
+                    tx.executeWithoutResult(t -> {
+                        Row g = lock(id);
+                        if (!"WAITING".equals(g.status) || g.s.stake > 0 || g.s.players.size() != 1 || g.s.players.get(0).bot) return;
+                        addBots(g, 3);
+                        g.s.last = "Koi nahi mila: computer players aa gaye";
+                        startNow(g);
+                    });
+                } catch (Exception e) {
+                    log.warn("Ludo bots for game {} failed: {}", id, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Ludo bots: {}", e.getMessage());
         }
     }
 
@@ -402,6 +460,7 @@ public class LudoService {
     }
 
     private void save(Row g, Instant turnEnds) {
+        if ("PLAYING".equals(g.status) && !g.s.players.isEmpty() && LudoEngine.current(g.s).bot) turnEnds = Instant.now().plusMillis(1500);
         g.version++;
         jdbc.update("update room_games set state = ?::jsonb, status = ?, version = ?, turn_ends_at = ?, updated_at = now() where id = ?",
                 json.writeValueAsString(g.s), g.status, g.version, turnEnds == null ? null : Timestamp.from(turnEnds), g.id);

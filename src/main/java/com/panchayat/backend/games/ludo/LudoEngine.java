@@ -40,6 +40,7 @@ public final class LudoEngine {
         public int[] tokens = {-1, -1, -1, -1};
         public boolean left;
         public boolean paid;
+        public boolean bot; // a computer player: its id is negative and it is not a user
     }
 
     public static final class LastMove {

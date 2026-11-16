@@ -26,12 +26,13 @@ public class InviteController {
         this.users = users;
     }
 
-    public record InviteRequest(String kind, Long roomId, Long gameId) {
+    public record InviteRequest(String kind, Long roomId, Long gameId, String game, String code) {
     }
 
     @PostMapping("/api/v1/chat/conversations/{id:[0-9]+}/invites")
     public Map<String, Object> send(@PathVariable Long id, @RequestBody InviteRequest body, Authentication auth) {
         if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose what to invite to.");
+        if (body.kind() != null && body.kind().equalsIgnoreCase("TABLE")) return invites.sendTable(me(auth), id, body.game(), body.code());
         return invites.send(me(auth), id, body.kind(), body.roomId(), body.gameId());
     }
 

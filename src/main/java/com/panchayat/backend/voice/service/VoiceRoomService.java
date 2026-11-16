@@ -253,6 +253,13 @@ public class VoiceRoomService {
                 rewardBag.effectsFor(presentIds);
         // Loaded together: this list is asked for by everyone in the room whenever someone joins or leaves
         java.util.Map<Long, User> usersById = new java.util.HashMap<>();
+        java.util.Map<Long, Integer> levels = new java.util.HashMap<>();
+        if (!presentIds.isEmpty()) {
+            String in = presentIds.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
+            parivarJdbc.query("select id, coalesce(exp, 0) as exp from users where id in (" + in + ")", rs -> {
+                levels.put(rs.getLong("id"), (int) com.panchayat.backend.progress.service.ExpService.levelOf(rs.getLong("exp"))[0]);
+            });
+        }
         java.util.Map<Long, List<UserEquippedCosmetic>> equippedByUser = new java.util.HashMap<>();
         if (!presentIds.isEmpty()) {
             for (User u : userRepository.findAllById(presentIds)) usersById.put(u.getId(), u);
@@ -327,7 +334,8 @@ public class VoiceRoomService {
                             entryAnimationUrl,
                             worn.getOrDefault(participant.getUserId(), java.util.Map.of()),
                             com.panchayat.backend.common.PublicIds.user(participant.getUserId()),
-                            presence.stateOf(roomId, participant.getUserId())
+                            presence.stateOf(roomId, participant.getUserId()),
+                            levels.getOrDefault(participant.getUserId(), 1)
                     );
                 })
                 .toList();

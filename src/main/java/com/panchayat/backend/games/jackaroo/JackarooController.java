@@ -76,6 +76,11 @@ public class JackarooController {
         return games.cancel(id, me(auth));
     }
 
+    @PostMapping("/api/v1/games/{id:[0-9]+}/bots")
+    public Map<String, Object> bots(@PathVariable Long id, Authentication auth) {
+        return games.withBots(id, me(auth));
+    }
+
     @PostMapping("/api/v1/games/{id:[0-9]+}/play")
     public Map<String, Object> play(@PathVariable Long id, @RequestBody PlayRequest body, Authentication auth) {
         if (body == null || body.move() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose a move.");

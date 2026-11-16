@@ -19,6 +19,8 @@ public record VoiceRoomParticipantResponse(
         // The 7-digit ID people see and search by
         Long publicId,
         // CONNECTING | CONNECTED | DISCONNECTED (still in the room, inside the grace period)
-        String connectionState
+        String connectionState,
+        // Their Active Level, from their EXP (the same number their profile shows)
+        Integer level
 ) {
 }

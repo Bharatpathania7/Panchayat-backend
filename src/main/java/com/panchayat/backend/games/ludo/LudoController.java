@@ -74,6 +74,11 @@ public class LudoController {
         return ludo.cancel(id, me(auth));
     }
 
+    @PostMapping("/api/v1/ludo/{id:[0-9]+}/bots")
+    public Map<String, Object> bots(@PathVariable Long id, Authentication auth) {
+        return ludo.withBots(id, me(auth));
+    }
+
     @PostMapping("/api/v1/ludo/{id:[0-9]+}/roll")
     public Map<String, Object> roll(@PathVariable Long id, Authentication auth) {
         return ludo.roll(id, me(auth));

@@ -114,7 +114,9 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     /** Private queues the app listens on; Spring delivers them only to their own user. */
     private static final Pattern OWN_QUEUE =
-            Pattern.compile("^/user/queue/(chat|wallet|rewards|notify|game|cp|chat\\.typing|chat\\.events)$");
+            Pattern.compile("^/user/queue/(chat|wallet|rewards|notify|game|gaddar|cp|chat\\.typing|chat\\.events)$");
+
+    private static final Pattern GADDAR_TABLE_TOPIC = Pattern.compile("^/topic/(gaddar|rmcs)/t/(\\d+)$");
 
     /** A Ludo table and its chat: /topic/ludo/{gameId} and /topic/ludo/{gameId}/chat. */
     private static final Pattern LUDO_TOPIC =
@@ -125,7 +127,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     /** A room's live topics other than its chat. */
     private static final Pattern ROOM_TOPIC =
-            Pattern.compile("^/topic/voice-rooms/(\\d+)/(state|info|gifts|media|pk|auction|redpacket|game|emote|songs)$");
+            Pattern.compile("^/topic/voice-rooms/(\\d+)/(state|info|gifts|media|pk|auction|redpacket|game|emote|songs|gaddar|rmcs)$");
 
     /**
      * Who may listen to what:
@@ -141,6 +143,8 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         if (destination == null) return false;
         if (OWN_QUEUE.matcher(destination).matches()) return true;
         if ("/topic/presence".equals(destination) || "/topic/redpackets".equals(destination) || "/topic/gift-news".equals(destination)) return true;
+        // A Gaddaar table: its state is not secret (names and positions); what is private comes on your own queue
+        if (GADDAR_TABLE_TOPIC.matcher(destination).matches()) return true;
 
         Matcher chat = VOICE_CHAT_TOPIC.matcher(destination);
         Matcher topic = ROOM_TOPIC.matcher(destination);
