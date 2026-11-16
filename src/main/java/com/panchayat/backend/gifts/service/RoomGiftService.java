@@ -166,8 +166,8 @@ public class RoomGiftService {
         } catch (ArithmeticException e) {
             throw bad("That's too many at once");
         }
-        // Bag gifts were free to the sender, so they don't turn into coins for the receiver
-        long earned = fromBag ? 0 : coins * GiftCatalog.RECEIVER_SHARE_PERCENT / 100;
+        // The receiver gets their share in coins for every gift, a Bag (package) gift too, and the gift card in the room shows it
+        long earned = coins * GiftCatalog.RECEIVER_SHARE_PERCENT / 100;
         String ref = "room:" + roomId;
 
         if (fromBag) {
