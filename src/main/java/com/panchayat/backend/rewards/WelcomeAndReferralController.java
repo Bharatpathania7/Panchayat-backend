@@ -31,8 +31,6 @@ import java.util.*;
 @RestController
 public class WelcomeAndReferralController {
 
-    public static final long WELCOME_GIFT = 50_000;
-    public static final long REFERRAL_REWARD = 20_000;
     public static final String SITE = "https://panchayat.world";
 
     private final JdbcTemplate jdbc;
@@ -49,6 +47,20 @@ public class WelcomeAndReferralController {
         this.users = users;
     }
 
+    /** The rates the admin panel sets (Referrals page): what the inviter earns and the new user's welcome red packet. */
+    public record Rates(boolean enabled, long reward, long welcomeGift) {
+    }
+
+    public Rates rates() {
+        Rates r = jdbc.query("select enabled, inviter_reward, welcome_gift from referral_settings where id = 1",
+                rs -> rs.next() ? new Rates(rs.getBoolean(1), rs.getLong(2), rs.getLong(3)) : null);
+        return r != null ? r : new Rates(true, 20_000, 50_000);
+    }
+
+    static String coins(long n) {
+        return java.text.NumberFormat.getInstance(new java.util.Locale("en", "IN")).format(n);
+    }
+
     /* ---------------- welcome red packet ---------------- */
 
     @GetMapping("/api/v1/welcome-gift")
@@ -57,7 +69,7 @@ public class WelcomeAndReferralController {
         Map<String, Object> u = jdbc.queryForMap("select welcome_gift_offered, welcome_gift_claimed_at from users where id = ?", me);
         boolean offered = Boolean.TRUE.equals(u.get("welcome_gift_offered"));
         boolean claimed = u.get("welcome_gift_claimed_at") != null;
-        return Map.of("available", offered && !claimed, "claimed", claimed, "amount", WELCOME_GIFT);
+        return Map.of("available", offered && !claimed, "claimed", claimed, "amount", rates().welcomeGift());
     }
 
     @PostMapping("/api/v1/welcome-gift/claim")
@@ -66,9 +78,10 @@ public class WelcomeAndReferralController {
         Long me = me(auth);
         int n = jdbc.update("update users set welcome_gift_claimed_at = now() where id = ? and welcome_gift_offered and welcome_gift_claimed_at is null", me);
         if (n == 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "This red packet was already opened.");
-        var tx = wallet.credit(me, WELCOME_GIFT, "WELCOME_GIFT", "welcome:" + me, "welcome:" + me, "Sarpanch's welcome red packet");
-        afterCommit(() -> walletPush.pushBalance(me, "WELCOME_GIFT", WELCOME_GIFT));
-        return Map.of("amount", WELCOME_GIFT, "balance", tx.getBalanceAfter());
+        long gift = rates().welcomeGift();
+        var tx = wallet.credit(me, gift, "WELCOME_GIFT", "welcome:" + me, "welcome:" + me, "Sarpanch's welcome red packet");
+        afterCommit(() -> walletPush.pushBalance(me, "WELCOME_GIFT", gift));
+        return Map.of("amount", gift, "balance", tx.getBalanceAfter());
     }
 
     /* ---------------- referrals ---------------- */
@@ -78,24 +91,37 @@ public class WelcomeAndReferralController {
         Long me = me(auth);
         Long code = jdbc.queryForObject("select public_id from users where id = ?", Long.class, me);
         List<Map<String, Object>> friends = new ArrayList<>();
-        jdbc.query("select id, full_name, avatar_url, referred_at from users where referred_by = ? order by referred_at desc limit 100",
+        jdbc.query("select id, full_name, avatar_url, referred_at, referral_reward from users where referred_by = ? order by referred_at desc limit 100",
                 rs -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("userId", String.valueOf(rs.getLong("id")));
                     m.put("name", rs.getString("full_name"));
                     m.put("avatarUrl", MediaUrls.link(rs.getString("avatar_url")));
+                    m.put("reward", rs.getLong("referral_reward"));
                     m.put("joinedAt", rs.getTimestamp("referred_at") == null ? null : rs.getTimestamp("referred_at").toInstant().toString());
                     friends.add(m);
                 }, me);
         Long count = jdbc.queryForObject("select count(*) from users where referred_by = ?", Long.class, me);
+        Long earned = jdbc.queryForObject("select coalesce(sum(referral_reward), 0) from users where referred_by = ?", Long.class, me);
+        Rates rates = rates();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("code", String.valueOf(code));
         out.put("link", SITE + "/?ref=" + code);
-        out.put("reward", REFERRAL_REWARD);
+        out.put("enabled", rates.enabled());
+        out.put("reward", rates.reward());
+        out.put("welcomeGift", rates.welcomeGift());
         out.put("count", count);
-        out.put("earned", (count == null ? 0 : count) * REFERRAL_REWARD);
+        out.put("earned", earned == null ? 0 : earned);
         out.put("friends", friends);
         return out;
+    }
+
+    /** Light read for screens that only show the rates (the profile menu, the invite text). */
+    @GetMapping("/api/v1/referrals/rates")
+    public Map<String, Object> ratesNow(Authentication auth) {
+        me(auth);
+        Rates r = rates();
+        return Map.of("enabled", r.enabled(), "reward", r.reward(), "welcomeGift", r.welcomeGift());
     }
 
     public record ApplyRequest(String code) {
@@ -107,6 +133,8 @@ public class WelcomeAndReferralController {
         Long me = me(auth);
         String code = body == null || body.code() == null ? "" : body.code().trim();
         if (!code.matches("\\d{4,12}")) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "That invite link isn't valid.");
+        Rates rates = rates();
+        if (!rates.enabled()) return Map.of("applied", false, "message", "Invites are paused right now.");
         Map<String, Object> u = jdbc.queryForMap("select referred_by, created_at, full_name, profile_completed from users where id = ? for update", me);
         if (u.get("referred_by") != null) return Map.of("applied", false, "message", "You already joined with an invite.");
         java.sql.Timestamp created = (java.sql.Timestamp) u.get("created_at");
@@ -116,11 +144,12 @@ public class WelcomeAndReferralController {
         Long inviter = jdbc.query("select id from users where public_id = ? and not coalesce(official, false)", rs -> rs.next() ? rs.getLong(1) : null, Long.parseLong(code));
         if (inviter == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That invite link isn't valid.");
         if (inviter.equals(me)) return Map.of("applied", false, "message", "You can't invite yourself.");
-        jdbc.update("update users set referred_by = ?, referred_at = now() where id = ? and referred_by is null", inviter, me);
-        wallet.credit(inviter, REFERRAL_REWARD, "REFERRAL_REWARD", "referral:" + me, "referral:" + me, "Friend joined with your link");
+        long reward = rates.reward();
+        jdbc.update("update users set referred_by = ?, referred_at = now(), referral_reward = ? where id = ? and referred_by is null", inviter, reward, me);
+        if (reward > 0) wallet.credit(inviter, reward, "REFERRAL_REWARD", "referral:" + me, "referral:" + me, "Friend joined with your link");
         String name = u.get("full_name") == null ? "A friend" : (String) u.get("full_name");
-        afterCommit(() -> walletPush.pushBalance(inviter, "REFERRAL_REWARD", REFERRAL_REWARD));
-        sarpanch.notifySafely(inviter, "REFERRAL_JOINED", Map.of("name", name), "referral:" + me);
+        if (reward > 0) afterCommit(() -> walletPush.pushBalance(inviter, "REFERRAL_REWARD", reward));
+        sarpanch.notifySafely(inviter, "REFERRAL_JOINED", Map.of("name", name, "reward", coins(reward), "gift", coins(rates.welcomeGift())), "referral:" + me);
         return Map.of("applied", true);
     }
 

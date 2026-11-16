@@ -79,6 +79,11 @@ public class RoomStateController {
         return state.setSeatMuted(roomId, me(auth), index, body.required());
     }
 
+    @PutMapping("/members/{userId:[0-9]+}/muted")
+    public RoomStateResponse muteMember(@PathVariable Long roomId, @PathVariable Long userId, @RequestBody OnOff body, Authentication auth) {
+        return state.setUserMuted(roomId, me(auth), userId, body.required());
+    }
+
     @PostMapping("/seats/invite")
     public RoomStateResponse invite(@PathVariable Long roomId, @RequestBody Target body, Authentication auth) {
         return state.inviteToSeat(roomId, me(auth), body.requiredUser(), body.seat());

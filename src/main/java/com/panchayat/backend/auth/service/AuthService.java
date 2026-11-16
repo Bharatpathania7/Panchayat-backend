@@ -256,7 +256,7 @@ public class AuthService {
         // Written to the database now: the VIP trial below is a direct update of the same row, and the entity must not be flushed over it at commit
         User saved = userRepository.saveAndFlush(user);
         if (firstTime) {
-            // New user: Sarpanch's welcome red packet of 50,000 coins, opened from the message
+            // New user: Sarpanch's welcome red packet (the amount is set in the admin panel), opened from the message
             welcomeJdbc.update("update users set welcome_gift_offered = true where id = ?", saved.getId());
             // Every new user gets 3 days of free VIP 1 (then they can buy VIP)
             // (how many days is set in the admin panel: VIP management)
@@ -270,7 +270,9 @@ public class AuthService {
             if (trialEnds != null) {
                 welcomeJdbc.update("insert into vip_trials (user_id, days, ends_at) values (?, ?, ?) on conflict (user_id) do nothing", saved.getId(), trialDays == null ? 3 : trialDays, trialEnds);
             }
-            sarpanch.notifySafely(saved.getId(), "WELCOME_GIFT", java.util.Map.of("name", fullName), "welcome:" + saved.getId());
+            long[] rates = welcomeJdbc.query("select inviter_reward, welcome_gift from referral_settings where id = 1", rs -> rs.next() ? new long[]{rs.getLong(1), rs.getLong(2)} : new long[]{20_000, 50_000});
+            java.text.NumberFormat inr = java.text.NumberFormat.getInstance(new java.util.Locale("en", "IN"));
+            sarpanch.notifySafely(saved.getId(), "WELCOME_GIFT", java.util.Map.of("name", fullName, "reward", inr.format(rates[0]), "gift", inr.format(rates[1])), "welcome:" + saved.getId());
         }
         return saved;
     }

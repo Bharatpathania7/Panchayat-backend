@@ -65,6 +65,8 @@ public class RoomStateService {
     private static final class Live {
         Long[] seats;
         final Set<Integer> mutedSeats = new TreeSet<>();
+        /** People the owner or an admin muted: they can't talk, on any seat, until a moderator unmutes them. */
+        final Set<Long> mutedUsers = new TreeSet<>();
         /** userId -> preferred seat (-1 = any), oldest first. */
         final LinkedHashMap<Long, Integer> queue = new LinkedHashMap<>();
         /** Invited userId -> the invite waiting for their answer. */
@@ -394,6 +396,25 @@ public class RoomStateService {
             }
             if (muted) live.mutedSeats.add(index); else live.mutedSeats.remove(index);
             return publish(ctx, live, event(muted ? "SEAT_MUTED" : "SEAT_UNMUTED", actor, occupant, index, muted));
+        }
+    }
+
+    /**
+     * The owner or an admin mutes a person (not a seat): they can't talk wherever they sit, and only the owner or an
+     * admin can unmute them. Admins can't mute the owner or another admin.
+     */
+    public RoomStateResponse setUserMuted(Long roomId, Long actor, Long target, boolean muted) {
+        Ctx ctx = load(roomId);
+        requireMod(ctx, actor);
+        if (ctx.isOwner(target) || !canManage(ctx, actor, target)) {
+            throw forbidden("You can't mute this person");
+        }
+        if (!ctx.joined().contains(target) && muted) throw conflict("They are not in the room");
+        Live live = live(ctx);
+        synchronized (live) {
+            reconcile(ctx, live);
+            if (muted) live.mutedUsers.add(target); else live.mutedUsers.remove(target);
+            return publish(ctx, live, event(muted ? "USER_MUTED" : "USER_UNMUTED", actor, target, null, muted));
         }
     }
 
@@ -735,7 +756,7 @@ public class RoomStateService {
 
     private static boolean mayPublish(Ctx ctx, Live live, Long userId) {
         int seat = seatOf(live, userId);
-        return seat >= 0 && !live.mutedSeats.contains(seat) && (ctx.open() || ctx.isMod(userId));
+        return seat >= 0 && !live.mutedSeats.contains(seat) && !live.mutedUsers.contains(userId) && (ctx.open() || ctx.isMod(userId));
     }
 
     private RoomStateResponse snapshot(Ctx ctx, Live live, RoomEvent event) {
@@ -752,6 +773,7 @@ public class RoomStateService {
                 seats,
                 List.copyOf(closedSeats(ctx)),
                 List.copyOf(live.mutedSeats),
+                live.mutedUsers.stream().map(String::valueOf).toList(),
                 ctx.room().isMicOrder(),
                 queue,
                 ctx.open(),

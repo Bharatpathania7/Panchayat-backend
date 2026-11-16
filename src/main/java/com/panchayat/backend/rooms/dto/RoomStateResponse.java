@@ -18,6 +18,8 @@ public record RoomStateResponse(
         List<String> seats,
         List<Integer> closedSeats,
         List<Integer> mutedSeats,
+        /* People the owner or an admin muted. They can't unmute themselves. */
+        List<String> mutedUsers,
         boolean micOrder,
         List<QueueEntry> queue,
         /* The owner or an admin is in the room. */
@@ -42,7 +44,7 @@ public record RoomStateResponse(
      * MIC_REQUEST_CANCELLED, MIC_APPROVED, MIC_DECLINED, MIC_ORDER, SEAT_CLOSED,
      * SEAT_OPENED, SEAT_MUTED, SEAT_UNMUTED, SEAT_INVITED, SEAT_INVITE_ACCEPTED,
      * SEAT_INVITE_DECLINED, SEAT_INVITE_CANCELLED, REMOVED_FROM_MIC,
-     * ADMIN_ADDED, ADMIN_REMOVED, KICKED, BANNED, UNBANNED.
+     * USER_MUTED, USER_UNMUTED, ADMIN_ADDED, ADMIN_REMOVED, KICKED, BANNED, UNBANNED.
      */
     public record RoomEvent(String type, String actorId, String targetId, Integer seat, Boolean on) {
     }
