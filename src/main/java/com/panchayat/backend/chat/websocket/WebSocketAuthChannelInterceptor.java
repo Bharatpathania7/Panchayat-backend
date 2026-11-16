@@ -125,7 +125,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     /** A room's live topics other than its chat. */
     private static final Pattern ROOM_TOPIC =
-            Pattern.compile("^/topic/voice-rooms/(\\d+)/(state|info|gifts|media|pk|auction|redpacket|game|emote)$");
+            Pattern.compile("^/topic/voice-rooms/(\\d+)/(state|info|gifts|media|pk|auction|redpacket|game|emote|songs)$");
 
     /**
      * Who may listen to what:
