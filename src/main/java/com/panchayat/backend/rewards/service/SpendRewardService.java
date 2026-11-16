@@ -251,6 +251,15 @@ public class SpendRewardService {
                 userId, name + " Gift Card", giftId, qty, qty, Timestamp.from(now), days > 0 ? Timestamp.from(now.plus(Duration.ofDays(days))) : null);
     }
 
+    /** A library picture / animation that can be worn (frame, bubble, entry, badge, profile effect), won from a Family chest, for `days` days (0 = it never runs out). */
+    @Transactional
+    public void grantWearable(Long userId, String name, String slot, String mediaUrl, String mediaFormat, int days) {
+        Instant now = Instant.now();
+        jdbc.update("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, granted_at, expires_at)"
+                        + " values (?, null, null, 'GACHA', 'Parivar chest', ?, ?, null, 1, null, ?, ?, ?, ?, ?)",
+                userId, name, slot, slot, mediaUrl, mediaFormat, Timestamp.from(now), days > 0 ? Timestamp.from(now.plus(Duration.ofDays(days))) : null);
+    }
+
     /** A frame, chat bubble or entry animation won in Parivar Gacha, from the Spend rewards items, for `days` days (0 = the item's own length). */
     @Transactional
     public String grantGachaItem(Long userId, long ruleItemId, int days) {

@@ -21,6 +21,15 @@ import java.util.*;
 public class ParivarLibraryAdminController {
 
     private static final Set<String> RARITIES = Set.of("COMMON", "PREMIUM", "EPIC", "LEGENDARY", "ULTRA_RARE");
+    static final Set<String> WEAR = Set.of("FRAME", "BUBBLE", "ENTRY", "BADGE", "PROFILE");
+
+    /** "" / null = nothing to wear; else FRAME, BUBBLE, ENTRY, BADGE or PROFILE. */
+    static String wearOf(String v) {
+        if (v == null || v.isBlank() || v.equalsIgnoreCase("NONE")) return null;
+        String s = v.strip().toUpperCase(Locale.ROOT);
+        if (!WEAR.contains(s)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Wear as: Frame, Chat bubble, Entry effect, Badge or Profile effect.");
+        return s;
+    }
 
     private final JdbcTemplate jdbc;
     private final AdminMediaService media;
@@ -102,6 +111,7 @@ public class ParivarLibraryAdminController {
                     m.put("path", rs.getString("media_url"));
                     m.put("format", rs.getString("media_format"));
                     m.put("rarity", rs.getString("rarity"));
+                    m.put("wearAs", rs.getString("wear_slot"));
                     m.put("active", rs.getBoolean("active"));
                     m.put("usedInRewards", rs.getLong("used"));
                     m.put("createdAt", rs.getTimestamp("created_at").toInstant().toString());
@@ -112,7 +122,9 @@ public class ParivarLibraryAdminController {
     /** One or many files at once: with several files each item is named after its file (the name box is used for a single file). */
     @PostMapping(consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> upload(@RequestParam("file") List<MultipartFile> files, @RequestParam("categoryId") Long categoryId, @RequestParam(value = "name", required = false) String name,
-                                      @RequestParam(value = "rarity", defaultValue = "COMMON") String rarity, @RequestParam(value = "description", required = false) String description) {
+                                      @RequestParam(value = "rarity", defaultValue = "COMMON") String rarity, @RequestParam(value = "description", required = false) String description,
+                                      @RequestParam(value = "wearAs", required = false) String wearAs) {
+        String wear = wearOf(wearAs);
         rarity = rarity.toUpperCase(Locale.ROOT);
         if (!RARITIES.contains(rarity)) throw bad("Choose a rarity.");
         if (files == null || files.isEmpty() || files.size() > 50) throw bad("Choose 1 to 50 files.");
@@ -130,14 +142,14 @@ public class ParivarLibraryAdminController {
             if (itemName.isEmpty()) itemName = "Item";
             if (itemName.length() > 60) itemName = itemName.substring(0, 60);
             var up = media.upload(f, "parivar", AdminMediaService.VISUALS);
-            jdbc.update("insert into parivar_collectibles (kind, category_id, name, description, media_url, media_format, rarity) values ('ITEM', ?, ?, ?, ?, ?, ?)",
-                    categoryId, itemName, description == null || description.isBlank() ? null : description.strip(), up.url(), up.format(), rarity);
+            jdbc.update("insert into parivar_collectibles (kind, category_id, name, description, media_url, media_format, rarity, wear_slot) values ('ITEM', ?, ?, ?, ?, ?, ?, ?)",
+                    categoryId, itemName, description == null || description.isBlank() ? null : description.strip(), up.url(), up.format(), rarity, wear);
             added++;
         }
         return Map.of("ok", true, "added", added);
     }
 
-    public record Edit(String name, String rarity, String description, Boolean active, Long categoryId) {
+    public record Edit(String name, String rarity, String description, Boolean active, Long categoryId, String wearAs) {
     }
 
     @PutMapping("/{id:[0-9]+}")
@@ -145,8 +157,12 @@ public class ParivarLibraryAdminController {
         if (e.name() != null && (e.name().isBlank() || e.name().length() > 60)) throw bad("Give it a name (up to 60 letters).");
         if (e.rarity() != null && !RARITIES.contains(e.rarity().toUpperCase(Locale.ROOT))) throw bad("Choose a rarity.");
         if (e.categoryId() != null && jdbc.queryForObject("select count(*) from parivar_library_categories where id = ?", Long.class, e.categoryId()) == 0) throw bad("Choose a category.");
-        int n = jdbc.update("update parivar_collectibles set name = coalesce(?, name), rarity = coalesce(?, rarity), description = coalesce(?, description), active = coalesce(?, active), category_id = coalesce(?, category_id) where id = ?",
-                e.name() == null ? null : e.name().strip(), e.rarity() == null ? null : e.rarity().toUpperCase(Locale.ROOT), e.description(), e.active(), e.categoryId(), id);
+        // wearAs: not sent = leave it; "NONE" = not wearable; FRAME / BUBBLE / ENTRY / BADGE / PROFILE = wearable
+        boolean setWear = e.wearAs() != null;
+        String wear = setWear ? wearOf(e.wearAs()) : null;
+        int n = jdbc.update("update parivar_collectibles set name = coalesce(?, name), rarity = coalesce(?, rarity), description = coalesce(?, description), active = coalesce(?, active), category_id = coalesce(?, category_id),"
+                        + " wear_slot = case when ? then ? else wear_slot end where id = ?",
+                e.name() == null ? null : e.name().strip(), e.rarity() == null ? null : e.rarity().toUpperCase(Locale.ROOT), e.description(), e.active(), e.categoryId(), setWear, wear, id);
         if (n == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That item doesn't exist.");
         return Map.of("ok", true);
     }

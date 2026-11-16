@@ -145,7 +145,7 @@ public class ParivarTreasureAdminController {
     @GetMapping("/{tierId:[0-9]+}/rewards")
     public List<Map<String, Object>> rewards(@PathVariable Long tierId) {
         tier(tierId);
-        return jdbc.query("select r.*, g.name as gift_name, c.name as lib_name, c.media_url as lib_url, c.media_format as lib_format from treasure_rewards r"
+        return jdbc.query("select r.*, g.name as gift_name, c.name as lib_name, c.media_url as lib_url, c.media_format as lib_format, c.wear_slot as lib_wear from treasure_rewards r"
                         + " left join gifts g on r.kind = 'GIFT' and g.id = r.gift_id"
                         + " left join parivar_collectibles c on r.kind = 'COLLECTIBLE' and c.id = r.ref"
                         + " where r.tier_id = ? order by r.active desc, r.weight desc, r.id", (rs, i) -> {
@@ -165,6 +165,7 @@ public class ParivarTreasureAdminController {
             String own = rs.getString("image_url");
             m.put("imageUrl", lib != null ? MediaUrls.link(lib) : own == null || own.isBlank() ? null : MediaUrls.link(own));
             m.put("format", rs.getString("lib_format"));
+            m.put("wearAs", rs.getString("lib_wear"));
             m.put("giftName", rs.getString("gift_name"));
             return m;
         }, tierId);
@@ -220,8 +221,10 @@ public class ParivarTreasureAdminController {
     @Transactional
     public Map<String, Object> upload(@PathVariable Long tierId, @RequestParam("file") List<MultipartFile> files, @RequestParam(value = "label", required = false) String label,
                                       @RequestParam(value = "rarity", defaultValue = "COMMON") String rarity, @RequestParam(value = "weight", required = false) Integer weight,
-                                      @RequestParam(value = "maxPerChest", required = false) Integer maxPerChest, @RequestParam(value = "validDays", required = false) Integer validDays, Authentication auth) {
+                                      @RequestParam(value = "maxPerChest", required = false) Integer maxPerChest, @RequestParam(value = "validDays", required = false) Integer validDays,
+                                      @RequestParam(value = "wearAs", required = false) String wearAs, Authentication auth) {
         tier(tierId);
+        String wear = ParivarLibraryAdminController.wearOf(wearAs);
         if (files == null || files.isEmpty() || files.size() > 30) throw bad("Choose 1 to 30 files.");
         String r = rarity(rarity);
         int w = weight(weight);
@@ -240,7 +243,7 @@ public class ParivarTreasureAdminController {
             if (name.isEmpty()) name = "Reward";
             if (name.length() > 60) name = name.substring(0, 60);
             var up = media.upload(f, "parivar", AdminMediaService.VISUALS);
-            Long itemId = jdbc.queryForObject("insert into parivar_collectibles (kind, category_id, name, media_url, media_format, rarity) values ('ITEM', ?, ?, ?, ?, ?) returning id", Long.class, cat, name, up.url(), up.format(), r);
+            Long itemId = jdbc.queryForObject("insert into parivar_collectibles (kind, category_id, name, media_url, media_format, rarity, wear_slot) values ('ITEM', ?, ?, ?, ?, ?, ?) returning id", Long.class, cat, name, up.url(), up.format(), r, wear);
             jdbc.update("insert into treasure_rewards (tier_id, kind, ref, amount, rarity, weight, max_per_chest, valid_days, label, active) values (?, 'COLLECTIBLE', ?, 1, ?, ?, ?, ?, ?, true)", tierId, itemId, r, w, mx, vd, name);
             added++;
         }

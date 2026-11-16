@@ -510,8 +510,13 @@ public class ParivarTreasureService {
                 case "VIP_CARD" -> vip.grantVip(userId, new AdminVipGrantRequest((int) Math.max(1, amount)));
                 case "PROFILE_TITLE" -> profileTitles.grantUsual(userId, l(it.get("ref")), "TREASURE", days > 0 ? days : (int) amount);
                 case "COLLECTIBLE" -> {
-                    List<Map<String, Object>> cr = jdbc.queryForList("select c.kind, c.name, c.media_url, k.name as cat from parivar_collectibles c left join parivar_library_categories k on k.id = c.category_id where c.id = ?", l(it.get("ref")));
+                    List<Map<String, Object>> cr = jdbc.queryForList("select c.kind, c.name, c.media_url, c.media_format, c.wear_slot, k.name as cat from parivar_collectibles c left join parivar_library_categories k on k.id = c.category_id where c.id = ?", l(it.get("ref")));
                     if (cr.isEmpty()) throw new IllegalStateException("A treasure collectible was removed");
+                    if (cr.get(0).get("wear_slot") != null) {
+                        // A frame / entry / bubble / badge: into the Bag with a Wear button
+                        bag.grantWearable(userId, (String) cr.get(0).get("name"), (String) cr.get(0).get("wear_slot"), (String) cr.get(0).get("media_url"), (String) cr.get(0).get("media_format"), days);
+                        break;
+                    }
                     jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref, category, expires_at) values (?, ?, ?, ?, 'TREASURE', ?, ?, case when ? > 0 then now() + make_interval(days => ?) end) on conflict do nothing",
                             userId, cr.get(0).get("kind"), cr.get(0).get("name"), cr.get(0).get("media_url"), base + ":" + idx, cr.get(0).get("cat"), days, days);
                 }
