@@ -503,6 +503,7 @@ public class ParivarService {
         if (!b(s.get("enabled"))) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Parivar is not open yet.");
         Map<String, Object> p = activeParivar(id);
         if (roleOf(id, userId) != null) throw conflict("You are already in this Parivar.");
+        if (jdbc.queryForObject("select count(*) from parivar_bans where parivar_id = ? and user_id = ?", Long.class, id, userId) > 0) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Mukhiya ne aapko is Parivar se ban kiya hai.");
         if (b(s.get("one_per_user")) && myParivarId(userId) != null) throw conflict("You are already in a Parivar. Leave it first.");
         if ("OPEN".equals(p.get("join_mode"))) {
             addMember(id, userId, p);

@@ -24,6 +24,8 @@ public class ParivarExtrasController {
     private final ParivarMiscService misc;
     private final UserRepository users;
     private final ParivarTreasureService treasure;
+    @org.springframework.beans.factory.annotation.Autowired
+    private ParivarRedPacketService redPackets;
 
     public ParivarExtrasController(ParivarEconomyService economy, ParivarGachaService gacha, ParivarChestService chests, ParivarWarService war, ParivarMiscService misc, UserRepository users,
                                    ParivarTreasureService treasure) {
@@ -51,6 +53,45 @@ public class ParivarExtrasController {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Please sign in again");
         return users.findByEmailIgnoreCase(auth.getName())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Only user accounts can use Parivar")).getId();
+    }
+
+    public record RedPacketBody(Long coins, Integer pieces, Boolean equal, String source, String message) {
+    }
+
+    public record BanBody(String reason) {
+    }
+
+    /* red packets for the family, and ban / unban */
+
+    @GetMapping("/redpackets")
+    public Map<String, Object> redPacketList(@PathVariable Long id, Authentication auth) {
+        return redPackets.list(me(auth), id);
+    }
+
+    @PostMapping("/redpackets")
+    public Map<String, Object> redPacketSend(@PathVariable Long id, @RequestBody RedPacketBody b, @RequestHeader(value = "Idempotency-Key", required = false) String key, Authentication auth) {
+        if (b == null || b.coins() == null || b.pieces() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Enter the coins and the number of pieces.");
+        return redPackets.send(me(auth), id, b.coins(), b.pieces(), Boolean.TRUE.equals(b.equal()), b.source(), b.message(), key);
+    }
+
+    @PostMapping("/redpackets/{packetId:[0-9]+}/claim")
+    public Map<String, Object> redPacketClaim(@PathVariable Long id, @PathVariable Long packetId, Authentication auth) {
+        return redPackets.claim(me(auth), id, packetId);
+    }
+
+    @GetMapping("/bans")
+    public List<Map<String, Object>> bans(@PathVariable Long id, Authentication auth) {
+        return redPackets.bans(me(auth), id);
+    }
+
+    @PostMapping("/members/{userId:[0-9]+}/ban")
+    public Map<String, Object> ban(@PathVariable Long id, @PathVariable Long userId, @RequestBody(required = false) BanBody b, Authentication auth) {
+        return redPackets.ban(me(auth), id, userId, b == null ? null : b.reason());
+    }
+
+    @PostMapping("/members/{userId:[0-9]+}/unban")
+    public Map<String, Object> unban(@PathVariable Long id, @PathVariable Long userId, Authentication auth) {
+        return redPackets.unban(me(auth), id, userId);
     }
 
     public record KeyedId(Long id, String payWith) {
