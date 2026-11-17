@@ -205,12 +205,28 @@ public class SpendRewardService {
         List<Long> ids = userIds == null ? List.of() : userIds.stream().filter(Objects::nonNull).distinct().toList();
         if (ids.isEmpty()) return out;
         String in = String.join(",", Collections.nCopies(ids.size(), "?"));
-        jdbc.query("select user_id, slot, item_name, media_url, media_format, sound_url from user_rewards"
-                        + " where equipped and slot is not null and media_url is not null"
-                        + " and (expires_at is null or expires_at > now()) and user_id in (" + in + ")",
+        jdbc.query("select r.user_id, r.slot, r.item_name, r.media_url, r.media_format, r.sound_url, r.name_frame_id, u.full_name,"
+                        + " f.frame_scale, f.frame_y, f.plate_x, f.plate_y, f.plate_w, f.plate_h, f.text_color, f.stroke_color"
+                        + " from user_rewards r join users u on u.id = r.user_id left join name_frames f on f.id = r.name_frame_id"
+                        + " where r.equipped and r.slot is not null and r.media_url is not null"
+                        + " and (r.expires_at is null or r.expires_at > now()) and r.user_id in (" + in + ")",
                 rs -> {
                     Map<String, Object> fx = new LinkedHashMap<>();
-                    fx.put("url", MediaUrls.link(rs.getString("media_url")));
+                    fx.put("url", rs.getObject("name_frame_id") != null ? com.panchayat.backend.titles.NameFrameService.publicUrl(rs.getString("media_url")) : MediaUrls.link(rs.getString("media_url")));
+                    if (rs.getObject("name_frame_id") != null) {
+                        // A name frame: how it fits the avatar and where the wearer's name goes
+                        Map<String, Object> nf = new LinkedHashMap<>();
+                        nf.put("name", rs.getString("full_name"));
+                        nf.put("scale", rs.getDouble("frame_scale"));
+                        nf.put("y", rs.getDouble("frame_y"));
+                        nf.put("plateX", rs.getDouble("plate_x"));
+                        nf.put("plateY", rs.getDouble("plate_y"));
+                        nf.put("plateW", rs.getDouble("plate_w"));
+                        nf.put("plateH", rs.getDouble("plate_h"));
+                        nf.put("color", rs.getString("text_color"));
+                        nf.put("stroke", rs.getString("stroke_color"));
+                        fx.put("nameFrame", nf);
+                    }
                     fx.put("format", rs.getString("media_format"));
                     fx.put("soundUrl", MediaUrls.link(rs.getString("sound_url")));
                     fx.put("name", rs.getString("item_name"));

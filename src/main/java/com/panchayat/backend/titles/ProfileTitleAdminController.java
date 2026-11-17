@@ -25,6 +25,8 @@ public class ProfileTitleAdminController {
 
     private static final Pattern COLOR = Pattern.compile("^#[0-9a-fA-F]{6}$");
     private static final Set<String> RARITIES = Set.of("COMMON", "PREMIUM", "EPIC", "LEGENDARY", "ULTRA_RARE");
+    /** A title is its uploaded artwork: WEBP, SVGA or MP4 only. */
+    private static final Set<String> TITLE_ART = Set.of("WEBP", "SVGA", "MP4");
     private static final Set<String> RULE_KINDS = Set.of("IDS", "VIP_LEVEL", "PARIVAR_ROLE", "TOPUP_TOTAL", "TOPUP_ONE", "GIFT_SENT", "GIFT_RECEIVED");
 
     private final JdbcTemplate jdbc;
@@ -144,7 +146,7 @@ public class ProfileTitleAdminController {
                                       @RequestParam(value = "file", required = false) MultipartFile file) {
         rarity = rarity.toUpperCase(Locale.ROOT);
         check(name, from, to, text, rarity, price, duration, minVip);
-        String icon = file == null || file.isEmpty() ? null : media.upload(file, "titles", AdminMediaService.VISUALS).url();
+        String icon = file == null || file.isEmpty() ? null : media.upload(file, "titles", TITLE_ART).url();
         Long id = jdbc.queryForObject("insert into profile_titles (name, icon_url, color_from, color_to, text_color, rarity, price_coins, free, duration_days, min_vip_level, parivar_only, sort_order)"
                         + " values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (select coalesce(max(sort_order), 0) + 1 from profile_titles)) returning id", Long.class,
                 name.strip(), icon, from, to, text, rarity, price, free, duration, minVip, parivarOnly);
@@ -183,7 +185,7 @@ public class ProfileTitleAdminController {
     @PostMapping(value = "/{id:[0-9]+}/icon", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> icon(@PathVariable Long id, @RequestParam("file") MultipartFile file) {
         if (jdbc.queryForObject("select count(*) from profile_titles where id = ?", Long.class, id) == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That title doesn't exist.");
-        jdbc.update("update profile_titles set icon_url = ? where id = ?", media.upload(file, "titles", AdminMediaService.VISUALS).url(), id);
+        jdbc.update("update profile_titles set icon_url = ? where id = ?", media.upload(file, "titles", TITLE_ART).url(), id);
         return Map.of("ok", true);
     }
 

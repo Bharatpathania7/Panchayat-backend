@@ -28,6 +28,10 @@ public class TitleRuleService {
     private final JdbcTemplate jdbc;
     private final TransactionTemplate tx;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private NameFrameService nameFrames;
+
     public TitleRuleService(JdbcTemplate jdbc, TransactionTemplate tx) {
         this.jdbc = jdbc;
         this.tx = tx;
@@ -240,6 +244,7 @@ public class TitleRuleService {
     private void runMoney(Long userId, String kinds, Long packId) {
         try {
             if (packId != null) grantForPack(userId, packId);
+            if ("TOPUP".equals(kinds)) nameFrames.onTopup(userId);
             for (Map<String, Object> r : moneyRules()) {
                 String kind = (String) r.get("kind");
                 if (!kind.startsWith(kinds)) continue;
