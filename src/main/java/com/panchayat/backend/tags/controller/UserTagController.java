@@ -28,10 +28,18 @@ public class UserTagController {
 
     private final UserTagService tags;
     private final UserRepository userRepository;
+    private final com.panchayat.backend.tags.service.TagTypeService types;
 
-    public UserTagController(UserTagService tags, UserRepository userRepository) {
+    public UserTagController(UserTagService tags, UserRepository userRepository, com.panchayat.backend.tags.service.TagTypeService types) {
+        this.types = types;
         this.tags = tags;
         this.userRepository = userRepository;
+    }
+
+    /** The tag catalog (names, colours, picture, animation); switched-off types are included so old tags still draw. */
+    @GetMapping("/types")
+    public List<Map<String, Object>> types() {
+        return types.listAll();
     }
 
     @GetMapping("/me")

@@ -22,15 +22,21 @@ public class UserTagService {
     public static final int BASE_SLOTS = 5;
     public static final int MAX_SLOTS = 12;
     public static final Set<String> THEMES = Set.of("rose", "gold", "ocean", "violet", "emerald", "sunset", "midnight");
-    public static final Set<String> RELATIONS = Set.of("brosis", "besties", "bro", "confidant", "apprentice", "sibling");
 
     private final UserTagRepository tags;
     private final org.springframework.jdbc.core.JdbcTemplate jdbc;
     private final com.panchayat.backend.wallet.service.CoinWalletService wallet;
     private final com.panchayat.backend.wallet.service.WalletPushService walletPush;
 
+    private final TagTypeService types;
+
+    public boolean isRelation(String id) {
+        return types.isChoosable(id);
+    }
+
     public UserTagService(UserTagRepository tags, org.springframework.jdbc.core.JdbcTemplate jdbc,
-                          com.panchayat.backend.wallet.service.CoinWalletService wallet, com.panchayat.backend.wallet.service.WalletPushService walletPush) {
+                          com.panchayat.backend.wallet.service.CoinWalletService wallet, com.panchayat.backend.wallet.service.WalletPushService walletPush, TagTypeService types) {
+        this.types = types;
         this.tags = tags;
         this.jdbc = jdbc;
         this.wallet = wallet;
@@ -134,7 +140,7 @@ public class UserTagService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "That tag doesn't exist"));
         if (!t.involves(userId)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "That isn't your tag");
         if (relation != null) {
-            if (!RELATIONS.contains(relation)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pick one of the tag types");
+            if (!types.isChoosable(relation)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pick one of the tag types");
             // The same type can be used on as many tags as the person has slots for (each tag is with someone different)
             t.setRelation(relation);
         }
@@ -181,7 +187,7 @@ public class UserTagService {
     @Transactional
     public FormResult form(Long winner, Long item, String relation, long volume, String roomName, String declaration) {
         if (winner.equals(item)) throw new IllegalArgumentException("A tag needs two people");
-        String rel = RELATIONS.contains(relation) ? relation : "besties";
+        String rel = types.isChoosable(relation) ? relation : "besties";
         Optional<UserTag> existing = tags.findPairForUpdate(Math.min(winner, item), Math.max(winner, item));
         if (existing.isPresent()) {
             // The bidding gifts were already counted as intimacy when they were sent (RoomGiftService)
