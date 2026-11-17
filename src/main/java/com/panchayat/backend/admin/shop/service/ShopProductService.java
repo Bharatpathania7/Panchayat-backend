@@ -60,6 +60,8 @@ public class ShopProductService {
         product.setAssetUrl(request.getAssetUrl());
         product.setAssetType(resolveAssetType(request.getAssetUrl()));
         product.setDisplayOrder(request.getDisplayOrder());
+        product.setValidDays(request.getValidDays());
+        product.setWearSlot(cleanSlot(request.getWearSlot()));
         product.setActive(true);
 
         ShopProduct savedProduct = productRepository.save(product);
@@ -129,6 +131,8 @@ public class ShopProductService {
         product.setAssetUrl(request.getAssetUrl());
         product.setAssetType(resolveAssetType(request.getAssetUrl()));
         product.setDisplayOrder(request.getDisplayOrder());
+        product.setValidDays(request.getValidDays());
+        product.setWearSlot(cleanSlot(request.getWearSlot()));
 
         ShopProduct updatedProduct = productRepository.save(product);
 
@@ -263,6 +267,13 @@ public class ShopProductService {
                 product.getActive(),
                 product.getCreatedAt(),
                 product.getUpdatedAt()
-        );
+        ).wear(product.getValidDays(), product.getWearSlot());
+    }
+
+    private static String cleanSlot(String s) {
+        if (s == null || s.isBlank()) return null;
+        String u = s.strip().toUpperCase();
+        if (!java.util.Set.of("FRAME", "BUBBLE", "ENTRY", "PROFILE", "BADGE", "NONE").contains(u)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Wear slot must be FRAME, BUBBLE, ENTRY, PROFILE, BADGE or NONE");
+        return u;
     }
 }

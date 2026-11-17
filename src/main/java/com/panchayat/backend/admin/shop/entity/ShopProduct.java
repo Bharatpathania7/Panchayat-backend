@@ -46,6 +46,12 @@ public class ShopProduct {
     @Column(name = "display_order", nullable = false)
     private Integer displayOrder = 0;
 
+    @Column(name = "valid_days", nullable = false)
+    private Integer validDays = 0;
+
+    @Column(name = "wear_slot", length = 12)
+    private String wearSlot;
+
     @Column(nullable = false)
     private Boolean active = true;
 
@@ -159,6 +165,22 @@ public class ShopProduct {
 
     public void setAssetType(AssetType assetType) {
         this.assetType = assetType;
+    }
+
+    public Integer getValidDays() {
+        return validDays == null ? 0 : validDays;
+    }
+
+    public void setValidDays(Integer validDays) {
+        this.validDays = validDays == null ? 0 : validDays;
+    }
+
+    public String getWearSlot() {
+        return wearSlot;
+    }
+
+    public void setWearSlot(String wearSlot) {
+        this.wearSlot = wearSlot == null || wearSlot.isBlank() ? null : wearSlot;
     }
 
     public Integer getDisplayOrder() {

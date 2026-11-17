@@ -85,6 +85,28 @@ public class CreateProductRequest {
         this.assetUrl = assetUrl;
     }
 
+    @Min(value = 0, message = "Days cannot be negative")
+    private Integer validDays = 0;
+
+    @Size(max = 12)
+    private String wearSlot;
+
+    public Integer getValidDays() {
+        return validDays;
+    }
+
+    public void setValidDays(Integer validDays) {
+        this.validDays = validDays;
+    }
+
+    public String getWearSlot() {
+        return wearSlot;
+    }
+
+    public void setWearSlot(String wearSlot) {
+        this.wearSlot = wearSlot;
+    }
+
     public Integer getDisplayOrder() {
         return displayOrder;
     }

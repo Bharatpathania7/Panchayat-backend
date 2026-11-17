@@ -84,10 +84,20 @@ public class ShopPurchaseService {
         } catch (IllegalStateException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Not enough coins. Recharge to buy this.");
         }
-        jdbc.update("insert into user_shop_items (user_id, product_id, quantity) values (?, ?, ?)"
-                        + " on conflict (user_id, product_id) do update"
-                        + " set quantity = user_shop_items.quantity + excluded.quantity, last_bought_at = now()",
-                userId, p.getId(), qty);
+        String slot = wearSlot(p);
+        if (slot != null) {
+            // Frames, chat bubbles, entry effects ...: each one goes into the Bag as something to wear, for the number of days the admin set
+            String media = p.getAssetUrl();
+            String format = formatOf(media);
+            for (int i = 0; i < qty; i++) {
+                rewards.grantShopWearable(userId, p.getName(), slot, media, format, p.getValidDays() == null ? 0 : p.getValidDays());
+            }
+        } else {
+            jdbc.update("insert into user_shop_items (user_id, product_id, quantity) values (?, ?, ?)"
+                            + " on conflict (user_id, product_id) do update"
+                            + " set quantity = user_shop_items.quantity + excluded.quantity, last_bought_at = now()",
+                    userId, p.getId(), qty);
+        }
         // Shop spending counts towards random and guaranteed rewards too
         rewards.onSpend(userId, coins);
         // VIP growth ("God Points"): while VIP, every 100 coins spent adds 1 point
@@ -96,6 +106,26 @@ public class ShopPurchaseService {
         long balance = wallet.getBalance(userId);
         afterCommit(() -> walletPush.pushBalance(userId, "SHOP_PURCHASE", -coins));
         return result(userId, p, coins, balance);
+    }
+
+    private static String formatOf(String url) {
+        if (url == null) return null;
+        String path = url.split("[?#]")[0];
+        int dot = path.lastIndexOf('.');
+        return dot < 0 ? null : path.substring(dot + 1).toUpperCase();
+    }
+
+    /** Where this product is worn: the admin's choice, else worked out from the category name (frame, bubble, entry, profile). null = not wearable. */
+    static String wearSlot(ShopProduct p) {
+        String w = p.getWearSlot();
+        if (w != null) return "NONE".equals(w) ? null : w;
+        String c = p.getCategory() == null || p.getCategory().getName() == null ? "" : p.getCategory().getName().toLowerCase();
+        if (c.contains("bubble")) return "BUBBLE";
+        if (c.contains("frame")) return "FRAME";
+        if (c.contains("entry") || c.contains("entrance")) return "ENTRY";
+        if (c.contains("profile")) return "PROFILE";
+        if (c.contains("badge")) return "BADGE";
+        return null;
     }
 
     /** Everything you bought, newest first, with the product's details. */
@@ -126,7 +156,9 @@ public class ShopPurchaseService {
     }
 
     private Map<String, Object> result(Long userId, ShopProduct p, long spent, long balance) {
-        Integer owned = jdbc.query("select quantity from user_shop_items where user_id = ? and product_id = ?",
+        Integer owned = wearSlot(p) != null
+                ? jdbc.queryForObject("select count(*) from user_rewards where user_id = ? and item_name = ? and rule_kind = 'SHOP' and slot is not null and (expires_at is null or expires_at > now())", Integer.class, userId, p.getName().length() > 80 ? p.getName().substring(0, 80) : p.getName())
+                : jdbc.query("select quantity from user_shop_items where user_id = ? and product_id = ?",
                 rs -> rs.next() ? rs.getInt(1) : 0, userId, p.getId());
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("productId", p.getId());

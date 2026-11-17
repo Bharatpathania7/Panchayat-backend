@@ -53,6 +53,23 @@ public class ProductResponse {
         this.updatedAt = updatedAt;
     }
 
+    private Integer validDays = 0;
+    private String wearSlot;
+
+    public Integer getValidDays() {
+        return validDays;
+    }
+
+    public String getWearSlot() {
+        return wearSlot;
+    }
+
+    public ProductResponse wear(Integer validDays, String wearSlot) {
+        this.validDays = validDays;
+        this.wearSlot = wearSlot;
+        return this;
+    }
+
     public Long getId() {
         return id;
     }
