@@ -20,14 +20,16 @@ import java.util.*;
 @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
 public class AdminGamesController {
 
-    private static final List<String> GAMES = List.of("GADDAR", "RMCS", "LUDO", "JACKAROO");
+    private static final List<String> GAMES = List.of("GADDAR", "RMCS", "LUDO", "JACKAROO", "HILL");
 
     private final GaddarService gaddar;
     private final RmcsService rmcs;
     private final GameSwitches switches;
     private final JdbcTemplate jdbc;
+    private final com.panchayat.backend.games.hill.HillService hill;
 
-    public AdminGamesController(GaddarService gaddar, RmcsService rmcs, GameSwitches switches, JdbcTemplate jdbc) {
+    public AdminGamesController(GaddarService gaddar, RmcsService rmcs, GameSwitches switches, JdbcTemplate jdbc, com.panchayat.backend.games.hill.HillService hill) {
+        this.hill = hill;
         this.gaddar = gaddar;
         this.rmcs = rmcs;
         this.switches = switches;
@@ -46,6 +48,8 @@ public class AdminGamesController {
         Map<String, Object> rr = row("RMCS", "Raja Mantri Chor Sipahi", r.get("tables"), r.get("players"), r.get("tablesInPlay"));
         rr.put("bots", r.get("bots"));
         rows.add(rr);
+        Map<String, Object> hs = hill.stats();
+        rows.add(row("HILL", "Pahadi Daud", null, hs.get("playersToday"), hs.get("runsToday")));
         for (String[] x : new String[][]{{"LUDO", "Ludo"}, {"JACKAROO", "Jackaroo"}}) {
             long tables = 0, playing = 0;
             try {
