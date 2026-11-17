@@ -100,10 +100,13 @@ public class ParivarChestService {
         if (key == null || key.isBlank() || key.length() > 60) throw ParivarService.bad("A request key is required.");
         Map<String, Object> p = core.activeParivar(parivarId);
         core.require(parivarId, userId, "MANAGE_CHESTS");
-        List<Map<String, Object>> tl = jdbc.queryForList("select * from parivar_chest_types where id = ? and active", typeId);
+        List<Map<String, Object>> tl = jdbc.queryForList("select * from parivar_chest_types where id = ?", typeId);
         if (tl.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That chest isn't available.");
         Map<String, Object> t = tl.get(0);
-        if (((Number) p.get("level")).intValue() < ((Number) t.get("min_level")).intValue()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Your Parivar needs level " + t.get("min_level") + " for this chest.");
+        // A chest the Parivar already owns (bought in the shop or won in Gacha) can always be opened, even if its type is switched off or needs a higher level now
+        boolean owned = l(jdbc.queryForObject("select coalesce(sum(qty), 0) from parivar_inventory where parivar_id = ? and kind = 'CHEST' and ref = ?", Long.class, parivarId, typeId)) > 0;
+        if (!owned && !Boolean.TRUE.equals(t.get("active"))) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That chest isn't available.");
+        if (!owned && ((Number) p.get("level")).intValue() < ((Number) t.get("min_level")).intValue()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Your Parivar needs level " + t.get("min_level") + " for this chest.");
         String ref = "chestsend:" + parivarId + ":" + userId + ":" + key.strip();
         // A retry of a send that already worked: nothing more is taken
         if (l(jdbc.queryForObject("select count(*) from parivar_chests where send_key = ?", Long.class, ref)) > 0) return Map.of("ok", true);
