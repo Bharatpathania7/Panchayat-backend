@@ -28,7 +28,7 @@ public class HillService {
     public static final String GAME = "HILL";
     public static final int COIN_GAP = 40, FIRST_COIN = 30;
     /** Faster than this (metres per second) is not possible in the game. */
-    static final double MAX_SPEED = 38;
+    static final double MAX_SPEED = 66;
     static final ZoneId ZONE = ZoneId.of("Asia/Kolkata");
 
     private final JdbcTemplate jdbc;
