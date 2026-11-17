@@ -92,9 +92,9 @@ public class ParivarEconomyService {
 
     public List<Map<String, Object>> inventory(Long userId, Long parivarId) {
         member(parivarId, userId);
-        return jdbc.queryForList("select i.kind, i.ref, i.qty, coalesce(m.name, c.name, b.name, case when i.kind = 'ATTEMPT' then 'Stealing Attempts' end) as name from parivar_inventory i"
+        return jdbc.queryForList("select i.kind, i.ref, i.qty, coalesce(m.name, c.name, b.name, rp.name, case when i.kind = 'ATTEMPT' then 'Stealing Attempts' end) as name from parivar_inventory i"
                 + " left join parivar_gacha_machines m on i.kind = 'GACHA_CARD' and m.id = i.ref left join parivar_chest_types c on i.kind = 'CHEST' and c.id = i.ref"
-                + " left join parivar_barrier_types b on i.kind = 'BARRIER' and b.id = i.ref where i.parivar_id = ? and i.qty > 0 order by i.kind, i.ref", parivarId);
+                + " left join parivar_barrier_types b on i.kind = 'BARRIER' and b.id = i.ref left join parivar_redpacket_types rp on i.kind = 'REDPACKET' and rp.id = i.ref where i.parivar_id = ? and i.qty > 0 order by i.kind, i.ref", parivarId);
     }
 
     /** Gives a reward: COINS and CHARM go to the person, FUNDS to the treasury, CHEST / CARD / BARRIER to the Parivar inventory. */

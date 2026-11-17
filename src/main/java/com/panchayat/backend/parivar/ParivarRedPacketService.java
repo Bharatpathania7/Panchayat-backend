@@ -37,6 +37,9 @@ public class ParivarRedPacketService {
     private final ParivarService core;
     @Autowired @Lazy private CoinWalletService wallet;
     @Autowired @Lazy private WalletPushService walletPush;
+    @Autowired @Lazy private org.springframework.messaging.simp.SimpMessagingTemplate messaging;
+    @Autowired @Lazy private com.panchayat.backend.push.PushService push;
+    @Autowired @Lazy private ParivarEconomyService economy;
 
     public ParivarRedPacketService(JdbcTemplate jdbc, ParivarService core) {
         this.jdbc = jdbc;
@@ -63,11 +66,12 @@ public class ParivarRedPacketService {
         expireDue();
         List<Map<String, Object>> rows = jdbc.query("select r.*, u.full_name, exists (select 1 from parivar_redpacket_claims c where c.packet_id = r.id and c.user_id = ?) as mine,"
                         + " (select c.coins from parivar_redpacket_claims c where c.packet_id = r.id and c.user_id = ?) as my_coins"
-                        + " from parivar_redpackets r join users u on u.id = r.sender_id where r.parivar_id = ? and r.created_at > now() - interval '3 days' order by r.id desc limit 20",
-                (rs, i) -> {
+                        + " from parivar_redpackets r left join users u on u.id = r.sender_id where r.parivar_id = ? and r.created_at > now() - interval '3 days' order by r.id desc limit 20",
+                (rs, i2) -> {
                     Map<String, Object> m = new LinkedHashMap<>();
-                    m.put("id", String.valueOf(rs.getLong("id")));
-                    m.put("sender", rs.getString("full_name"));
+                    long id = rs.getLong("id");
+                    m.put("id", String.valueOf(id));
+                    m.put("sender", "ADMIN".equals(rs.getString("source")) ? "Panchayat" : rs.getString("full_name"));
                     m.put("total", rs.getLong("total"));
                     m.put("pieces", rs.getInt("pieces"));
                     m.put("claimed", rs.getInt("claimed"));
@@ -77,43 +81,116 @@ public class ParivarRedPacketService {
                     m.put("expiresAt", rs.getTimestamp("expires_at").toInstant().toString());
                     m.put("claimedByMe", rs.getBoolean("mine"));
                     m.put("myCoins", rs.getObject("my_coins") == null ? null : rs.getLong("my_coins"));
+                    m.put("top", top(id, 5));
                     return m;
                 }, userId, userId, parivarId);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("packets", rows);
-        out.put("canSend", "LEADER".equals(core.roleOf(parivarId, userId)));
+        out.put("canSend", canSend(parivarId, userId));
         out.put("funds", l(core.activeParivar(parivarId).get("funds")));
         out.put("members", l(jdbc.queryForObject("select count(*) from parivar_members where parivar_id = ?", Long.class, parivarId)));
+        // the red packets the Parivar has bought and not sent yet
+        out.put("owned", jdbc.query("select i.ref, i.qty, t.name, t.coins, t.pieces from parivar_inventory i join parivar_redpacket_types t on t.id = i.ref where i.parivar_id = ? and i.kind = 'REDPACKET' and i.qty > 0 order by t.sort_order, t.id",
+                (rs, i2) -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("typeId", String.valueOf(rs.getLong("ref")));
+                    m.put("qty", rs.getLong("qty"));
+                    m.put("name", rs.getString("name"));
+                    m.put("coins", rs.getLong("coins"));
+                    m.put("pieces", rs.getInt("pieces"));
+                    return m;
+                }, parivarId));
         return out;
     }
 
+    /** The biggest pieces of a packet, for the list under it in the chat. */
+    private List<Map<String, Object>> top(long packetId, int n) {
+        return jdbc.query("select u.full_name, c.coins from parivar_redpacket_claims c join users u on u.id = c.user_id where c.packet_id = ? order by c.coins desc, c.created_at limit " + n,
+                (rs, i) -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("name", rs.getString("full_name"));
+                    m.put("coins", rs.getLong("coins"));
+                    return m;
+                }, packetId);
+    }
+
+    /** The Mukhiya, and whoever the admin allowed in the Parivar settings (SEND_REDPACKET), can send. */
+    boolean canSend(Long parivarId, Long userId) {
+        return core.can(parivarId, userId, "SEND_REDPACKET");
+    }
+
+    /** Everyone in the Parivar hears about it: a line in the family chat, a notice in the app and a phone notification. */
+    private void announce(Long parivarId, long packetId, String from, long total, int pieces, String message, Long exceptUser) {
+        String text = "::redpacket::" + packetId + "|" + from.replace("|", " ") + "|" + total + "|" + pieces + "|" + (message == null ? "" : message.replace("|", " "));
+        core.system(parivarId, text);
+        List<Map<String, Object>> members = jdbc.queryForList("select u.id, u.email from parivar_members m join users u on u.id = m.user_id where m.parivar_id = ?", parivarId);
+        Runnable go = () -> {
+            for (Map<String, Object> mm : members) {
+                String email = (String) mm.get("email");
+                if (email == null) continue;
+                try {
+                    Map<String, Object> note = new LinkedHashMap<>();
+                    note.put("type", "PARIVAR_REDPACKET");
+                    note.put("parivarId", String.valueOf(parivarId));
+                    note.put("packetId", String.valueOf(packetId));
+                    note.put("fromName", from);
+                    note.put("coins", total);
+                    note.put("pieces", pieces);
+                    messaging.convertAndSendToUser(email, "/queue/notify", note);
+                    push.toEmail(email, "🧧 Parivar me red packet!", from + " ne " + String.format("%,d", total) + " coins ka red packet bheja. Family chat me jaakar kholo!", Map.of("type", "PARIVAR_REDPACKET", "parivarId", String.valueOf(parivarId)));
+                } catch (Exception ignored) {
+                    // one phone failing must not stop the rest
+                }
+            }
+        };
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    go.run();
+                }
+            });
+        } else {
+            go.run();
+        }
+    }
+
     @Transactional
-    public Map<String, Object> send(Long userId, Long parivarId, long coins, int pieces, boolean equal, String source, String message, String key) {
+    public Map<String, Object> send(Long userId, Long parivarId, Long typeId, boolean equal, String message, String key) {
         if (key == null || key.isBlank() || key.length() > 60) throw ParivarService.bad("A request key is required.");
         core.activeParivar(parivarId);
-        if (!"LEADER".equals(core.roleOf(parivarId, userId))) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the Mukhiya can send a red packet to the Parivar.");
-        String src = "FUNDS".equalsIgnoreCase(source) ? "FUNDS" : "COINS";
-        long members = l(jdbc.queryForObject("select count(*) from parivar_members where parivar_id = ?", Long.class, parivarId));
-        if (coins < 1 || coins > MAX_COINS) throw ParivarService.bad("Coins must be between 1 and " + MAX_COINS + ".");
-        if (pieces < 1 || pieces > Math.min(MAX_PIECES, Math.max(1, members))) throw ParivarService.bad("Pieces must be between 1 and " + Math.min(MAX_PIECES, Math.max(1, members)) + " (one for each member).");
-        if (coins < pieces) throw ParivarService.bad("At least 1 coin for each piece.");
+        if (!canSend(parivarId, userId)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can't send a red packet in this Parivar. Ask the Mukhiya.");
+        if (typeId == null) throw ParivarService.bad("Choose a red packet from your store.");
+        Map<String, Object> t = jdbc.queryForList("select * from parivar_redpacket_types where id = ?", typeId).stream().findFirst().orElse(null);
+        if (t == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That red packet isn't available.");
         String ref = "pvrp:" + parivarId + ":" + userId + ":" + key.strip();
         if (l(jdbc.queryForObject("select count(*) from parivar_redpackets where send_key = ?", Long.class, ref)) > 0) return Map.of("ok", true);
-        if ("FUNDS".equals(src)) {
-            core.changeFunds(parivarId, userId, -coins, "REDPACKET", ref);
-        } else {
-            try {
-                wallet.debit(userId, coins, "PARIVAR_REDPACKET", "parivar:" + parivarId, "pvrp-send:" + ref, "Parivar red packet");
-            } catch (IllegalStateException e) {
-                throw conflict("Not enough coins.");
-            }
-            walletPush.pushBalance(userId, "PARIVAR_REDPACKET", -coins);
-        }
+        // it must have been bought in the shop first
+        if (!economy.takeInventory(parivarId, "REDPACKET", typeId, 1)) throw conflict("Pehle Parivar shop se red packet kharido.");
+        long members = l(jdbc.queryForObject("select count(*) from parivar_members where parivar_id = ?", Long.class, parivarId));
+        long coins = l(t.get("coins"));
+        int pieces = (int) Math.max(1, Math.min(((Number) t.get("pieces")).intValue(), Math.max(1, members)));
+        pieces = (int) Math.min(pieces, coins);
         String msg = message == null || message.isBlank() ? null : message.strip().substring(0, Math.min(80, message.strip().length()));
-        jdbc.update("insert into parivar_redpackets (parivar_id, sender_id, source, total, pieces, equal, message, send_key, expires_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                parivarId, userId, src, coins, pieces, equal, msg, ref, Timestamp.from(Instant.now().plus(LIFETIME)));
-        core.system(parivarId, "🧧 Mukhiya ne Parivar ke liye " + String.format("%,d", coins) + " coins ka red packet bheja (" + pieces + " hisse). Red packet kholo aur apna hissa lo!");
-        return Map.of("ok", true);
+        Long id = jdbc.queryForObject("insert into parivar_redpackets (parivar_id, sender_id, source, total, pieces, equal, message, send_key, expires_at, type_id) values (?, ?, 'SHOP', ?, ?, ?, ?, ?, ?, ?) returning id",
+                Long.class, parivarId, userId, coins, pieces, equal, msg, ref, Timestamp.from(Instant.now().plus(LIFETIME)), typeId);
+        announce(parivarId, id, nameOf(userId), coins, pieces, msg, userId);
+        return Map.of("ok", true, "packetId", String.valueOf(id));
+    }
+
+    /** The admin sends a red packet to a Parivar from the admin panel; the coins are the platform's (nothing is taken from anyone). */
+    @Transactional
+    public Map<String, Object> adminSend(Long parivarId, long coins, int pieces, boolean equal, String message) {
+        Map<String, Object> p = core.activeParivar(parivarId);
+        long members = l(jdbc.queryForObject("select count(*) from parivar_members where parivar_id = ?", Long.class, parivarId));
+        if (coins < 1 || coins > MAX_COINS) throw ParivarService.bad("Coins must be between 1 and " + MAX_COINS + ".");
+        pieces = (int) Math.min(pieces, Math.min(Math.max(1, members), Math.max(1, coins)));
+        if (pieces < 1 || pieces > Math.min(MAX_PIECES, Math.max(1, members)) || coins < pieces) throw ParivarService.bad("Pieces must be 1 to " + Math.min(MAX_PIECES, Math.max(1, members)) + ", at least 1 coin each.");
+        String msg = message == null || message.isBlank() ? null : message.strip().substring(0, Math.min(80, message.strip().length()));
+        Long id = jdbc.queryForObject("insert into parivar_redpackets (parivar_id, sender_id, source, total, pieces, equal, message, expires_at) values (?, ?, 'ADMIN', ?, ?, ?, ?, ?) returning id",
+                Long.class, parivarId, ((Number) p.get("leader_id")).longValue(), coins, pieces, equal, msg, Timestamp.from(Instant.now().plus(LIFETIME)));
+        announce(parivarId, id, "Panchayat", coins, pieces, msg, null);
+        return Map.of("ok", true, "packetId", String.valueOf(id));
     }
 
     @Transactional
@@ -174,6 +251,9 @@ public class ParivarRedPacketService {
         if (back <= 0) return;
         long parivarId = l(r.get("parivar_id"));
         long sender = l(r.get("sender_id"));
+        if ("ADMIN".equals(r.get("source"))) {
+            return; // the platform's coins just stay unspent
+        }
         if ("FUNDS".equals(r.get("source"))) core.changeFunds(parivarId, sender, back, "REDPACKETBACK", "pvrp-back:" + id);
         else {
             wallet.credit(sender, back, "PARIVAR_REDPACKET", "parivar:" + parivarId, "pvrp-back:" + id, "Parivar red packet: unopened coins back");

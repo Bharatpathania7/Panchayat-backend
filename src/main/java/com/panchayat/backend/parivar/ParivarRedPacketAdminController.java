@@ -26,13 +26,18 @@ public class ParivarRedPacketAdminController {
 
     private final JdbcTemplate jdbc;
     private final ParivarService core;
+    private final ParivarRedPacketService service;
 
-    public ParivarRedPacketAdminController(JdbcTemplate jdbc, ParivarService core) {
+    public ParivarRedPacketAdminController(JdbcTemplate jdbc, ParivarService core, ParivarRedPacketService service) {
         this.jdbc = jdbc;
         this.core = core;
+        this.service = service;
     }
 
     public record BanBody(Long userId, String reason) {
+    }
+
+    public record SendBody(Long coins, Integer pieces, Boolean equal, String message) {
     }
 
     @ExceptionHandler(ResponseStatusException.class)
@@ -81,6 +86,13 @@ public class ParivarRedPacketAdminController {
                     m.put("at", rs.getTimestamp("created_at").toInstant().toString());
                     return m;
                 }, args);
+    }
+
+    /** The admin sends a red packet to a Parivar (free for the Parivar). */
+    @PostMapping("/{id:[0-9]+}/redpacket")
+    public Map<String, Object> send(@PathVariable Long id, @RequestBody SendBody b) {
+        if (b == null || b.coins() == null || b.pieces() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Enter the coins and the number of pieces.");
+        return service.adminSend(id, b.coins(), b.pieces(), Boolean.TRUE.equals(b.equal()), b.message());
     }
 
     @PostMapping("/{id:[0-9]+}/ban")

@@ -55,7 +55,7 @@ public class ParivarExtrasController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Only user accounts can use Parivar")).getId();
     }
 
-    public record RedPacketBody(Long coins, Integer pieces, Boolean equal, String source, String message) {
+    public record RedPacketBody(Long typeId, Boolean equal, String message) {
     }
 
     public record BanBody(String reason) {
@@ -70,8 +70,8 @@ public class ParivarExtrasController {
 
     @PostMapping("/redpackets")
     public Map<String, Object> redPacketSend(@PathVariable Long id, @RequestBody RedPacketBody b, @RequestHeader(value = "Idempotency-Key", required = false) String key, Authentication auth) {
-        if (b == null || b.coins() == null || b.pieces() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Enter the coins and the number of pieces.");
-        return redPackets.send(me(auth), id, b.coins(), b.pieces(), Boolean.TRUE.equals(b.equal()), b.source(), b.message(), key);
+        if (b == null || b.typeId() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose a red packet from your store.");
+        return redPackets.send(me(auth), id, b.typeId(), Boolean.TRUE.equals(b.equal()), b.message(), key);
     }
 
     @PostMapping("/redpackets/{packetId:[0-9]+}/claim")

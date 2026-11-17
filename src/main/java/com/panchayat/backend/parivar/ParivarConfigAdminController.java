@@ -69,8 +69,10 @@ public class ParivarConfigAdminController {
                 Col.num("tierId", "tier_id", 1, BIG), Col.oneOf("kind", "kind", "GIFT", "ITEM", "VIP_CARD", "TITLE", "BADGE", "COLLECTIBLE", "PROFILE_TITLE"), Col.num("ref", "ref", 0, BIG), Col.str("giftId", "gift_id", 64, false),
                 Col.num("amount", "amount", 0, BIG), Col.oneOf("rarity", "rarity", "COMMON", "PREMIUM", "EPIC", "LEGENDARY", "ULTRA_RARE"), Col.integer("weight", "weight", 1, 1_000_000),
                 Col.integer("maxPerChest", "max_per_chest", 0, 1000), Col.integer("validDays", "valid_days", 0, 3650), Col.str("label", "label", 60, true), Col.str("imageUrl", "image_url", 500, false), Col.bool("active", "active")), true, "tierId"));
+        SECTIONS.put("redpacket-types", new Section("parivar_redpacket_types", "sort_order, id", List.of(
+                Col.str("name", "name", 40, true), Col.num("coins", "coins", 1, BIG), Col.integer("pieces", "pieces", 1, 100), Col.integer("sortOrder", "sort_order", 0, 100000), Col.bool("active", "active")), false, null));
         SECTIONS.put("shop", new Section("parivar_shop_items", "sort_order, id", List.of(
-                Col.str("name", "name", 40, true), Col.str("imageUrl", "image_url", 500, false), Col.oneOf("kind", "kind", "GACHA_CARD", "CHEST", "BARRIER"), Col.num("ref", "ref", 1, BIG),
+                Col.str("name", "name", 40, true), Col.str("imageUrl", "image_url", 500, false), Col.oneOf("kind", "kind", "GACHA_CARD", "CHEST", "BARRIER", "REDPACKET"), Col.num("ref", "ref", 1, BIG),
                 Col.integer("qty", "qty", 1, 1000), Col.num("priceFunds", "price_funds", 0, BIG), Col.num("priceCoins", "price_coins", 0, BIG), Col.integer("dailyLimit", "daily_limit", 0, 100000),
                 Col.integer("minLevel", "min_level", 1, 100), Col.integer("sortOrder", "sort_order", 0, 100000), Col.bool("active", "active")), false, null));
         SECTIONS.put("tasks", new Section("parivar_tasks", "period, sort_order, id", List.of(
@@ -203,6 +205,7 @@ public class ParivarConfigAdminController {
             case "CHEST" -> "parivar_chest_types";
             case "CARD", "GACHA_CARD" -> "parivar_gacha_machines";
             case "BARRIER" -> "parivar_barrier_types";
+            case "REDPACKET" -> "parivar_redpacket_types";
             default -> null;
         };
         if (table == null) return;

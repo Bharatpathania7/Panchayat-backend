@@ -199,6 +199,7 @@ public class AdminGiftController {
         m.put("minGiftCoins", s.minGiftCoins());
         m.put("dailyCap", s.dailyCap());
         m.put("pairDailyLimit", s.pairDailyLimit());
+        m.put("tiers", s.tiers());
         return m;
     }
 

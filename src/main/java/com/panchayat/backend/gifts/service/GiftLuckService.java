@@ -64,15 +64,15 @@ public class GiftLuckService {
     static final double MIDDLE_CHANCE = 0.0;
 
     /** Everything the admin sets for lucky coins. */
-    public record Settings(boolean enabled, double chancePercent, long defaultMin, long defaultMax, double highChance, double middleChance, long minGiftCoins, long dailyCap, int pairDailyLimit) {
+    public record Settings(boolean enabled, double chancePercent, long defaultMin, long defaultMax, double highChance, double middleChance, long minGiftCoins, long dailyCap, int pairDailyLimit, String tiers) {
     }
 
     private static final java.time.ZoneId ZONE = java.time.ZoneId.of("Asia/Kolkata");
 
     public Settings settings() {
-        Settings s = jdbc.query("select lucky_enabled, lucky_chance_percent, lucky_default_min, lucky_default_max, lucky_high_chance, lucky_middle_chance, lucky_min_gift_coins, lucky_daily_cap, lucky_pair_daily_limit from gift_settings where id = 1",
-                rs -> rs.next() ? new Settings(rs.getBoolean(1), rs.getDouble(2), rs.getLong(3), rs.getLong(4), rs.getDouble(5), rs.getDouble(6), rs.getLong(7), rs.getLong(8), rs.getInt(9)) : null);
-        return s != null ? s : new Settings(false, 25, BONUS_MIN, BONUS_MAX, HIGH_CHANCE * 100, MIDDLE_CHANCE * 100, 0, 0, 0);
+        Settings s = jdbc.query("select lucky_enabled, lucky_chance_percent, lucky_default_min, lucky_default_max, lucky_high_chance, lucky_middle_chance, lucky_min_gift_coins, lucky_daily_cap, lucky_pair_daily_limit, lucky_tiers from gift_settings where id = 1",
+                rs -> rs.next() ? new Settings(rs.getBoolean(1), rs.getDouble(2), rs.getLong(3), rs.getLong(4), rs.getDouble(5), rs.getDouble(6), rs.getLong(7), rs.getLong(8), rs.getInt(9), rs.getString(10) == null ? "" : rs.getString(10)) : null);
+        return s != null ? s : new Settings(false, 25, BONUS_MIN, BONUS_MAX, HIGH_CHANCE * 100, MIDDLE_CHANCE * 100, 0, 0, 0, "");
     }
 
     /** Saves the settings the admin sent (missing ones stay as they are). Returns the saved settings. */
@@ -95,12 +95,51 @@ public class GiftLuckService {
             if (r < 0 || r != Math.floor(r)) throw new IllegalArgumentException("Coins per Charm must be a whole number (0 = use each gift's own Charm).");
             jdbc.update("insert into gift_settings (id, coins_per_charm) values (1, ?) on conflict (id) do update set coins_per_charm = excluded.coins_per_charm", (int) r);
         }
+        String tiers = in.get("tiers") == null ? c.tiers() : normalizeTiers(String.valueOf(in.get("tiers")));
         if (minGift < 0 || cap < 0 || pair < 0) throw new IllegalArgumentException("Limits can't be negative (0 means no limit).");
-        jdbc.update("insert into gift_settings (id, lucky_enabled, lucky_chance_percent, lucky_default_min, lucky_default_max, lucky_high_chance, lucky_middle_chance, lucky_min_gift_coins, lucky_daily_cap, lucky_pair_daily_limit) values (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        jdbc.update("insert into gift_settings (id, lucky_enabled, lucky_chance_percent, lucky_default_min, lucky_default_max, lucky_high_chance, lucky_middle_chance, lucky_min_gift_coins, lucky_daily_cap, lucky_pair_daily_limit, lucky_tiers) values (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 + " on conflict (id) do update set lucky_enabled = excluded.lucky_enabled, lucky_chance_percent = excluded.lucky_chance_percent, lucky_default_min = excluded.lucky_default_min, lucky_default_max = excluded.lucky_default_max,"
-                + " lucky_high_chance = excluded.lucky_high_chance, lucky_middle_chance = excluded.lucky_middle_chance, lucky_min_gift_coins = excluded.lucky_min_gift_coins, lucky_daily_cap = excluded.lucky_daily_cap, lucky_pair_daily_limit = excluded.lucky_pair_daily_limit",
-                enabled, chance, min, max, high, mid, minGift, cap, pair);
+                + " lucky_high_chance = excluded.lucky_high_chance, lucky_middle_chance = excluded.lucky_middle_chance, lucky_min_gift_coins = excluded.lucky_min_gift_coins, lucky_daily_cap = excluded.lucky_daily_cap, lucky_pair_daily_limit = excluded.lucky_pair_daily_limit, lucky_tiers = excluded.lucky_tiers",
+                enabled, chance, min, max, high, mid, minGift, cap, pair, tiers);
         return settings();
+    }
+
+    /** "minCoins:percent;..." cleaned up and sorted; throws when a part is wrong. */
+    static String normalizeTiers(String raw) {
+        java.util.TreeMap<Long, Double> m = new java.util.TreeMap<>();
+        for (String part : raw.split("[;\n]")) {
+            if (part.isBlank()) continue;
+            String[] kv = part.trim().split(":");
+            if (kv.length != 2) throw new IllegalArgumentException("Each price rule needs a gift price and a chance.");
+            try {
+                long min = Long.parseLong(kv[0].trim());
+                double pct = Double.parseDouble(kv[1].trim());
+                if (min < 0 || pct < 0 || pct > 100) throw new IllegalArgumentException("Chance must be 0 to 100 and the price can't be negative.");
+                m.put(min, pct);
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("Price rules must be numbers.");
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        m.forEach((k, v) -> sb.append(sb.length() > 0 ? ";" : "").append(k).append(':').append(v == Math.floor(v) ? String.valueOf(v.longValue()) : String.valueOf(v)));
+        return sb.toString();
+    }
+
+    /** The chance (0 to 100) for a gift whose single price is unitCoins: the highest price tier it reaches, else the plain chance. */
+    static double chanceFor(Settings st, long unitCoins) {
+        double chance = st.chancePercent();
+        if (st.tiers() == null || st.tiers().isBlank()) return chance;
+        long best = -1;
+        for (String part : st.tiers().split(";")) {
+            String[] kv = part.split(":");
+            if (kv.length != 2) continue;
+            long min = Long.parseLong(kv[0]);
+            if (unitCoins >= min && min > best) {
+                best = min;
+                chance = Double.parseDouble(kv[1]);
+            }
+        }
+        return chance;
     }
 
     private static double num(Object v, double fallback) {
@@ -211,7 +250,8 @@ public class GiftLuckService {
         long unitCoins = Math.max(1, coins / n);
         long bonus = 0;
         for (int i = 0; i < n; i++) {
-            if (st.chancePercent() < 100 && random.nextDouble() * 100 >= st.chancePercent()) continue;
+            double pct = chanceFor(st, unitCoins);
+            if (pct < 100 && random.nextDouble() * 100 >= pct) continue;
             long one = t.coinMin() != null && t.coinMax() != null
                     ? tiered(random, t.coinMin(), t.coinMax(), st.highChance() / 100.0, st.middleChance() / 100.0)
                     : roll(unitCoins, st);

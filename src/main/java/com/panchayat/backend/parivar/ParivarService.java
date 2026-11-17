@@ -32,7 +32,7 @@ public class ParivarService {
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     /** Public Parivar ID shown to people = 4,000,000 + internal id. */
     public static final long CODE_BASE = 4_000_000L;
-    public static final List<String> PERMS = List.of("EDIT_PROFILE", "EDIT_ANNOUNCEMENT", "ACCEPT_APPLICATIONS", "REMOVE_MEMBERS", "APPOINT_DEPUTY", "APPOINT_ADMIN", "MANAGE_TREASURY", "MANAGE_SETTINGS", "USE_STEAL", "MANAGE_STEAL", "MANAGE_BARRIER", "MANAGE_GACHA", "MANAGE_CHESTS", "MANAGE_VOICE");
+    public static final List<String> PERMS = List.of("EDIT_PROFILE", "EDIT_ANNOUNCEMENT", "ACCEPT_APPLICATIONS", "REMOVE_MEMBERS", "APPOINT_DEPUTY", "APPOINT_ADMIN", "MANAGE_TREASURY", "MANAGE_SETTINGS", "USE_STEAL", "MANAGE_STEAL", "MANAGE_BARRIER", "MANAGE_GACHA", "MANAGE_CHESTS", "MANAGE_VOICE", "SEND_REDPACKET");
     private static final List<String> ROLE_RANK = List.of("MEMBER", "ADMIN", "DEPUTY", "LEADER");
 
     private final JdbcTemplate jdbc;
