@@ -214,7 +214,7 @@ public class PaymentFulfillmentTransactionService {
 
         paymentRepository.save(payment);
         // A top-up can unlock a title (rules by top-up amount)
-        if (payment.getPurpose() == Purpose.COIN_PACK) titleRules.onMoney(userId, "TOPUP");
+        if (payment.getPurpose() == Purpose.COIN_PACK) titleRules.onTopup(userId, payment.getProductId());
 
         // Sarpanch: once, after this commit (eventKey stops PayU retries sending it twice)
         String amount = payment.getAmount().stripTrailingZeros().toPlainString();

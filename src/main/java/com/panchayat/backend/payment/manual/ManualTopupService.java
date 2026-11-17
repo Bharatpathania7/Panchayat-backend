@@ -291,7 +291,7 @@ public class ManualTopupService {
         BigDecimal amount = new BigDecimal(String.valueOf(t.get("amount_inr")));
         wallet.credit(userId, coins, "PAYMENT_PURCHASE", "manual-topup:" + id, "MANUAL-TOPUP:" + id, "Manual UPI top-up: " + t.get("pack_name"));
         jdbc.update("update manual_topups set status = 'APPROVED', reviewed_by = ?, reviewed_at = now() where id = ?", admin, id);
-        titleRules.onMoney(userId, "TOPUP");
+        titleRules.onTopup(userId, ((Number) t.get("pack_id")).longValue());
         Runnable after = () -> {
             try {
                 walletPush.pushBalance(userId, "PAYMENT_PURCHASE", coins);

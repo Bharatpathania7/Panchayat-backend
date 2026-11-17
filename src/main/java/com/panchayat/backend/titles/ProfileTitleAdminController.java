@@ -47,6 +47,31 @@ public class ProfileTitleAdminController {
         return t == null ? null : t.toInstant().toString();
     }
 
+    /** Every coin pack with the title (and days) set for it. */
+    @GetMapping("/coin-packs")
+    public List<Map<String, Object>> coinPackTitles() {
+        return jdbc.queryForList("select p.id, p.name, p.coins, p.price_in_rupees as \"price\", p.active, c.title_id as \"titleId\", coalesce(c.days, 0) as days"
+                + " from coin_packs p left join coin_pack_titles c on c.pack_id = p.id order by p.sort_order, p.id");
+    }
+
+    public record PackTitleBody(Long titleId, Integer days) {
+    }
+
+    /** Sets (or, with no titleId, clears) the title for a coin pack. */
+    @PutMapping("/coin-packs/{packId:[0-9]+}")
+    public Map<String, Object> setCoinPackTitle(@PathVariable Long packId, @RequestBody PackTitleBody b) {
+        if (jdbc.queryForObject("select count(*) from coin_packs where id = ?", Long.class, packId) == 0) throw bad("That coin pack doesn't exist.");
+        if (b == null || b.titleId() == null) {
+            jdbc.update("delete from coin_pack_titles where pack_id = ?", packId);
+            return Map.of("cleared", true);
+        }
+        if (jdbc.queryForObject("select count(*) from profile_titles where id = ?", Long.class, b.titleId()) == 0) throw bad("That title doesn't exist.");
+        int days = b.days() == null ? 0 : b.days();
+        if (days < 0 || days > 3650) throw bad("Days must be 0 to 3650 (0 = the title's own validity).");
+        jdbc.update("insert into coin_pack_titles (pack_id, title_id, days) values (?, ?, ?) on conflict (pack_id) do update set title_id = excluded.title_id, days = excluded.days", packId, b.titleId(), days);
+        return Map.of("saved", true);
+    }
+
     @GetMapping
     public Map<String, Object> list() {
         List<Map<String, Object>> rows = jdbc.query("select t.*, (select count(*) from user_titles u where u.title_id = t.id and (u.expires_at is null or u.expires_at > now())) as holders,"

@@ -115,6 +115,7 @@ public class TitleRuleService {
 
     /** Runs every active rule (or one). Returns how many people each rule matched. */
     public Map<Long, Integer> sync(Long onlyRule) {
+        moneyRules = null; // rules changed: the top-up / gift rule list is read again
         Map<Long, Integer> out = new LinkedHashMap<>();
         List<Map<String, Object>> rules = onlyRule == null
                 ? jdbc.queryForList("select r.*, t.duration_days as title_days from title_auto_rules r join profile_titles t on t.id = r.title_id where r.active and t.active")
@@ -170,6 +171,22 @@ public class TitleRuleService {
     private volatile List<Map<String, Object>> moneyRules;
     private volatile long moneyRulesAt;
 
+    /** The title the admin set for this coin pack, with its validity. */
+    private void grantForPack(Long userId, Long packId) {
+        List<Map<String, Object>> m = jdbc.queryForList("select c.title_id, c.days, t.duration_days from coin_pack_titles c join profile_titles t on t.id = c.title_id where c.pack_id = ? and t.active", packId);
+        if (m.isEmpty()) return;
+        long titleId = ((Number) m.get(0).get("title_id")).longValue();
+        int days = ((Number) m.get(0).get("days")).intValue();
+        if (days == 0) days = ((Number) m.get(0).get("duration_days")).intValue();
+        String source = "PACK:" + packId;
+        if (days == 0) {
+            jdbc.update("insert into user_titles (user_id, title_id, source) values (?, ?, ?) on conflict (user_id, title_id) do update set expires_at = case when user_titles.source = ? then null else user_titles.expires_at end", userId, titleId, source, source);
+        } else {
+            jdbc.update("insert into user_titles (user_id, title_id, source, expires_at) values (?, ?, ?, now() + (? * interval '1 day')) on conflict (user_id, title_id) do update set expires_at ="
+                    + " case when user_titles.expires_at is null then null else greatest(user_titles.expires_at, now() + (? * interval '1 day')) end", userId, titleId, source, days, days);
+        }
+    }
+
     /** The active top-up and gift rules (kept for a minute, so a gift being sent costs nothing extra when there are none). */
     private List<Map<String, Object>> moneyRules() {
         long now = System.currentTimeMillis();
@@ -188,7 +205,41 @@ public class TitleRuleService {
      */
     public void onMoney(Long userId, String kinds) {
         if (userId == null) return;
+        afterCommitOwnTx(() -> runMoney(userId, kinds, null));
+    }
+
+    /** A coin pack was bought (gateway or manual): gives the title set for that pack, and the amount rules too. */
+    public void onTopup(Long userId, Long packId) {
+        if (userId == null) return;
+        afterCommitOwnTx(() -> runMoney(userId, "TOPUP", packId));
+    }
+
+    /** Runs after the payment / gift has committed, in its own transaction, so a problem here can never undo the payment. */
+    private void afterCommitOwnTx(Runnable r) {
+        Runnable safe = () -> {
+            try {
+                org.springframework.transaction.support.TransactionTemplate own = new org.springframework.transaction.support.TransactionTemplate(tx.getTransactionManager());
+                own.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+                own.executeWithoutResult(st -> r.run());
+            } catch (Exception e) {
+                log.warn("Title grant after a payment / gift failed: {}", e.getMessage());
+            }
+        };
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    safe.run();
+                }
+            });
+        } else {
+            safe.run();
+        }
+    }
+
+    private void runMoney(Long userId, String kinds, Long packId) {
         try {
+            if (packId != null) grantForPack(userId, packId);
             for (Map<String, Object> r : moneyRules()) {
                 String kind = (String) r.get("kind");
                 if (!kind.startsWith(kinds)) continue;
