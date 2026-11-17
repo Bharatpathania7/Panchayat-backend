@@ -59,6 +59,21 @@ public class ParivarChestService {
         return o == null ? 0 : ((Number) o).longValue();
     }
 
+    /** What can be inside a chest and the real chance of each (its weight out of all the active weights), so people see the odds before opening. */
+    List<Map<String, Object>> oddsOf(long chestTypeId) {
+        List<Map<String, Object>> rows = jdbc.queryForList("select label, kind, weight from parivar_chest_rewards where chest_id = ? and active and weight > 0 order by weight desc, id", chestTypeId);
+        long total = rows.stream().mapToLong(r -> l(r.get("weight"))).sum();
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> r : rows) {
+            Map<String, Object> x = new LinkedHashMap<>();
+            x.put("label", r.get("label"));
+            x.put("kind", r.get("kind"));
+            x.put("chance", total == 0 ? 0 : Math.round(l(r.get("weight")) * 10000.0 / total) / 100.0);
+            out.add(x);
+        }
+        return out;
+    }
+
     /** The chest types the Parivar can send (with how many it has in its inventory) and the chests sent recently. */
     public Map<String, Object> chests(Long userId, Long parivarId) {
         Map<String, Object> p = core.activeParivar(parivarId);
@@ -73,6 +88,7 @@ public class ParivarChestService {
                     m.put("priceFunds", rs.getLong("price_funds"));
                     m.put("pieces", rs.getInt("pieces"));
                     m.put("owned", rs.getLong("owned"));
+                    m.put("rewards", oddsOf(rs.getLong("id")));
                     return m;
                 }, parivarId, level);
         List<Map<String, Object>> sent = jdbc.query("select c.id, c.name, c.pieces, c.claimed, c.status, c.expires_at, c.created_at, u.full_name,"

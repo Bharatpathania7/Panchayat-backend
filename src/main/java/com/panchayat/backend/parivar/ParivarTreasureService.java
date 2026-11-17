@@ -95,7 +95,19 @@ public class ParivarTreasureService {
             m.put("rewards", jdbc.query("select r.kind, r.rarity, r.weight, case when r.kind = 'COLLECTIBLE' then c.name when r.kind = 'PROFILE_TITLE' then pt.name else r.label end as label, coalesce(c.media_url, pt.icon_url, r.image_url) as image_url from treasure_rewards r"
                     + " left join parivar_collectibles c on r.kind = 'COLLECTIBLE' and c.id = r.ref left join profile_titles pt on r.kind = 'PROFILE_TITLE' and pt.id = r.ref"
                     + " where r.tier_id = ? and r.active and (r.kind <> 'COLLECTIBLE' or c.active) and (r.kind <> 'PROFILE_TITLE' or pt.active) order by r.weight desc, r.id",
-                    (rs, i) -> Map.of("kind", rs.getString("kind"), "rarity", rs.getString("rarity"), "label", rs.getString("label"), "imageUrl", MediaUrls.link(rs.getString("image_url")) == null ? "" : MediaUrls.link(rs.getString("image_url"))), t.get("id")));
+                    (rs, i) -> {
+                        Map<String, Object> x = new LinkedHashMap<>();
+                        x.put("kind", rs.getString("kind"));
+                        x.put("rarity", rs.getString("rarity"));
+                        x.put("label", rs.getString("label"));
+                        x.put("imageUrl", MediaUrls.link(rs.getString("image_url")) == null ? "" : MediaUrls.link(rs.getString("image_url")));
+                        x.put("weight", rs.getLong("weight"));
+                        return x;
+                    }, t.get("id")));
+            // The real chance of each reward: its weight out of all the weights shown
+            @SuppressWarnings("unchecked") List<Map<String, Object>> shown = (List<Map<String, Object>>) m.get("rewards");
+            long sum = shown.stream().mapToLong(x -> ((Number) x.get("weight")).longValue()).sum();
+            for (Map<String, Object> x : shown) x.put("chance", sum == 0 ? 0 : Math.round(((Number) x.remove("weight")).longValue() * 10000.0 / sum) / 100.0);
             tiers.add(m);
         }
         List<Map<String, Object>> chests = new ArrayList<>();
