@@ -117,8 +117,8 @@ public class TitleRuleService {
     public Map<Long, Integer> sync(Long onlyRule) {
         Map<Long, Integer> out = new LinkedHashMap<>();
         List<Map<String, Object>> rules = onlyRule == null
-                ? jdbc.queryForList("select r.* from title_auto_rules r join profile_titles t on t.id = r.title_id where r.active and t.active")
-                : jdbc.queryForList("select r.* from title_auto_rules r where r.id = ?", onlyRule);
+                ? jdbc.queryForList("select r.*, t.duration_days as title_days from title_auto_rules r join profile_titles t on t.id = r.title_id where r.active and t.active")
+                : jdbc.queryForList("select r.*, t.duration_days as title_days from title_auto_rules r join profile_titles t on t.id = r.title_id where r.id = ?", onlyRule);
         for (Map<String, Object> r : rules) {
             long id = ((Number) r.get("id")).longValue();
             try {
@@ -131,10 +131,20 @@ public class TitleRuleService {
         return out;
     }
 
+    /** How long the rule's title lasts: the rule's own days, else (for top-up and gift rules) the validity set on the title itself; 0 = no end. */
+    private static int effectiveDays(Map<String, Object> r) {
+        int days = ((Number) r.get("days")).intValue();
+        if (days > 0) return days;
+        String kind = (String) r.get("kind");
+        boolean money = kind.startsWith("TOPUP") || kind.startsWith("GIFT");
+        Object td = r.get("title_days");
+        return money && td instanceof Number n ? n.intValue() : 0;
+    }
+
     private int runOne(Map<String, Object> r) {
         long id = ((Number) r.get("id")).longValue();
         long titleId = ((Number) r.get("title_id")).longValue();
-        int days = ((Number) r.get("days")).intValue();
+        int days = effectiveDays(r);
         String source = "AUTO:" + id;
         Set<Long> q = qualified((String) r.get("kind"), (String) r.get("value"));
         if (days == 0) {
@@ -165,7 +175,7 @@ public class TitleRuleService {
         long now = System.currentTimeMillis();
         List<Map<String, Object>> l = moneyRules;
         if (l == null || now - moneyRulesAt > 60_000) {
-            l = jdbc.queryForList("select r.* from title_auto_rules r join profile_titles t on t.id = r.title_id where r.active and t.active and r.kind in ('TOPUP_TOTAL','TOPUP_ONE','GIFT_SENT','GIFT_RECEIVED')");
+            l = jdbc.queryForList("select r.*, t.duration_days as title_days from title_auto_rules r join profile_titles t on t.id = r.title_id where r.active and t.active and r.kind in ('TOPUP_TOTAL','TOPUP_ONE','GIFT_SENT','GIFT_RECEIVED')");
             moneyRules = l;
             moneyRulesAt = now;
         }
@@ -185,15 +195,15 @@ public class TitleRuleService {
                 if (!qualified(kind, (String) r.get("value"), userId).contains(userId)) continue;
                 long id = ((Number) r.get("id")).longValue();
                 long titleId = ((Number) r.get("title_id")).longValue();
-                int days = ((Number) r.get("days")).intValue();
+                int days = effectiveDays(r);
                 String source = "AUTO:" + id;
                 if (days == 0) {
                     jdbc.update("insert into user_titles (user_id, title_id, source) values (?, ?, ?) on conflict (user_id, title_id) do update set expires_at = case when user_titles.source = ? then null else user_titles.expires_at end", userId, titleId, source, source);
                 } else {
-                    if (jdbc.update("insert into title_rule_grants (rule_id, user_id) values (?, ?) on conflict do nothing", id, userId) == 0) continue;
-                    Timestamp exp = Timestamp.from(Instant.now().plus(Duration.ofDays(days)));
-                    jdbc.update("insert into user_titles (user_id, title_id, source, expires_at) values (?, ?, ?, ?) on conflict (user_id, title_id) do update set expires_at ="
-                            + " case when user_titles.expires_at is null then null else greatest(user_titles.expires_at, excluded.expires_at) end", userId, titleId, source, exp);
+                    // Every top-up (or gift) that keeps them at the amount renews the validity to `days` from now (it never stacks beyond that)
+                    jdbc.update("insert into title_rule_grants (rule_id, user_id) values (?, ?) on conflict do nothing", id, userId);
+                    jdbc.update("insert into user_titles (user_id, title_id, source, expires_at) values (?, ?, ?, now() + (? * interval '1 day')) on conflict (user_id, title_id) do update set expires_at ="
+                            + " case when user_titles.expires_at is null then null else greatest(user_titles.expires_at, now() + (? * interval '1 day')) end", userId, titleId, source, days, days);
                 }
             }
         } catch (Exception e) {
