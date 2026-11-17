@@ -89,8 +89,8 @@ public class ParivarChestService {
         Map<String, Object> res = new LinkedHashMap<>();
         res.put("types", types);
         res.put("sent", sent);
-        // The Mukhiya, whoever may manage chests, and the one who looks after the treasury (the Munshi) can open the chests for the family
-        res.put("canSend", core.can(parivarId, userId, "MANAGE_CHESTS") || core.can(parivarId, userId, "MANAGE_TREASURY"));
+        // The Mukhiya (and anyone the Mukhiya allows to manage chests) opens the chests for the family
+        res.put("canSend", core.can(parivarId, userId, "MANAGE_CHESTS"));
         res.put("funds", l(p.get("funds")));
         return res;
     }
@@ -99,7 +99,7 @@ public class ParivarChestService {
     public Map<String, Object> send(Long userId, Long parivarId, Long typeId, String key) {
         if (key == null || key.isBlank() || key.length() > 60) throw ParivarService.bad("A request key is required.");
         Map<String, Object> p = core.activeParivar(parivarId);
-        if (!core.can(parivarId, userId, "MANAGE_CHESTS") && !core.can(parivarId, userId, "MANAGE_TREASURY")) core.require(parivarId, userId, "MANAGE_CHESTS");
+        core.require(parivarId, userId, "MANAGE_CHESTS");
         List<Map<String, Object>> tl = jdbc.queryForList("select * from parivar_chest_types where id = ? and active", typeId);
         if (tl.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That chest isn't available.");
         Map<String, Object> t = tl.get(0);
