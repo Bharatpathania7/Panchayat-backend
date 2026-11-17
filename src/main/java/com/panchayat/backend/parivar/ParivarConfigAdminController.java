@@ -58,8 +58,8 @@ public class ParivarConfigAdminController {
                 Col.str("name", "name", 40, true), Col.str("imageUrl", "image_url", 500, false), Col.num("priceFunds", "price_funds", 0, BIG), Col.integer("pieces", "pieces", 1, 1000),
                 Col.integer("minLevel", "min_level", 1, 100), Col.integer("sortOrder", "sort_order", 0, 100000), Col.bool("active", "active")), false, null));
         SECTIONS.put("chest-rewards", new Section("parivar_chest_rewards", "chest_id, weight desc, id", List.of(
-                Col.num("chestId", "chest_id", 1, BIG), Col.oneOf("kind", "kind", "COINS", "FUNDS", "CHARM", "CHEST", "CARD", "BARRIER"), Col.num("ref", "ref", 0, BIG), Col.num("amount", "amount", 1, BIG),
-                Col.integer("weight", "weight", 1, 1_000_000), Col.str("label", "label", 60, true), Col.bool("active", "active")), true, "chestId"));
+                Col.num("chestId", "chest_id", 1, BIG), Col.oneOf("kind", "kind", "COINS", "FUNDS", "CHARM", "CHEST", "CARD", "BARRIER", "GIFT_CARD", "ITEM"), Col.num("ref", "ref", 0, BIG), Col.str("giftId", "gift_id", 64, false), Col.num("amount", "amount", 1, BIG),
+                Col.integer("validDays", "valid_days", 0, 3650), Col.integer("weight", "weight", 1, 1_000_000), Col.str("label", "label", 60, true), Col.bool("active", "active")), true, "chestId"));
         SECTIONS.put("treasure-tiers", new Section("treasure_tiers", "sort_order, id", List.of(
                 Col.str("code", "code", 12, true), Col.str("name", "name", 40, true), Col.bool("enabled", "enabled"), Col.num("weeklyTarget", "weekly_target", 1, BIG),
                 Col.integer("unlockMinutes", "unlock_minutes", 0, 525600), Col.num("skipCoinsPerMinute", "skip_coins_per_minute", 0, BIG), Col.num("poolCoins", "pool_coins", 0, BIG), Col.num("poolDiamonds", "pool_diamonds", 0, BIG),

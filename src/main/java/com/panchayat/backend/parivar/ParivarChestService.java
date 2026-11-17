@@ -33,6 +33,9 @@ public class ParivarChestService {
     private final ParivarService core;
     private final ParivarEconomyService economy;
     private final TransactionTemplate tx;
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.rewards.service.SpendRewardService bag;
     private final ScheduledExecutorService ticker = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "parivar-chests");
         t.setDaemon(true);
@@ -73,7 +76,8 @@ public class ParivarChestService {
                     return m;
                 }, parivarId, level);
         List<Map<String, Object>> sent = jdbc.query("select c.id, c.name, c.pieces, c.claimed, c.status, c.expires_at, c.created_at, u.full_name,"
-                        + " exists (select 1 from parivar_chest_claims k where k.chest_id = c.id and k.user_id = ?) as mine from parivar_chests c left join users u on u.id = c.sent_by where c.parivar_id = ? order by c.id desc limit 15",
+                        + " exists (select 1 from parivar_chest_claims k where k.chest_id = c.id and k.user_id = ?) as mine,"
+                        + " (select k.label from parivar_chest_claims k where k.chest_id = c.id and k.user_id = ?) as my_label from parivar_chests c left join users u on u.id = c.sent_by where c.parivar_id = ? order by c.id desc limit 15",
                 (rs, i) -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", String.valueOf(rs.getLong("id")));
@@ -84,8 +88,9 @@ public class ParivarChestService {
                     m.put("expiresAt", rs.getTimestamp("expires_at").toInstant().toString());
                     m.put("sentBy", rs.getString("full_name"));
                     m.put("claimedByMe", rs.getBoolean("mine"));
+                    m.put("myLabel", rs.getString("my_label"));
                     return m;
-                }, userId, parivarId);
+                }, userId, userId, parivarId);
         Map<String, Object> res = new LinkedHashMap<>();
         res.put("types", types);
         res.put("sent", sent);
@@ -133,9 +138,17 @@ public class ParivarChestService {
         if (!"OPEN".equals(c.get("status")) || ((Timestamp) c.get("expires_at")).toInstant().isBefore(Instant.now())) throw new ResponseStatusException(HttpStatus.CONFLICT, "This chest has closed.");
         if (((Number) c.get("claimed")).intValue() >= ((Number) c.get("pieces")).intValue()) throw new ResponseStatusException(HttpStatus.CONFLICT, "All the pieces were claimed.");
         if (l(jdbc.queryForObject("select count(*) from parivar_chest_claims where chest_id = ? and user_id = ?", Long.class, chestId, userId)) > 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "You've already claimed your piece.");
-        List<Map<String, Object>> pool = jdbc.queryForList("select kind, ref, amount, weight, label from parivar_chest_rewards where chest_id = ? and active", c.get("type_id"));
+        List<Map<String, Object>> pool = jdbc.queryForList("select kind, ref, amount, weight, label, gift_id, valid_days from parivar_chest_rewards where chest_id = ? and active", c.get("type_id"));
         Map<String, Object> r = economy.pickWeighted(pool);
-        economy.applyReward(parivarId, userId, (String) r.get("kind"), l(r.get("ref")), l(r.get("amount")), "chest:" + chestId + ":" + userId, "Parivar chest: " + r.get("label"));
+        String kind = (String) r.get("kind");
+        if ("GIFT_CARD".equals(kind) && r.get("gift_id") != null) {
+            // a gift card goes into the Bag, like the Gacha ones
+            bag.grantGachaGift(userId, (String) r.get("gift_id"), (int) Math.max(1, l(r.get("amount"))), (int) l(r.get("valid_days")));
+        } else if ("ITEM".equals(kind)) {
+            bag.grantGachaItem(userId, l(r.get("ref")), l(r.get("valid_days")) > 0 ? (int) l(r.get("valid_days")) : (int) l(r.get("amount")));
+        } else if (!"GIFT_CARD".equals(kind)) {
+            economy.applyReward(parivarId, userId, kind, l(r.get("ref")), l(r.get("amount")), "chest:" + chestId + ":" + userId, "Parivar chest: " + r.get("label"));
+        }
         jdbc.update("insert into parivar_chest_claims (chest_id, user_id, kind, amount, label) values (?, ?, ?, ?, ?)", chestId, userId, r.get("kind"), l(r.get("amount")), r.get("label"));
         int claimed = ((Number) c.get("claimed")).intValue() + 1;
         jdbc.update("update parivar_chests set claimed = ?, status = ? where id = ?", claimed, claimed >= ((Number) c.get("pieces")).intValue() ? "DONE" : "OPEN", chestId);
