@@ -93,10 +93,13 @@ public class ShopPurchaseService {
                 rewards.grantShopWearable(userId, p.getName(), slot, media, format, p.getValidDays() == null ? 0 : p.getValidDays());
             }
         } else {
-            jdbc.update("insert into user_shop_items (user_id, product_id, quantity) values (?, ?, ?)"
+            int days = p.getValidDays() == null ? 0 : p.getValidDays();
+            // An item that lasts N days runs out N days after the last purchase (buying again while it is valid adds the days on)
+            jdbc.update("insert into user_shop_items (user_id, product_id, quantity, expires_at) values (?, ?, ?, case when ? > 0 then now() + (? * interval '1 day') else null end)"
                             + " on conflict (user_id, product_id) do update"
-                            + " set quantity = user_shop_items.quantity + excluded.quantity, last_bought_at = now()",
-                    userId, p.getId(), qty);
+                            + " set quantity = case when user_shop_items.expires_at is not null and user_shop_items.expires_at <= now() then excluded.quantity else user_shop_items.quantity + excluded.quantity end,"
+                            + " expires_at = case when ? > 0 then greatest(coalesce(user_shop_items.expires_at, now()), now()) + (? * interval '1 day') else null end, last_bought_at = now()",
+                    userId, p.getId(), qty, days, days, days, days);
         }
         // Shop spending counts towards random and guaranteed rewards too
         rewards.onSpend(userId, coins);
@@ -132,11 +135,11 @@ public class ShopPurchaseService {
     @Transactional(readOnly = true)
     public List<Map<String, Object>> mine(Long userId) {
         return jdbc.query(
-                "select i.product_id, i.quantity, i.first_bought_at, i.last_bought_at,"
+                "select i.product_id, i.quantity, i.first_bought_at, i.last_bought_at, i.expires_at,"
                         + " p.name, p.description, p.price, p.rarity, p.asset_url, p.asset_type, p.active, c.id as category_id, c.name as category_name"
                         + " from user_shop_items i join shop_products p on p.id = i.product_id"
                         + " left join shop_categories c on c.id = p.category_id"
-                        + " where i.user_id = ? and i.quantity > 0 order by i.last_bought_at desc",
+                        + " where i.user_id = ? and i.quantity > 0 and (i.expires_at is null or i.expires_at > now()) order by i.last_bought_at desc",
                 (rs, n) -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("productId", rs.getLong("product_id"));
@@ -151,6 +154,7 @@ public class ShopPurchaseService {
                     m.put("quantity", rs.getInt("quantity"));
                     m.put("firstBoughtAt", ts(rs.getTimestamp("first_bought_at")));
                     m.put("lastBoughtAt", ts(rs.getTimestamp("last_bought_at")));
+                    m.put("expiresAt", ts(rs.getTimestamp("expires_at")));
                     return m;
                 }, userId);
     }
@@ -158,7 +162,7 @@ public class ShopPurchaseService {
     private Map<String, Object> result(Long userId, ShopProduct p, long spent, long balance) {
         Integer owned = wearSlot(p) != null
                 ? jdbc.queryForObject("select count(*) from user_rewards where user_id = ? and item_name = ? and rule_kind = 'SHOP' and slot is not null and (expires_at is null or expires_at > now())", Integer.class, userId, p.getName().length() > 80 ? p.getName().substring(0, 80) : p.getName())
-                : jdbc.query("select quantity from user_shop_items where user_id = ? and product_id = ?",
+                : jdbc.query("select quantity from user_shop_items where user_id = ? and product_id = ? and (expires_at is null or expires_at > now())",
                 rs -> rs.next() ? rs.getInt(1) : 0, userId, p.getId());
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("productId", p.getId());
