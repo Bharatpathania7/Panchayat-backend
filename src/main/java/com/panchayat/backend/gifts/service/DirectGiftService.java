@@ -31,6 +31,11 @@ import java.util.regex.Pattern;
 public class DirectGiftService {
     @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.titles.TitleRuleService titleRules;
+
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.progress.tasks.DailyTaskService dailyTasks;
 
 
@@ -132,6 +137,8 @@ public class DirectGiftService {
         rewards.onSpend(senderId, coins);
         // VIP growth, with the level-up reward notice
         vipGrowth.onSpend(senderId, coins);
+        titleRules.onMoney(senderId, "GIFT");
+        titleRules.onMoney(receiverId, "GIFT");
         dailyTasks.track(senderId, "SEND_GIFT", 1);
         int charmFactor = LocalDate.now(ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
         long charm = luck.charm(giftId, count, coins, charmFactor);

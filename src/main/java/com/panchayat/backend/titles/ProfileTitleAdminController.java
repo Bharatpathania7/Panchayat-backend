@@ -25,7 +25,7 @@ public class ProfileTitleAdminController {
 
     private static final Pattern COLOR = Pattern.compile("^#[0-9a-fA-F]{6}$");
     private static final Set<String> RARITIES = Set.of("COMMON", "PREMIUM", "EPIC", "LEGENDARY", "ULTRA_RARE");
-    private static final Set<String> RULE_KINDS = Set.of("IDS", "VIP_LEVEL", "PARIVAR_ROLE");
+    private static final Set<String> RULE_KINDS = Set.of("IDS", "VIP_LEVEL", "PARIVAR_ROLE", "TOPUP_TOTAL", "TOPUP_ONE", "GIFT_SENT", "GIFT_RECEIVED");
 
     private final JdbcTemplate jdbc;
     private final AdminMediaService media;

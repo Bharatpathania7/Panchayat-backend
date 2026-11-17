@@ -41,6 +41,10 @@ import java.util.regex.Pattern;
 public class RoomGiftService {
     @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.titles.TitleRuleService titleRules;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.progress.tasks.DailyTaskService dailyTasks;
 
 
@@ -205,6 +209,10 @@ public class RoomGiftService {
         if (!fromBag) rewards.onSpend(senderId, coins);
         // VIP growth ("God Points"): while VIP, every 100 coins spent adds 1 point (and a level-up shows the rewards)
         if (!fromBag) vipGrowth.onSpend(senderId, coins);
+        if (!fromBag) {
+            titleRules.onMoney(senderId, "GIFT");
+            titleRules.onMoney(receiverId, "GIFT");
+        }
         dailyTasks.track(senderId, "SEND_GIFT", 1);
         // The receiver's charm: 1 per 5 coins, double on Saturdays and Sundays (India time), like the rankings
         int charmFactor = java.time.LocalDate.now(BOARD_ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;

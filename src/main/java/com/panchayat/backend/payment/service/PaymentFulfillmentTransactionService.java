@@ -24,6 +24,11 @@ import java.time.Instant;
 public class PaymentFulfillmentTransactionService {
     @org.springframework.beans.factory.annotation.Autowired
     @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.titles.TitleRuleService titleRules;
+
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.sarpanch.SarpanchService sarpanch;
 
 
@@ -208,6 +213,8 @@ public class PaymentFulfillmentTransactionService {
         payment.setVerifiedAt(Instant.now());
 
         paymentRepository.save(payment);
+        // A top-up can unlock a title (rules by top-up amount)
+        if (payment.getPurpose() == Purpose.COIN_PACK) titleRules.onMoney(userId, "TOPUP");
 
         // Sarpanch: once, after this commit (eventKey stops PayU retries sending it twice)
         String amount = payment.getAmount().stripTrailingZeros().toPlainString();

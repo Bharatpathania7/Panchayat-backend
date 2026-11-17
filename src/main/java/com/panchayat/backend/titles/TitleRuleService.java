@@ -61,6 +61,15 @@ public class TitleRuleService {
                 if (!ROLES.contains(r)) throw bad("Choose LEADER, DEPUTY, ADMIN or MEMBER.");
                 return r;
             }
+            case "TOPUP_TOTAL", "TOPUP_ONE", "GIFT_SENT", "GIFT_RECEIVED" -> {
+                try {
+                    long n = Long.parseLong(v.replace(",", "").strip());
+                    if (n < 1 || n > 1_000_000_000_000L) throw new NumberFormatException();
+                    return String.valueOf(n);
+                } catch (NumberFormatException e) {
+                    throw bad(kind.startsWith("TOPUP") ? "Write the amount in rupees (1 or more)." : "Write the amount in coins (1 or more).");
+                }
+            }
             default -> throw bad("Choose a rule type.");
         }
     }
@@ -75,9 +84,22 @@ public class TitleRuleService {
     }
 
     /** Who a rule says should have its title right now. */
+    private static final String TOPUPS = "select user_id, amount from (select user_id, amount::numeric as amount from payment_transactions where purpose = 'COIN_PACK' and status = 'SUCCESS'"
+            + " union all select user_id, amount_inr::numeric from manual_topups where status = 'APPROVED') t";
+
     private Set<Long> qualified(String kind, String value) {
+        return qualified(kind, value, null);
+    }
+
+    /** onlyUser != null checks just that person (used the moment they top up or send a gift). */
+    private Set<Long> qualified(String kind, String value, Long onlyUser) {
         Set<Long> out = new LinkedHashSet<>();
+        String who = onlyUser == null ? "" : " where user_id = " + onlyUser.longValue();
         switch (kind) {
+            case "TOPUP_TOTAL" -> out.addAll(jdbc.queryForList("select user_id from (" + TOPUPS + ")" + " x" + who + " group by user_id having sum(amount) >= ?", Long.class, Long.parseLong(value)));
+            case "TOPUP_ONE" -> out.addAll(jdbc.queryForList("select user_id from (" + TOPUPS + ")" + " x" + who + " group by user_id having max(amount) >= ?", Long.class, Long.parseLong(value)));
+            case "GIFT_SENT" -> out.addAll(jdbc.queryForList("select sender_id from room_gift_events where sender_id is not null" + (onlyUser == null ? "" : " and sender_id = " + onlyUser.longValue()) + " group by sender_id having sum(coins) >= ?", Long.class, Long.parseLong(value)));
+            case "GIFT_RECEIVED" -> out.addAll(jdbc.queryForList("select receiver_id from room_gift_events where receiver_id is not null" + (onlyUser == null ? "" : " and receiver_id = " + onlyUser.longValue()) + " group by receiver_id having sum(coins) >= ?", Long.class, Long.parseLong(value)));
             case "IDS" -> {
                 List<Long> pub = parseIds(value);
                 if (pub.isEmpty()) return out;
@@ -133,6 +155,50 @@ public class TitleRuleService {
         }
         jdbc.update("update title_auto_rules set matched = ?, last_run = now() where id = ?", q.size(), id);
         return q.size();
+    }
+
+    private volatile List<Map<String, Object>> moneyRules;
+    private volatile long moneyRulesAt;
+
+    /** The active top-up and gift rules (kept for a minute, so a gift being sent costs nothing extra when there are none). */
+    private List<Map<String, Object>> moneyRules() {
+        long now = System.currentTimeMillis();
+        List<Map<String, Object>> l = moneyRules;
+        if (l == null || now - moneyRulesAt > 60_000) {
+            l = jdbc.queryForList("select r.* from title_auto_rules r join profile_titles t on t.id = r.title_id where r.active and t.active and r.kind in ('TOPUP_TOTAL','TOPUP_ONE','GIFT_SENT','GIFT_RECEIVED')");
+            moneyRules = l;
+            moneyRulesAt = now;
+        }
+        return l;
+    }
+
+    /**
+     * Right after someone tops up or sends / receives a gift: gives them the titles whose top-up or gift amount they have now reached.
+     * kinds: "TOPUP" or "GIFT". Never throws; a failure only means the title comes with the next scheduled check.
+     */
+    public void onMoney(Long userId, String kinds) {
+        if (userId == null) return;
+        try {
+            for (Map<String, Object> r : moneyRules()) {
+                String kind = (String) r.get("kind");
+                if (!kind.startsWith(kinds)) continue;
+                if (!qualified(kind, (String) r.get("value"), userId).contains(userId)) continue;
+                long id = ((Number) r.get("id")).longValue();
+                long titleId = ((Number) r.get("title_id")).longValue();
+                int days = ((Number) r.get("days")).intValue();
+                String source = "AUTO:" + id;
+                if (days == 0) {
+                    jdbc.update("insert into user_titles (user_id, title_id, source) values (?, ?, ?) on conflict (user_id, title_id) do update set expires_at = case when user_titles.source = ? then null else user_titles.expires_at end", userId, titleId, source, source);
+                } else {
+                    if (jdbc.update("insert into title_rule_grants (rule_id, user_id) values (?, ?) on conflict do nothing", id, userId) == 0) continue;
+                    Timestamp exp = Timestamp.from(Instant.now().plus(Duration.ofDays(days)));
+                    jdbc.update("insert into user_titles (user_id, title_id, source, expires_at) values (?, ?, ?, ?) on conflict (user_id, title_id) do update set expires_at ="
+                            + " case when user_titles.expires_at is null then null else greatest(user_titles.expires_at, excluded.expires_at) end", userId, titleId, source, exp);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Title rule check for {} failed: {}", userId, e.getMessage());
+        }
     }
 
     @Scheduled(initialDelay = 90_000, fixedDelay = 300_000)
