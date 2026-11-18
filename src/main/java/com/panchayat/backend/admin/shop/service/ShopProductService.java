@@ -62,6 +62,7 @@ public class ShopProductService {
         product.setDisplayOrder(request.getDisplayOrder());
         product.setValidDays(request.getValidDays());
         product.setWearSlot(cleanSlot(request.getWearSlot()));
+        product.setEntryAvatar(cleanEntryAvatar(request.getEntryAvatar()));
         product.setActive(true);
 
         ShopProduct savedProduct = productRepository.save(product);
@@ -133,6 +134,7 @@ public class ShopProductService {
         product.setDisplayOrder(request.getDisplayOrder());
         product.setValidDays(request.getValidDays());
         product.setWearSlot(cleanSlot(request.getWearSlot()));
+        product.setEntryAvatar(cleanEntryAvatar(request.getEntryAvatar()));
 
         ShopProduct updatedProduct = productRepository.save(product);
 
@@ -267,7 +269,16 @@ public class ShopProductService {
                 product.getActive(),
                 product.getCreatedAt(),
                 product.getUpdatedAt()
-        ).wear(product.getValidDays(), product.getWearSlot());
+        ).wear(product.getValidDays(), product.getWearSlot()).entryAvatar(product.getEntryAvatar());
+    }
+
+    private static String cleanEntryAvatar(String s) {
+        if (s == null || s.isBlank()) return null;
+        String v = s.strip();
+        String u = v.toUpperCase();
+        if (u.equals("OVERLAY") || u.equals("SLOT") || u.equals("NONE")) return u;
+        if (u.startsWith("SLOT:") && v.length() > 5 && v.length() <= 60 && v.substring(5).matches("[A-Za-z0-9_.\\-]+")) return "SLOT:" + v.substring(5);
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Entry picture must be OVERLAY, SLOT, SLOT:<slot name> or NONE");
     }
 
     private static String cleanSlot(String s) {

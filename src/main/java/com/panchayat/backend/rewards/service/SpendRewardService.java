@@ -205,7 +205,7 @@ public class SpendRewardService {
         List<Long> ids = userIds == null ? List.of() : userIds.stream().filter(Objects::nonNull).distinct().toList();
         if (ids.isEmpty()) return out;
         String in = String.join(",", Collections.nCopies(ids.size(), "?"));
-        jdbc.query("select r.user_id, r.slot, r.item_name, r.media_url, r.media_format, r.sound_url, r.name_frame_id, u.full_name,"
+        jdbc.query("select r.user_id, r.slot, r.item_name, r.media_url, r.media_format, r.sound_url, r.name_frame_id, u.full_name, r.entry_avatar,"
                         + " f.frame_scale, f.frame_y, f.plate_x, f.plate_y, f.plate_w, f.plate_h, f.text_color, f.stroke_color"
                         + " from user_rewards r join users u on u.id = r.user_id left join name_frames f on f.id = r.name_frame_id"
                         + " where r.equipped and r.slot is not null and r.media_url is not null"
@@ -228,6 +228,7 @@ public class SpendRewardService {
                         fx.put("nameFrame", nf);
                     }
                     fx.put("format", rs.getString("media_format"));
+                    if (rs.getString("entry_avatar") != null) fx.put("avatar", rs.getString("entry_avatar"));
                     fx.put("soundUrl", MediaUrls.link(rs.getString("sound_url")));
                     fx.put("name", rs.getString("item_name"));
                     out.computeIfAbsent(rs.getLong("user_id"), k -> new LinkedHashMap<>()).put(rs.getString("slot"), fx);
@@ -279,10 +280,16 @@ public class SpendRewardService {
     /** Something worn (frame, chat bubble, entry effect ...) bought in the Shop: into the Bag for `days` days (0 = it never runs out). */
     @Transactional
     public void grantShopWearable(Long userId, String name, String slot, String mediaUrl, String mediaFormat, int days) {
+        grantShopWearable(userId, name, slot, mediaUrl, mediaFormat, days, null);
+    }
+
+    /** entryAvatar: for an entry, how the wearer's picture shows (the product's setting). */
+    public void grantShopWearable(Long userId, String name, String slot, String mediaUrl, String mediaFormat, int days, String entryAvatar) {
         Instant now = Instant.now();
-        jdbc.update("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, granted_at, expires_at)"
-                        + " values (?, null, null, 'SHOP', 'Shop', ?, ?, null, 1, null, ?, ?, ?, ?, ?)",
-                userId, name.length() > 80 ? name.substring(0, 80) : name, slot, slot, mediaUrl, mediaFormat, Timestamp.from(now), days > 0 ? Timestamp.from(now.plus(Duration.ofDays(days))) : null);
+        jdbc.update("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, granted_at, expires_at, entry_avatar)"
+                        + " values (?, null, null, 'SHOP', 'Shop', ?, ?, null, 1, null, ?, ?, ?, ?, ?, ?)",
+                userId, name.length() > 80 ? name.substring(0, 80) : name, slot, slot, mediaUrl, mediaFormat, Timestamp.from(now), days > 0 ? Timestamp.from(now.plus(Duration.ofDays(days))) : null,
+                "ENTRY".equals(slot) ? entryAvatar : null);
     }
 
     /** A frame, chat bubble or entry animation won in Parivar Gacha, from the Spend rewards items, for `days` days (0 = the item's own length). */

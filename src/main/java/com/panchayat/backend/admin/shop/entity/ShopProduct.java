@@ -52,6 +52,18 @@ public class ShopProduct {
     @Column(name = "wear_slot", length = 12)
     private String wearSlot;
 
+    /** Entry animations: how the wearer's picture shows (OVERLAY, SLOT, SLOT:key, NONE; null = OVERLAY). */
+    @Column(name = "entry_avatar", length = 60)
+    private String entryAvatar;
+
+    public String getEntryAvatar() {
+        return entryAvatar;
+    }
+
+    public void setEntryAvatar(String entryAvatar) {
+        this.entryAvatar = entryAvatar;
+    }
+
     @Column(nullable = false)
     private Boolean active = true;
 

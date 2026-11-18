@@ -90,7 +90,7 @@ public class ShopPurchaseService {
             String media = p.getAssetUrl();
             String format = formatOf(media);
             for (int i = 0; i < qty; i++) {
-                rewards.grantShopWearable(userId, p.getName(), slot, media, format, p.getValidDays() == null ? 0 : p.getValidDays());
+                rewards.grantShopWearable(userId, p.getName(), slot, media, format, p.getValidDays() == null ? 0 : p.getValidDays(), p.getEntryAvatar());
             }
         } else {
             int days = p.getValidDays() == null ? 0 : p.getValidDays();

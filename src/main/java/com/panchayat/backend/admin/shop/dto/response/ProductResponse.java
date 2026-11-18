@@ -55,6 +55,16 @@ public class ProductResponse {
 
     private Integer validDays = 0;
     private String wearSlot;
+    private String entryAvatar;
+
+    public ProductResponse entryAvatar(String v) {
+        this.entryAvatar = v;
+        return this;
+    }
+
+    public String getEntryAvatar() {
+        return entryAvatar;
+    }
 
     public Integer getValidDays() {
         return validDays;
