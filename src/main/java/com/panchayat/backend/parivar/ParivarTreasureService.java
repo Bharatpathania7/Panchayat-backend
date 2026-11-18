@@ -499,6 +499,19 @@ public class ParivarTreasureService {
         return out;
     }
 
+    /** How long a worn or kept chest reward lasts when the reward itself doesn't say. */
+    static final int CHEST_ITEM_DAYS = 3;
+
+    /** What a library item is worn as, from its name, when the library doesn't say. */
+    static String slotFromName(String name) {
+        String n = name == null ? "" : name.toLowerCase(java.util.Locale.ROOT);
+        if (n.contains("bubble")) return "BUBBLE";
+        if (n.contains("frame")) return "FRAME";
+        if (n.contains("entry")) return "ENTRY";
+        if (n.contains("badge")) return "BADGE";
+        return null;
+    }
+
     /** Puts a payout into the wallet, the Diamond wallet, the bag, the VIP and the profile collection. Each credit has its own once-only key. */
     private void grant(Long chestId, Long userId, Payout p) {
         String base = "treasure:" + chestId + ":" + userId;
@@ -512,6 +525,8 @@ public class ParivarTreasureService {
             String kind = (String) it.get("kind");
             long amount = l(it.get("amount"));
             int days = (int) l(it.get("validDays"));
+            // Things worn or kept from a chest don't last for ever: CHEST_ITEM_DAYS unless the reward says how long
+            if (days <= 0 && ("COLLECTIBLE".equals(kind) || "TITLE".equals(kind) || "BADGE".equals(kind))) days = CHEST_ITEM_DAYS;
             String label = (String) it.get("label");
             idx++;
             switch (kind) {
@@ -524,9 +539,11 @@ public class ParivarTreasureService {
                 case "COLLECTIBLE" -> {
                     List<Map<String, Object>> cr = jdbc.queryForList("select c.kind, c.name, c.media_url, c.media_format, c.wear_slot, k.name as cat from parivar_collectibles c left join parivar_library_categories k on k.id = c.category_id where c.id = ?", l(it.get("ref")));
                     if (cr.isEmpty()) throw new IllegalStateException("A treasure collectible was removed");
-                    if (cr.get(0).get("wear_slot") != null) {
+                    // The slot set in the library, else told by the name ("dragon chat bubble" is a bubble)
+                    String slot = cr.get(0).get("wear_slot") != null ? (String) cr.get(0).get("wear_slot") : slotFromName((String) cr.get(0).get("name"));
+                    if (slot != null) {
                         // A frame / entry / bubble / badge: into the Bag with a Wear button
-                        bag.grantWearable(userId, (String) cr.get(0).get("name"), (String) cr.get(0).get("wear_slot"), (String) cr.get(0).get("media_url"), (String) cr.get(0).get("media_format"), days);
+                        bag.grantWearable(userId, (String) cr.get(0).get("name"), slot, (String) cr.get(0).get("media_url"), (String) cr.get(0).get("media_format"), days);
                         break;
                     }
                     jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref, category, expires_at) values (?, ?, ?, ?, 'TREASURE', ?, ?, case when ? > 0 then now() + make_interval(days => ?) end) on conflict do nothing",
