@@ -23,6 +23,11 @@ import java.util.List;
 
 @Service
 public class UserProfileService {
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.admin.users.AccountBanService accountBans;
+
     @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbcForStats;
 
@@ -224,7 +229,9 @@ public class UserProfileService {
                 rewardBag.effectsFor(user.getId()),
                 com.panchayat.backend.common.PublicIds.user(user.getId()),
                 cpService.summary(user.getId()),
-                com.panchayat.backend.user.controller.GiftSetWearController.read(expJdbc, user.getId())
+                com.panchayat.backend.user.controller.GiftSetWearController.read(expJdbc, user.getId()),
+                ban != null,
+                ban == null ? null : ban.until()
         );
     }
 
@@ -242,6 +249,7 @@ public class UserProfileService {
                 new ArrayList<>(user.getFavoriteGames());
 
         VipDetails vip = getVipDetails(user);
+        com.panchayat.backend.admin.users.AccountBanService.Ban ban = accountBans.activeBan(user.getId());
 
         return new PublicUserProfileResponse(
                 user.getId(),

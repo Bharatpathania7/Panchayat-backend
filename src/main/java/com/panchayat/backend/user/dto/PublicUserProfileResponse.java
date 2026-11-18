@@ -42,5 +42,9 @@ public record PublicUserProfileResponse(
         int level,
 
         // Gift-set pieces they wear: { frame?, bubble?, entry?, page? } → set id
-        java.util.Map<String, Object> giftSetWear
+        java.util.Map<String, Object> giftSetWear,
+
+        // Banned by staff: true with no end for a permanent ban, or until when for a suspension
+        boolean banned,
+        Instant bannedUntil
 ) {}
