@@ -233,6 +233,11 @@ public class UserProfileService {
         );
     }
 
+    private String officialCode(Long userId) {
+        Integer c = expJdbc.query("select official_code from users where id = ?", rs -> rs.next() ? (Integer) rs.getObject(1) : null, userId);
+        return c == null ? null : String.format("%03d", c);
+    }
+
     /** Active Level from the person's EXP (same rule as ExpService). */
     private int activeLevel(Long userId) {
         Long exp = expJdbc.queryForObject("select exp from users where id = ?", Long.class, userId);
@@ -276,7 +281,8 @@ public class UserProfileService {
                 activeLevel(user.getId()),
                 com.panchayat.backend.user.controller.GiftSetWearController.read(expJdbc, user.getId()),
                 ban != null,
-                ban == null ? null : ban.until()
+                ban == null ? null : ban.until(),
+                officialCode(user.getId())
         );
     }
 

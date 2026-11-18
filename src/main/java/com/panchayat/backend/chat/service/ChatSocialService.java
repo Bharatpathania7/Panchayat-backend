@@ -84,8 +84,8 @@ public class ChatSocialService {
         if (other == null) return;
         if (blocked(senderId, other)) throw forbidden("You blocked this person. Unblock them to send messages.");
         if (blocked(other, senderId)) throw forbidden("You can't message this person.");
-        // Message requests: friends (mutual follow) chat freely
-        if (friends(senderId, other)) {
+        // Message requests: friends (mutual follow) chat freely, and anyone can message an official ID (001, 002, ...)
+        if (friends(senderId, other) || officialId(senderId) || officialId(other)) {
             jdbc.update("update chat_conversation_participants set request_state = 'ACCEPTED' where conversation_id = ? and request_state <> 'ACCEPTED'", conversationId);
             return;
         }
@@ -105,6 +105,12 @@ public class ChatSocialService {
         }
     }
 
+    /** An official ID made in the admin panel (numbered 001, 002, ...): no message requests to or from it. */
+    public boolean officialId(Long userId) {
+        Integer n = jdbc.queryForObject("select count(*) from users where id = ? and official_code is not null", Integer.class, userId);
+        return n != null && n > 0;
+    }
+
     /** Two people who follow each other. */
     public boolean friends(Long a, Long b) {
         Integer n = jdbc.queryForObject("select count(*) from user_follows f join user_follows g on g.follower_id = f.followee_id and g.followee_id = f.follower_id where f.follower_id = ? and f.followee_id = ?",
@@ -119,7 +125,7 @@ public class ChatSocialService {
 
     /** A new direct chat: if they aren't friends, it's a request for the receiver. */
     public void markNewDirectChat(Long conversationId, Long starter, Long receiver) {
-        if (!friends(starter, receiver)) {
+        if (!friends(starter, receiver) && !officialId(starter) && !officialId(receiver)) {
             jdbc.update("update chat_conversation_participants set request_state = 'PENDING' where conversation_id = ? and user_id = ?", conversationId, receiver);
         }
     }

@@ -45,9 +45,9 @@ public class SearchController {
 
         // People: exact ID first, then names
         List<Map<String, Object>> users = jdbc.query(
-                "select id, coalesce(display_public_id, public_id) as public_id, full_name, avatar_url, gender, vip_active, vip_level, official from users"
-                        + " where (public_id = ? or display_public_id = ? or (? and full_name ilike ?)) and full_name is not null"
-                        + " order by official desc, (public_id = ? or display_public_id = ?) desc, full_name limit " + LIMIT,
+                "select id, coalesce(display_public_id, public_id) as public_id, full_name, avatar_url, gender, vip_active, vip_level, official, official_code from users"
+                        + " where (public_id = ? or display_public_id = ? or official_code = ? or (? and full_name ilike ?)) and full_name is not null"
+                        + " order by (official_code = ?) desc, official desc, (public_id = ? or display_public_id = ?) desc, full_name limit " + LIMIT,
                 (rs, i) -> {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("id", rs.getLong("id"));
@@ -57,9 +57,11 @@ public class SearchController {
                     m.put("gender", rs.getString("gender"));
                     m.put("vipLevel", rs.getBoolean("vip_active") ? rs.getObject("vip_level") : null);
                     m.put("official", rs.getBoolean("official"));
+                    Integer oc = (Integer) rs.getObject("official_code");
+                    m.put("officialCode", oc == null ? null : String.format("%03d", oc));
                     return m;
                 },
-                code == null ? -1L : code, rawId(term), code == null, like, code == null ? -1L : code, rawId(term));
+                code == null ? -1L : code, rawId(term), officialCode(term), code == null, like, officialCode(term), code == null ? -1L : code, rawId(term));
 
         // Rooms: an exact room ID (private ones too, so a shared ID always resolves), then live public rooms by name
         List<Long> roomIds = jdbc.queryForList(
@@ -75,6 +77,12 @@ public class SearchController {
         out.put("users", users);
         out.put("rooms", roomList);
         return out;
+    }
+
+    /** An official ID's number: "001", "01" or "1" all find official ID 001. */
+    private static int officialCode(String term) {
+        String t = term == null ? "" : term.trim().replace("#", "");
+        return t.matches("^\\d{1,3}$") ? Integer.parseInt(t) : -1;
     }
 
     /** Any plain number (the official account's short ID is 8 digits). */

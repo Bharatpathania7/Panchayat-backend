@@ -46,5 +46,8 @@ public record PublicUserProfileResponse(
 
         // Banned by staff: true with no end for a permanent ban, or until when for a suspension
         boolean banned,
-        Instant bannedUntil
+        Instant bannedUntil,
+
+        // Official ID number ("001", "002", ...) or null
+        String officialCode
 ) {}
