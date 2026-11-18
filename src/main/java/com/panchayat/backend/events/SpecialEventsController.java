@@ -48,6 +48,24 @@ public class SpecialEventsController {
         return rows;
     }
 
+    public record CenterBody(Boolean enabled) {
+    }
+
+    /** Whether the app shows the Event Center on the home screen (admin switch). */
+    @GetMapping("/api/v1/events/center")
+    public Map<String, Object> center() {
+        Boolean on = jdbc.query("select enabled from event_center_settings where id = 1", rs -> rs.next() && rs.getBoolean(1));
+        return Map.of("enabled", Boolean.TRUE.equals(on));
+    }
+
+    @PutMapping("/api/v1/admin/manage/events/center")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
+    public Map<String, Object> setCenter(@RequestBody CenterBody b) {
+        boolean on = b != null && Boolean.TRUE.equals(b.enabled());
+        jdbc.update("insert into event_center_settings (id, enabled) values (1, ?) on conflict (id) do update set enabled = excluded.enabled", on);
+        return Map.of("enabled", on);
+    }
+
     @GetMapping("/api/v1/admin/manage/events")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public List<Map<String, Object>> all() {
