@@ -229,9 +229,7 @@ public class UserProfileService {
                 rewardBag.effectsFor(user.getId()),
                 com.panchayat.backend.common.PublicIds.user(user.getId()),
                 cpService.summary(user.getId()),
-                com.panchayat.backend.user.controller.GiftSetWearController.read(expJdbc, user.getId()),
-                ban != null,
-                ban == null ? null : ban.until()
+                com.panchayat.backend.user.controller.GiftSetWearController.read(expJdbc, user.getId())
         );
     }
 
@@ -276,7 +274,9 @@ public class UserProfileService {
                 cpService.summary(user.getId()),
                 user.getCharmPoints(),
                 activeLevel(user.getId()),
-                com.panchayat.backend.user.controller.GiftSetWearController.read(expJdbc, user.getId())
+                com.panchayat.backend.user.controller.GiftSetWearController.read(expJdbc, user.getId()),
+                ban != null,
+                ban == null ? null : ban.until()
         );
     }
 
