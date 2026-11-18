@@ -176,6 +176,16 @@ public class RoomPkService {
             pk.phase = "done";
             pk.winner = pk.red == pk.blue ? "draw" : pk.red > pk.blue ? "red" : "blue";
             publish(roomId, pk, "ENDED", null);
+            // A finished battle is cleared after a while, so it never comes back when someone opens the room later
+            timer.schedule(() -> clearFinished(roomId, pk), 90, TimeUnit.SECONDS);
+        }
+    }
+
+    private void clearFinished(Long roomId, Pk pk) {
+        synchronized (pk) {
+            if (battles.get(roomId) != pk || !"done".equals(pk.phase)) return;
+            battles.remove(roomId, pk);
+            publish(roomId, null, null, null);
         }
     }
 

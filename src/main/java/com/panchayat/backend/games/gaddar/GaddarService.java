@@ -45,7 +45,7 @@ public class GaddarService {
     static final double RADIUS = GaddarMaps.RADIUS;
     static final double TASK_RANGE = 70, TASK_SECONDS = 3.0, KILL_RANGE = 85, REPORT_RANGE = 110, EMERGENCY_RANGE = 100;
     static final double FIX_RANGE = 75, FIX_SECONDS = 3.0, VENT_RANGE = 60, VENT_SEE = 170;
-    static final long FIRST_KILL_MS = 12_000, EMERGENCY_AFTER_MS = 15_000, VOTE_MS = 45_000, RESULT_MS = 6_000, ENDED_MS = 60_000;
+    static final long FIRST_KILL_MS = 12_000, EMERGENCY_AFTER_MS = 15_000, VOTE_MS = 25_000, TURN_MS = 25_000, RESULT_MS = 6_000, ENDED_MS = 60_000;
     static final long SAB_COOLDOWN_MS = 30_000, REACTOR_MS = 40_000, FIRST_SAB_MS = 20_000;
     static final long IDLE_MS = 20_000;
     static final int TASKS_PER_PLAYER = 4;
@@ -436,6 +436,7 @@ public class GaddarService {
             P me = g.players.get(uid);
             if (me == null || g.phase != Phase.MEETING || g.meeting == null || g.meeting.get("result") != null) throw conflict("Voting is not open.");
             if (!me.alive) throw conflict("Only people still in the village can vote.");
+            if (talkStage(g)) throw conflict("Voting opens after everyone has spoken.");
             if (me.vote != null) throw conflict("You already voted.");
             long t = target == null ? 0 : target;
             if (t != 0) {
@@ -485,6 +486,15 @@ public class GaddarService {
             if (p == null || p.gone) return;
             long now = System.currentTimeMillis();
             p.lastSeen = now;
+            if (g.phase == Phase.MEETING && "pass".equals(action)) {
+                // The speaker is done before their 25 seconds: the next one gets the floor
+                if (talkStage(g) && String.valueOf(p.id).equals(g.meeting.get("speaker"))) {
+                    startTurn(g, ((Number) g.meeting.get("turn")).intValue() + 1, now);
+                    bump(g);
+                    sendAllPrivate(g);
+                }
+                return;
+            }
             if (g.phase != Phase.PLAY) return;
             String[] parts = action.split(":", 2);
             String arg = parts.length > 1 ? parts[1] : "";
@@ -530,7 +540,8 @@ public class GaddarService {
         synchronized (g) {
             P p = g.players.get(uid);
             long now = System.currentTimeMillis();
-            boolean talk = g.phase == Phase.LOBBY || g.phase == Phase.ENDED || (g.phase == Phase.MEETING && g.meeting != null && g.meeting.get("result") == null && p != null && p.alive);
+            boolean talk = g.phase == Phase.LOBBY || g.phase == Phase.ENDED || (g.phase == Phase.MEETING && talkStage(g) && p != null && p.alive
+                    && String.valueOf(p.id).equals(g.meeting.get("speaker")));
             if (p == null || p.gone || !talk) return;
             if (now - p.lastChat < 800) return;
             p.lastChat = now;
@@ -795,8 +806,45 @@ public class GaddarService {
         g.meeting.put("by", String.valueOf(caller.id));
         g.meeting.put("byName", caller.name);
         g.meeting.put("why", why);
+        // The baithak: every living player gets their own TURN_MS to speak, one after another
+        // (the caller first), while the others listen; then everyone votes for VOTE_MS
+        List<String> turns = new ArrayList<>();
+        turns.add(String.valueOf(caller.id));
+        for (P p : g.players.values()) if (p.alive && !p.gone && p.id != caller.id) turns.add(String.valueOf(p.id));
+        g.meeting.put("turns", turns);
+        startTurn(g, 0, now);
         bump(g);
         sendAllPrivate(g);
+    }
+
+    /** Gives the floor to the turn-th speaker, or opens the vote when everyone has spoken. */
+    private void startTurn(Game g, int turn, long now) {
+        @SuppressWarnings("unchecked")
+        List<String> turns = (List<String>) g.meeting.get("turns");
+        // Someone who left or died before their turn is skipped
+        while (turn < turns.size()) {
+            P sp = g.players.get(Long.valueOf(turns.get(turn)));
+            if (sp != null && sp.alive && !sp.gone) break;
+            turn++;
+        }
+        if (turn >= turns.size()) {
+            g.meeting.put("stage", "VOTE");
+            g.meeting.remove("speaker");
+            g.meeting.put("turn", turns.size());
+            g.phaseEndsAt = now + VOTE_MS;
+            g.meeting.put("turnEndsAt", g.phaseEndsAt);
+            return;
+        }
+        g.meeting.put("stage", "TALK");
+        g.meeting.put("turn", turn);
+        g.meeting.put("speaker", turns.get(turn));
+        g.meeting.put("turnEndsAt", now + TURN_MS);
+        // The meeting ends after the remaining turns and the vote
+        g.phaseEndsAt = now + (long) (turns.size() - turn) * TURN_MS + VOTE_MS;
+    }
+
+    private boolean talkStage(Game g) {
+        return g.meeting != null && g.meeting.get("result") == null && "TALK".equals(g.meeting.get("stage"));
     }
 
     private void resolveMeeting(Game g, long now) {
@@ -927,7 +975,12 @@ public class GaddarService {
         p.work = false;
         p.ventId = 0;
         bump(g);
-        if (g.phase == Phase.MEETING && g.meeting != null && g.meeting.get("result") == null
+        // The speaker left in the middle of their turn: the next one gets the floor now
+        if (g.phase == Phase.MEETING && talkStage(g) && String.valueOf(p.id).equals(g.meeting.get("speaker"))) {
+            startTurn(g, ((Number) g.meeting.get("turn")).intValue() + 1, now);
+            sendAllPrivate(g);
+        }
+        if (g.phase == Phase.MEETING && g.meeting != null && g.meeting.get("result") == null && !talkStage(g)
                 && g.players.values().stream().filter(q -> q.alive && !q.gone).allMatch(q -> q.vote != null)) {
             resolveMeeting(g, now);
         }
@@ -1002,7 +1055,11 @@ public class GaddarService {
                 }
             }
             case MEETING -> {
-                if (g.meeting != null && g.meeting.get("result") == null && now >= g.phaseEndsAt) resolveMeeting(g, now);
+                if (talkStage(g) && now >= ((Number) g.meeting.get("turnEndsAt")).longValue()) {
+                    startTurn(g, ((Number) g.meeting.get("turn")).intValue() + 1, now);
+                    bump(g);
+                    sendAllPrivate(g);
+                } else if (g.meeting != null && g.meeting.get("result") == null && now >= g.phaseEndsAt) resolveMeeting(g, now);
                 else if (g.meeting != null && g.meeting.get("result") != null && now >= g.phaseEndsAt) {
                     afterMeeting(g, now);
                     checkWin(g, now);

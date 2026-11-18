@@ -271,8 +271,9 @@ public class CpService {
             notify(of, "PROPOSAL_CANCELLED", null, oid, me);
             notify(ot, "PROPOSAL_CANCELLED", null, oid, me);
         }
-        notify(from, "PROPOSAL_ACCEPTED", cid, proposalId, me);
         String toName = jdbc.query("select full_name from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, to);
+        // The one who proposed sees the "You're a CP now" celebration with the ring and their partner's name
+        notify(from, "PROPOSAL_ACCEPTED", cid, proposalId, me, Map.of("ringId", r.id, "name", toName == null ? "Your partner" : toName));
         sarpanch.notifySafely(from, "CP_ACCEPTED", Map.of("name", toName == null ? "Your partner" : toName), "cp:" + cid + ":accepted");
         return couple(cid);
     }
@@ -877,6 +878,10 @@ public class CpService {
     }
 
     private void notify(long userId, String type, Long coupleId, Long proposalId, Long by) {
+        notify(userId, type, coupleId, proposalId, by, Map.of());
+    }
+
+    private void notify(long userId, String type, Long coupleId, Long proposalId, Long by, Map<String, Object> extra) {
         String email = jdbc.query("select email from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, userId);
         if (email == null) return;
         Map<String, Object> body = new LinkedHashMap<>();
@@ -885,6 +890,7 @@ public class CpService {
         if (proposalId != null) body.put("proposalId", String.valueOf(proposalId));
         body.put("byUserId", by == null ? null : String.valueOf(by));
         body.put("at", Instant.now().toString());
+        body.putAll(extra);
         afterCommit(() -> {
             try {
                 messaging.convertAndSendToUser(email, "/queue/cp", (Object) body);

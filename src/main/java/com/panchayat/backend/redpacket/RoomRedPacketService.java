@@ -164,15 +164,29 @@ public class RoomRedPacketService {
         }
         if (myGrabs >= MAX_GRABS) return result(packetId, 0, mine, myGrabs, left);
 
+        // Everyone in the room gets a fair chance: one person can take at most about twice
+        // an equal share of the pot, so a fast tapper can't drain the whole rain alone
+        long amount = ((Number) jdbc.queryForObject("select amount from room_red_packets where id = ?", Long.class, packetId)).longValue();
+        Integer inRoom = jdbc.queryForObject("select count(*) from voice_room_participants where room_id = ? and status = 'JOINED'", Integer.class, roomId);
+        long people = Math.max(2, inRoom == null ? 2 : inRoom);
+        long myCap = Math.max(1, (2 * amount + people - 1) / people);
+        if (mine >= myCap) return result(packetId, 0, mine, myGrabs, left);
+
         // Fair split: the last share takes the rest; otherwise 1 .. 2× the average still left
         long got = sharesLeft == 1 ? left : Math.max(1, Math.min(left, 1 + (long) (random.nextDouble() * Math.max(1, 2 * left / sharesLeft))));
+        got = Math.min(got, myCap - mine);
         long newLeft = left - got;
         jdbc.update("update room_red_packets set coins_left = ?, shares_left = shares_left - 1 where id = ?", newLeft, packetId);
-        jdbc.update("insert into room_red_packet_grabs (packet_id, user_id, coins) values (?, ?, ?)", packetId, userId, got);
-        // Paid into the wallet when the rain ends (settle), all grabs together
+        Long grabId = jdbc.queryForObject("insert into room_red_packet_grabs (packet_id, user_id, coins, paid) values (?, ?, ?, true) returning id", Long.class, packetId, userId, got);
+        // Paid into the wallet right away, so the coins show in the balance the moment they are looted
+        wallet.credit(userId, got, "RED_PACKET_GRAB", "redpacket:" + packetId, "rp-grab:" + grabId, "Won from red packet " + packetId);
 
         Map<String, Object> view = view(packetId, "GRABBED", userId, got);
-        afterCommit(() -> broadcast(roomId, view));
+        final long won = got;
+        afterCommit(() -> {
+            broadcast(roomId, view);
+            walletPush.pushBalance(userId, "RED_PACKET_GRAB", won);
+        });
         return result(packetId, got, mine + got, myGrabs + 1, newLeft);
     }
 
@@ -214,16 +228,23 @@ public class RoomRedPacketService {
         long left = ((Number) p.get("coins_left")).longValue();
         long sender = ((Number) p.get("sender_id")).longValue();
         long roomId = ((Number) p.get("room_id")).longValue();
-        // Everyone's grabs, paid now that the rain is over (one credit each)
-        List<Map<String, Object>> won = jdbc.queryForList(
-                "select user_id, sum(coins) as coins from room_red_packet_grabs where packet_id = ? group by user_id", id);
-        Map<Long, Long> paid = new LinkedHashMap<>();
-        for (Map<String, Object> w : won) {
+        // Grabs are paid when they happen; only grabs from before that change are still unpaid
+        List<Map<String, Object>> unpaid = jdbc.queryForList(
+                "select user_id, sum(coins) as coins from room_red_packet_grabs where packet_id = ? and not paid group by user_id", id);
+        Map<Long, Long> lateCredits = new LinkedHashMap<>();
+        for (Map<String, Object> w : unpaid) {
             long uid = ((Number) w.get("user_id")).longValue();
             long coins = ((Number) w.get("coins")).longValue();
             if (coins <= 0) continue;
             wallet.credit(uid, coins, "RED_PACKET_GRAB", "redpacket:" + id, "rp-win:" + id + ":" + uid, "Won from red packet " + id);
-            paid.put(uid, coins);
+            lateCredits.put(uid, coins);
+        }
+        jdbc.update("update room_red_packet_grabs set paid = true where packet_id = ? and not paid", id);
+        // Everyone's total from this rain, for the Top 5 shown in the room chat
+        Map<Long, Long> paid = new LinkedHashMap<>();
+        for (Map<String, Object> w : jdbc.queryForList(
+                "select user_id, sum(coins) as coins from room_red_packet_grabs where packet_id = ? group by user_id", id)) {
+            paid.put(((Number) w.get("user_id")).longValue(), ((Number) w.get("coins")).longValue());
         }
         if (left > 0) {
             wallet.credit(sender, left, "RED_PACKET_REFUND", "redpacket:" + id, "rp-refund:" + id, "Unclaimed coins from red packet " + id);
@@ -234,7 +255,7 @@ public class RoomRedPacketService {
         view.put("top", topLooters(paid));
         afterCommit(() -> {
             broadcast(roomId, view);
-            paid.forEach((uid, coins) -> walletPush.pushBalance(uid, "RED_PACKET_GRAB", coins));
+            lateCredits.forEach((uid, coins) -> walletPush.pushBalance(uid, "RED_PACKET_GRAB", coins));
             if (left > 0) walletPush.pushBalance(sender, "RED_PACKET_REFUND", left);
         });
     }
