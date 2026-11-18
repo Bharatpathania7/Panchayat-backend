@@ -88,8 +88,13 @@ public class RoomPkService {
     }
 
     public Map<String, Object> setup(Long roomId, Long actor, String mode, String rule, Integer minutes) {
+        return setup(roomId, actor, mode, rule, minutes, false);
+    }
+
+    /** staff = from the admin panel (Official PK rooms): no need to be in the room or a room admin. */
+    public Map<String, Object> setup(Long roomId, Long actor, String mode, String rule, Integer minutes, boolean staff) {
         VoiceRoom room = activeRoom(roomId);
-        requireMod(room, actor);
+        if (!staff) requireMod(room, actor);
         if (!"1v1".equals(mode) && !"team".equals(mode)) throw bad("mode must be 1v1 or team");
         if (!"gifts".equals(rule) && !"votes".equals(rule)) throw bad("rule must be gifts or votes");
         if (minutes == null || !MINUTES.contains(minutes)) throw bad("Pick 3, 5, 10, 15, 30 or 60 minutes");
@@ -110,8 +115,12 @@ public class RoomPkService {
     }
 
     public Map<String, Object> start(Long roomId, Long actor) {
+        return start(roomId, actor, false);
+    }
+
+    public Map<String, Object> start(Long roomId, Long actor, boolean staff) {
         VoiceRoom room = activeRoom(roomId);
-        requireMod(room, actor);
+        if (!staff) requireMod(room, actor);
         Pk pk = battles.get(roomId);
         if (pk == null) throw conflict("Set up a PK first");
         synchronized (pk) {
@@ -130,8 +139,12 @@ public class RoomPkService {
     }
 
     public Map<String, Object> close(Long roomId, Long actor) {
+        return close(roomId, actor, false);
+    }
+
+    public Map<String, Object> close(Long roomId, Long actor, boolean staff) {
         VoiceRoom room = activeRoom(roomId);
-        requireMod(room, actor);
+        if (!staff) requireMod(room, actor);
         battles.remove(roomId);
         return publish(roomId, null, "CLOSED", actor);
     }
@@ -150,6 +163,15 @@ public class RoomPkService {
             pk.votes.put(actor, side);
             score(pk, side, actor, 1);
             return publish(roomId, pk, "VOTE", actor);
+        }
+    }
+
+    /** A PK is running in this room right now (gifts sent now earn PK Coins). */
+    public boolean isLive(Long roomId) {
+        Pk pk = battles.get(roomId);
+        if (pk == null) return false;
+        synchronized (pk) {
+            return "live".equals(pk.phase) && System.currentTimeMillis() < pk.endsAt;
         }
     }
 

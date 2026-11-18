@@ -45,6 +45,9 @@ public class ShopPurchaseService {
     private final SpendRewardService rewards;
     private final JdbcTemplate jdbc;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.pk.coins.PkCoinService pkCoins;
+
     public ShopPurchaseService(ShopProductRepository products, CoinWalletService wallet, WalletPushService walletPush,
                                SpendRewardService rewards, JdbcTemplate jdbc) {
         this.products = products;
@@ -74,6 +77,20 @@ public class ShopPurchaseService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This item's price isn't a whole number of coins.");
         }
 
+        // The PK Shop: paid only with PK Coins (a currency of its own), never coins; no spend rewards or VIP growth
+        if (p.getCategory() != null && "PK_COINS".equals(p.getCategory().getCurrency())) {
+            String pkKey = "pkshop:" + requestId;
+            Boolean paid = jdbc.queryForObject("select exists (select 1 from pk_coin_transactions where idempotency_key = ?)", Boolean.class, pkKey);
+            if (Boolean.TRUE.equals(paid)) return pkResult(userId, p, 0);
+            pkCoins.spend(userId, coins, "shop:" + p.getId(), qty + "x " + p.getName(), pkKey);
+            // PK Shop items are never permanent: the item's own days, else the PK default (admin panel)
+            int days = p.getValidDays() != null && p.getValidDays() > 0 ? p.getValidDays() : pkCoins.settings().itemDays();
+            deliver(userId, p, qty, days);
+            Map<String, Object> r = pkResult(userId, p, coins);
+            r.put("validDays", days);
+            return r;
+        }
+
         String key = "shop:" + requestId;
         // The same purchase sent again: answer as before, charge nothing
         Boolean done = jdbc.queryForObject("select exists (select 1 from coin_transactions where idempotency_key = ?)", Boolean.class, key);
@@ -84,23 +101,7 @@ public class ShopPurchaseService {
         } catch (IllegalStateException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Not enough coins. Recharge to buy this.");
         }
-        String slot = wearSlot(p);
-        if (slot != null) {
-            // Frames, chat bubbles, entry effects ...: each one goes into the Bag as something to wear, for the number of days the admin set
-            String media = p.getAssetUrl();
-            String format = formatOf(media);
-            for (int i = 0; i < qty; i++) {
-                rewards.grantShopWearable(userId, p.getName(), slot, media, format, p.getValidDays() == null ? 0 : p.getValidDays());
-            }
-        } else {
-            int days = p.getValidDays() == null ? 0 : p.getValidDays();
-            // An item that lasts N days runs out N days after the last purchase (buying again while it is valid adds the days on)
-            jdbc.update("insert into user_shop_items (user_id, product_id, quantity, expires_at) values (?, ?, ?, case when ? > 0 then now() + (? * interval '1 day') else null end)"
-                            + " on conflict (user_id, product_id) do update"
-                            + " set quantity = case when user_shop_items.expires_at is not null and user_shop_items.expires_at <= now() then excluded.quantity else user_shop_items.quantity + excluded.quantity end,"
-                            + " expires_at = case when ? > 0 then greatest(coalesce(user_shop_items.expires_at, now()), now()) + (? * interval '1 day') else null end, last_bought_at = now()",
-                    userId, p.getId(), qty, days, days, days, days);
-        }
+        deliver(userId, p, qty, p.getValidDays() == null ? 0 : p.getValidDays());
         // Shop spending counts towards random and guaranteed rewards too
         rewards.onSpend(userId, coins);
         // VIP growth ("God Points"): while VIP, every 100 coins spent adds 1 point
@@ -109,6 +110,34 @@ public class ShopPurchaseService {
         long balance = wallet.getBalance(userId);
         afterCommit(() -> walletPush.pushBalance(userId, "SHOP_PURCHASE", -coins));
         return result(userId, p, coins, balance);
+    }
+
+    private Map<String, Object> pkResult(Long userId, ShopProduct p, long paid) {
+        Map<String, Object> r = result(userId, p, 0, wallet.getBalance(userId));
+        r.put("currency", "PK_COINS");
+        r.put("pkCoinsSpent", paid);
+        r.put("pkCoins", pkCoins.balance(userId));
+        return r;
+    }
+
+    /** Puts what was bought in the Bag: something to wear (for the days the admin set; 0 = for ever), or a Shop item. */
+    private void deliver(Long userId, ShopProduct p, int qty, int days) {
+        String slot = wearSlot(p);
+        if (slot != null) {
+            // Frames, chat bubbles, entry effects ...: each one goes into the Bag as something to wear, for the number of days the admin set
+            String media = p.getAssetUrl();
+            String format = formatOf(media);
+            for (int i = 0; i < qty; i++) {
+                rewards.grantShopWearable(userId, p.getName(), slot, media, format, days);
+            }
+        } else {
+            // An item that lasts N days runs out N days after the last purchase (buying again while it is valid adds the days on)
+            jdbc.update("insert into user_shop_items (user_id, product_id, quantity, expires_at) values (?, ?, ?, case when ? > 0 then now() + (? * interval '1 day') else null end)"
+                            + " on conflict (user_id, product_id) do update"
+                            + " set quantity = case when user_shop_items.expires_at is not null and user_shop_items.expires_at <= now() then excluded.quantity else user_shop_items.quantity + excluded.quantity end,"
+                            + " expires_at = case when ? > 0 then greatest(coalesce(user_shop_items.expires_at, now()), now()) + (? * interval '1 day') else null end, last_bought_at = now()",
+                    userId, p.getId(), qty, days, days, days, days);
+        }
     }
 
     private static String formatOf(String url) {

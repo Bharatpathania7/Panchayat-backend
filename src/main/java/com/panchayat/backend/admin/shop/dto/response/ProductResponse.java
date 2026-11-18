@@ -55,6 +55,17 @@ public class ProductResponse {
 
     private Integer validDays = 0;
     private String wearSlot;
+    /** COINS or PK_COINS (from the category): what the price is in. */
+    private String currency = "COINS";
+
+    public ProductResponse currency(String c) {
+        this.currency = c == null ? "COINS" : c;
+        return this;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
 
     public Integer getValidDays() {
         return validDays;

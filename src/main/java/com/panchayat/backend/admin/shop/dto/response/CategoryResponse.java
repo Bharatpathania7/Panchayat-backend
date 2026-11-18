@@ -13,6 +13,16 @@ public class CategoryResponse {
     private Boolean active;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
+    private String currency = "COINS";
+
+    public CategoryResponse currency(String c) {
+        this.currency = c == null ? "COINS" : c;
+        return this;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
 
     public CategoryResponse(
             Long id,

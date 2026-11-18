@@ -43,7 +43,10 @@ public record VoiceRoomResponse(
         boolean extraSeats,
         String newbieBackground,
         /* An official room of Panchayat (the Sarpanch owns it). */
-        boolean official
+        boolean official,
+        /* An Official PK room (admin panel) and its event title. */
+        boolean officialPk,
+        String officialPkTitle
 ) {
     public static VoiceRoomResponse from(VoiceRoom room) {
         return new VoiceRoomResponse(
@@ -73,7 +76,9 @@ public record VoiceRoomResponse(
                 room.isNewbie(),
                 room.isExtraSeats(),
                 room.isNewbie() ? com.panchayat.backend.admin.media.MediaUrls.link(room.getNewbieBackground()) : null,
-                room.isOfficial()
+                room.isOfficial(),
+                room.isOfficialPk(),
+                room.isOfficialPk() ? room.getOfficialPkTitle() : null
         );
     }
 }

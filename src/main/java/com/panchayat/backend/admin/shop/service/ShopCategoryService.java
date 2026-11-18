@@ -46,6 +46,7 @@ public class ShopCategoryService {
         category.setImageUrl(request.getImageUrl());
         category.setDisplayOrder(request.getDisplayOrder());
         category.setActive(true);
+        category.setCurrency(currencyOf(request.getCurrency()));
 
         ShopCategory savedCategory =
                 categoryRepository.save(category);
@@ -95,6 +96,7 @@ public class ShopCategoryService {
         category.setDescription(request.getDescription());
         category.setImageUrl(request.getImageUrl());
         category.setDisplayOrder(request.getDisplayOrder());
+        if (request.getCurrency() != null) category.setCurrency(currencyOf(request.getCurrency()));
 
         ShopCategory updatedCategory =
                 categoryRepository.save(category);
@@ -140,7 +142,7 @@ public class ShopCategoryService {
                 category.getActive(),
                 category.getCreatedAt(),
                 category.getUpdatedAt()
-        );
+        ).currency(category.getCurrency());
     }
     // Get active categories for the user app
     @Transactional(readOnly = true)
@@ -151,5 +153,14 @@ public class ShopCategoryService {
                 .stream()
                 .map(this::mapToResponse)
                 .toList();
+    }
+
+    private static String currencyOf(String c) {
+        if (c == null || c.isBlank()) return "COINS";
+        String u = c.strip().toUpperCase();
+        if (!"COINS".equals(u) && !"PK_COINS".equals(u)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Currency must be COINS or PK_COINS");
+        }
+        return u;
     }
 }

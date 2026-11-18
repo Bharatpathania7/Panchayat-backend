@@ -267,7 +267,7 @@ public class ShopProductService {
                 product.getActive(),
                 product.getCreatedAt(),
                 product.getUpdatedAt()
-        ).wear(product.getValidDays(), product.getWearSlot());
+        ).wear(product.getValidDays(), product.getWearSlot()).currency(product.getCategory().getCurrency());
     }
 
     private static String cleanSlot(String s) {

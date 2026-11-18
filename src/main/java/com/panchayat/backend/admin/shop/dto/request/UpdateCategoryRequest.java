@@ -53,4 +53,15 @@ public class UpdateCategoryRequest {
     public void setDisplayOrder(Integer displayOrder) {
         this.displayOrder = displayOrder;
     }
+
+    /** COINS (default) or PK_COINS. */
+    private String currency;
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
+    }
 }

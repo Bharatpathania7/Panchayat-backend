@@ -71,6 +71,9 @@ public class RoomGiftService {
     private final SimpMessagingTemplate messaging;
     private final com.panchayat.backend.tags.service.UserTagService tags;
     private final com.panchayat.backend.pk.service.RoomPkService pk;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.pk.coins.PkCoinService pkCoins;
     private final com.panchayat.backend.auction.service.RoomAuctionService auction;
     private final com.panchayat.backend.rewards.service.SpendRewardService rewards;
 
@@ -214,6 +217,8 @@ public class RoomGiftService {
             titleRules.onMoney(receiverId, "GIFT");
         }
         dailyTasks.track(senderId, "SEND_GIFT", 1);
+        // PK Coins: a gift (not from the Bag) sent while a PK is live earns the sender PK Coins, in the same transaction
+        if (!fromBag && pk.isLive(roomId)) pkCoins.earnFromGift(roomId, senderId, coins, requestId);
         // The receiver's charm: 1 per 5 coins, double on Saturdays and Sundays (India time), like the rankings
         int charmFactor = java.time.LocalDate.now(BOARD_ZONE).getDayOfWeek().getValue() >= 6 ? 2 : 1;
         long charm = luck.charm(giftId, count, coins, charmFactor);

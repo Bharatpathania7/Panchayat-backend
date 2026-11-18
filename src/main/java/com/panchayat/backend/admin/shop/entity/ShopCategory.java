@@ -35,6 +35,18 @@ public class ShopCategory {
     @Column(nullable = false)
     private Boolean active = true;
 
+    /** What this category's items are bought with: COINS, or PK_COINS (the PK Shop). */
+    @Column(nullable = false, length = 10)
+    private String currency = "COINS";
+
+    public String getCurrency() {
+        return currency == null ? "COINS" : currency;
+    }
+
+    public void setCurrency(String currency) {
+        this.currency = currency;
+    }
+
     @Column(
             name = "created_at",
             nullable = false,

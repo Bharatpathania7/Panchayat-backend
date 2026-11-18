@@ -221,6 +221,29 @@ public class VoiceRoom {
         this.micOrder = micOrder;
     }
 
+    /** An Official PK room (set from the admin panel), and the title of its event. */
+    @Column(name = "official_pk", nullable = false)
+    private boolean officialPk = false;
+
+    @Column(name = "official_pk_title", length = 80)
+    private String officialPkTitle;
+
+    public boolean isOfficialPk() {
+        return officialPk;
+    }
+
+    public void setOfficialPk(boolean officialPk) {
+        this.officialPk = officialPk;
+    }
+
+    public String getOfficialPkTitle() {
+        return officialPkTitle;
+    }
+
+    public void setOfficialPkTitle(String officialPkTitle) {
+        this.officialPkTitle = officialPkTitle;
+    }
+
     /** The background picture of a Newbie Welcome Room (the admin's, or the one its host uploaded). */
     @Column(name = "newbie_background", length = 500)
     private String newbieBackground;
