@@ -114,7 +114,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
 
     /** Private queues the app listens on; Spring delivers them only to their own user. */
     private static final Pattern OWN_QUEUE =
-            Pattern.compile("^/user/queue/(chat|wallet|rewards|notify|game|gaddar|cp|chat\\.typing|chat\\.events)$");
+            Pattern.compile("^/user/queue/(chat|wallet|rewards|notify|game|gaddar|cp|account|chat\\.typing|chat\\.events)$");
 
     private static final Pattern GADDAR_TABLE_TOPIC = Pattern.compile("^/topic/(gaddar|rmcs)/t/(\\d+)$");
 
@@ -142,7 +142,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         String destination = accessor.getDestination();
         if (destination == null) return false;
         if (OWN_QUEUE.matcher(destination).matches()) return true;
-        if ("/topic/presence".equals(destination) || "/topic/redpackets".equals(destination) || "/topic/gift-news".equals(destination)) return true;
+        if ("/topic/presence".equals(destination) || "/topic/redpackets".equals(destination) || "/topic/gift-news".equals(destination) || "/topic/account-bans".equals(destination)) return true;
         // A Gaddaar table: its state is not secret (names and positions); what is private comes on your own queue
         if (GADDAR_TABLE_TOPIC.matcher(destination).matches()) return true;
 

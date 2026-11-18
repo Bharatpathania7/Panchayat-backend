@@ -7,6 +7,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -14,6 +17,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -39,6 +45,12 @@ public class AccountBanService {
 
     private final JdbcTemplate jdbc;
     private final SarpanchService sarpanch;
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private SimpMessagingTemplate messaging;
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.rooms.service.RoomStateService roomState;
     private final Cache<Long, Optional<Ban>> cache = Caffeine.newBuilder().expireAfterWrite(Duration.ofSeconds(10)).maximumSize(50_000).build();
 
     public AccountBanService(JdbcTemplate jdbc, @org.springframework.context.annotation.Lazy SarpanchService sarpanch) {
@@ -89,8 +101,54 @@ public class AccountBanService {
         // End every session and take them out of rooms
         jdbc.update("update refresh_tokens set revoked_at = now() where user_id = ? and revoked_at is null", userId);
         jdbc.update("update voice_room_participants set status = 'LEFT' where user_id = ? and status = 'JOINED'", userId);
+        // Their own rooms close (the Newbie Welcome Rooms stay: the admin panel runs those)
+        List<Long> owned = jdbc.queryForList("select id from voice_rooms where owner_id = ? and status = 'ACTIVE' and not newbie", Long.class, userId);
+        for (Long rid : owned) {
+            jdbc.update("update voice_rooms set status = 'CLOSED', updated_at = now() where id = ?", rid);
+            jdbc.update("update voice_room_participants set status = 'LEFT', left_at = now(), is_muted = false where room_id = ? and status = 'JOINED'", rid);
+        }
         cache.invalidate(userId);
         Ban b = new Ban(days == null, until, why);
+        Map<String, Object> who = jdbc.query("select full_name, public_id, avatar_url, email from users where id = ?", rs -> {
+            if (!rs.next()) return null;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", rs.getString(1));
+            m.put("publicId", rs.getString(2));
+            m.put("avatarUrl", rs.getString(3));
+            m.put("email", rs.getString(4));
+            return m;
+        }, userId);
+        afterCommit(() -> {
+            // Everyone in the room sees it close
+            for (Long rid : owned) {
+                try {
+                    roomState.onRoomClosed(rid);
+                } catch (Exception e) {
+                    log.warn("Room {} close notice not sent: {}", rid, e.getMessage());
+                }
+            }
+            if (who == null) return;
+            try {
+                // The person sees it at once if the app is open
+                Map<String, Object> mine = new LinkedHashMap<>();
+                mine.put("type", "BANNED");
+                mine.put("permanent", b.permanent());
+                mine.put("until", b.until() == null ? null : b.until().toString());
+                mine.put("message", b.message());
+                messaging.convertAndSendToUser((String) who.get("email"), "/queue/account", (Object) mine);
+                // Everyone else: "<name>'s ID has been banned"
+                Map<String, Object> all = new LinkedHashMap<>();
+                all.put("userId", String.valueOf(userId));
+                all.put("name", who.get("name") == null ? "Someone" : who.get("name"));
+                all.put("publicId", who.get("publicId"));
+                all.put("avatarUrl", who.get("avatarUrl"));
+                all.put("permanent", b.permanent());
+                all.put("days", days);
+                messaging.convertAndSend("/topic/account-bans", (Object) all);
+            } catch (Exception e) {
+                log.warn("Ban broadcast not sent for {}: {}", userId, e.getMessage());
+            }
+        });
         try {
             sarpanch.send(userId, new SarpanchService.Message(days == null ? "Account banned" : "Account suspended", b.message(), null, null, null, "SAFETY"), null);
         } catch (Exception e) {
@@ -109,6 +167,19 @@ public class AccountBanService {
             sarpanch.send(userId, new SarpanchService.Message("Account restored", "Your Panchayat account is active again. Welcome back!", null, null, null, "SAFETY"), null);
         } catch (Exception e) {
             log.warn("Unban notice not sent to {}: {}", userId, e.getMessage());
+        }
+    }
+
+    private static void afterCommit(Runnable r) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    r.run();
+                }
+            });
+        } else {
+            r.run();
         }
     }
 
