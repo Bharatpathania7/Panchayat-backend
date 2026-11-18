@@ -142,7 +142,7 @@ public class WebSocketAuthChannelInterceptor implements ChannelInterceptor {
         String destination = accessor.getDestination();
         if (destination == null) return false;
         if (OWN_QUEUE.matcher(destination).matches()) return true;
-        if ("/topic/presence".equals(destination) || "/topic/redpackets".equals(destination) || "/topic/gift-news".equals(destination) || "/topic/account-bans".equals(destination)) return true;
+        if ("/topic/presence".equals(destination) || "/topic/redpackets".equals(destination) || "/topic/gift-news".equals(destination)) return true;
         // A Gaddaar table: its state is not secret (names and positions); what is private comes on your own queue
         if (GADDAR_TABLE_TOPIC.matcher(destination).matches()) return true;
 

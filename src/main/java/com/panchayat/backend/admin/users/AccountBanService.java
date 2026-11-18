@@ -136,15 +136,6 @@ public class AccountBanService {
                 mine.put("until", b.until() == null ? null : b.until().toString());
                 mine.put("message", b.message());
                 messaging.convertAndSendToUser((String) who.get("email"), "/queue/account", (Object) mine);
-                // Everyone else: "<name>'s ID has been banned"
-                Map<String, Object> all = new LinkedHashMap<>();
-                all.put("userId", String.valueOf(userId));
-                all.put("name", who.get("name") == null ? "Someone" : who.get("name"));
-                all.put("publicId", who.get("publicId"));
-                all.put("avatarUrl", who.get("avatarUrl"));
-                all.put("permanent", b.permanent());
-                all.put("days", days);
-                messaging.convertAndSend("/topic/account-bans", (Object) all);
             } catch (Exception e) {
                 log.warn("Ban broadcast not sent for {}: {}", userId, e.getMessage());
             }
