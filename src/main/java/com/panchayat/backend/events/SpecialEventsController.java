@@ -25,7 +25,10 @@ public class SpecialEventsController {
 
     static final Set<String> THEMES = Set.of("dusk", "rose", "gold", "night", "monsoon", "ember");
     static final Set<String> MOTIFS = Set.of("banyan", "temple", "huts", "river", "kites", "lanterns");
-    private static final String COLS = "id, title, when_text as \"whenText\", body, theme, motif, image_url as \"imageUrl\", active, sort_order as \"sortOrder\", starts_at as \"startsAt\", ends_at as \"endsAt\"";
+    private static final String COLS = "id, title, when_text as \"whenText\", body, theme, motif, image_url as \"imageUrl\", active, sort_order as \"sortOrder\", starts_at as \"startsAt\", ends_at as \"endsAt\","
+            + " section, tag, tag_color as \"tagColor\", link";
+    private static final java.util.regex.Pattern LINK = java.util.regex.Pattern.compile("^(shop|ranking|pk|recharge|parivar|games|vip|tasks|room:\\d{1,12}|https://\\S{4,290})$");
+    private static final java.util.regex.Pattern COLOR = java.util.regex.Pattern.compile("^#[0-9a-fA-F]{6}$");
 
     private final JdbcTemplate jdbc;
 
@@ -33,12 +36,16 @@ public class SpecialEventsController {
         this.jdbc = jdbc;
     }
 
-    public record EventBody(String title, String whenText, String body, String theme, String motif, String imageUrl, Boolean active, Integer sortOrder, String startsAt, String endsAt) {
+    public record EventBody(String title, String whenText, String body, String theme, String motif, String imageUrl, Boolean active, Integer sortOrder, String startsAt, String endsAt,
+                            String section, String tag, String tagColor, String link) {
     }
 
     @GetMapping("/api/v1/events")
     public List<Map<String, Object>> shown() {
-        return jdbc.queryForList("select " + COLS + " from special_events where active and (starts_at is null or starts_at <= now()) and (ends_at is null or ends_at > now()) order by sort_order, id");
+        List<Map<String, Object>> rows = jdbc.queryForList("select " + COLS + " from special_events where active and (starts_at is null or starts_at <= now()) and (ends_at is null or ends_at > now()) order by sort_order, id");
+        // Uploaded banners get a signed link
+        rows.forEach(r -> r.put("imageUrl", com.panchayat.backend.admin.media.MediaUrls.link((String) r.get("imageUrl"))));
+        return rows;
     }
 
     @GetMapping("/api/v1/admin/manage/events")
@@ -51,8 +58,9 @@ public class SpecialEventsController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public Map<String, Object> create(@RequestBody EventBody b) {
         check(b);
-        Long id = jdbc.queryForObject("insert into special_events (title, when_text, body, theme, motif, image_url, active, sort_order, starts_at, ends_at) values (?,?,?,?,?,?,?,?,?,?) returning id", Long.class,
-                b.title().strip(), nz(b.whenText()), nz(b.body()), b.theme(), b.motif(), blank(b.imageUrl()), b.active() == null || b.active(), b.sortOrder() == null ? 0 : b.sortOrder(), ts(b.startsAt()), ts(b.endsAt()));
+        Long id = jdbc.queryForObject("insert into special_events (title, when_text, body, theme, motif, image_url, active, sort_order, starts_at, ends_at, section, tag, tag_color, link) values (?,?,?,?,?,?,?,?,?,?,?,?,?,?) returning id", Long.class,
+                b.title().strip(), nz(b.whenText()), nz(b.body()), b.theme(), b.motif(), blank(b.imageUrl()), b.active() == null || b.active(), b.sortOrder() == null ? 0 : b.sortOrder(), ts(b.startsAt()), ts(b.endsAt()),
+                section(b.section()), blank(b.tag()), blank(b.tagColor()), blank(b.link()));
         return one(id);
     }
 
@@ -60,8 +68,9 @@ public class SpecialEventsController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
     public Map<String, Object> update(@PathVariable Long id, @RequestBody EventBody b) {
         check(b);
-        int n = jdbc.update("update special_events set title=?, when_text=?, body=?, theme=?, motif=?, image_url=?, active=?, sort_order=?, starts_at=?, ends_at=? where id=?",
-                b.title().strip(), nz(b.whenText()), nz(b.body()), b.theme(), b.motif(), blank(b.imageUrl()), b.active() == null || b.active(), b.sortOrder() == null ? 0 : b.sortOrder(), ts(b.startsAt()), ts(b.endsAt()), id);
+        int n = jdbc.update("update special_events set title=?, when_text=?, body=?, theme=?, motif=?, image_url=?, active=?, sort_order=?, starts_at=?, ends_at=?, section=?, tag=?, tag_color=?, link=? where id=?",
+                b.title().strip(), nz(b.whenText()), nz(b.body()), b.theme(), b.motif(), blank(b.imageUrl()), b.active() == null || b.active(), b.sortOrder() == null ? 0 : b.sortOrder(), ts(b.startsAt()), ts(b.endsAt()),
+                section(b.section()), blank(b.tag()), blank(b.tagColor()), blank(b.link()), id);
         if (n == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No such event");
         return one(id);
     }
@@ -82,6 +91,16 @@ public class SpecialEventsController {
         if (b.whenText() != null && b.whenText().length() > 80) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The 'when' line is too long.");
         if (b.body() != null && b.body().length() > 240) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The description is too long (240 characters).");
         if (!THEMES.contains(b.theme()) || !MOTIFS.contains(b.motif())) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Pick a theme and a picture style from the lists.");
+        if (b.section() != null && b.section().strip().length() > 30) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The section name is too long (30 characters).");
+        if (b.tag() != null && b.tag().strip().length() > 20) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The corner tag is too long (20 characters).");
+        if (b.tagColor() != null && !b.tagColor().isBlank() && !COLOR.matcher(b.tagColor().strip()).matches()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "The tag colour must look like #2f6bf0.");
+        if (b.link() != null && !b.link().isBlank() && !LINK.matcher(b.link().strip()).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Link must be shop, ranking, pk, recharge, parivar, games, vip, tasks, room:<room ID> or an https:// page.");
+        }
+    }
+
+    private static String section(String s) {
+        return s == null || s.isBlank() ? "Recommend" : s.strip();
     }
 
     private static String nz(String s) {
