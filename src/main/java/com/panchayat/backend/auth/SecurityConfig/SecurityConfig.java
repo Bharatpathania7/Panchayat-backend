@@ -81,6 +81,9 @@ public class SecurityConfig {
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
                 )
+                // No token, or an expired / bad one: 401 (the app renews the session). 403 is only ever "not allowed".
+                .exceptionHandling(e -> e.authenticationEntryPoint(
+                        new org.springframework.security.web.authentication.HttpStatusEntryPoint(org.springframework.http.HttpStatus.UNAUTHORIZED)))
                 .authorizeHttpRequests(auth -> auth
 
                         // CORS preflight requests.

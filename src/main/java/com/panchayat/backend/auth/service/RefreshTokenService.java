@@ -39,7 +39,14 @@ import java.util.concurrent.ThreadLocalRandom;
 public class RefreshTokenService {
 
     private static final Logger log = LoggerFactory.getLogger(RefreshTokenService.class);
-    private static final Duration REUSE_GRACE = Duration.ofSeconds(60);
+    /**
+     * A rotated token used again within this window is a lost answer (a phone that dropped off the network right
+     * after the server rotated, or two tabs refreshing at once), not theft: the device gets a new session instead of
+     * being signed out.
+     */
+    private static final Duration REUSE_GRACE = Duration.ofMinutes(10);
+    /** revoked_at of a token that was signed out (not rotated). */
+    static final Instant SIGNED_OUT = Instant.parse("2000-01-01T00:00:00Z");
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final RefreshTokenRepository repository;
@@ -90,9 +97,15 @@ public class RefreshTokenService {
                 .orElseThrow(RefreshTokenService::unauthorized);
 
         if (token.isRevoked()) {
-            if (token.getRevokedAt().plus(REUSE_GRACE).isBefore(now)) {
+            if (token.getRevokedAt().plus(REUSE_GRACE).isAfter(now) && !token.isExpired(now)) {
+                // Rotated moments ago and the device never got the new one: give it a fresh session
+                User user = userRepository.findById(token.getUserId()).orElseThrow(RefreshTokenService::unauthorized);
+                log.info("Refresh token reused within grace; new session for userId={}", token.getUserId());
+                return signIn(user, "Session refreshed");
+            }
+            if (token.getRevokedAt().plus(Duration.ofDays(1)).isBefore(now) && token.getRevokedAt().isAfter(SIGNED_OUT)) {
                 // Used again long after rotation: it was copied. End every session.
-                int ended = repository.revokeAllForUser(token.getUserId(), now);
+                int ended = repository.revokeAllForUser(token.getUserId(), SIGNED_OUT);
                 log.warn("Refresh token reuse detected; ended {} session(s) for userId={}", ended, token.getUserId());
             }
             throw unauthorized();
@@ -115,7 +128,8 @@ public class RefreshTokenService {
     public void revoke(String rawToken) {
         if (rawToken == null || rawToken.isBlank() || rawToken.length() > 200) return;
         repository.findByTokenHash(hash(rawToken)).ifPresent(t -> {
-            t.revoke(Instant.now());
+            // Marked as signed out (not rotated), so the reuse grace never brings it back
+            t.signOut();
             repository.save(t);
         });
     }

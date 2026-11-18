@@ -99,7 +99,7 @@ public class AccountBanService {
         jdbc.update("insert into account_ban_log (user_id, action, days, reason, admin_name) values (?, ?, ?, ?, ?)",
                 userId, days == null ? "BAN" : "SUSPEND", days, why, admin);
         // End every session and take them out of rooms
-        jdbc.update("update refresh_tokens set revoked_at = now() where user_id = ? and revoked_at is null", userId);
+        jdbc.update("update refresh_tokens set revoked_at = timestamptz '2000-01-01 00:00:00+00' where user_id = ? and revoked_at is null", userId);
         jdbc.update("update voice_room_participants set status = 'LEFT' where user_id = ? and status = 'JOINED'", userId);
         // Their own rooms close (the Newbie Welcome Rooms stay: the admin panel runs those)
         List<Long> owned = jdbc.queryForList("select id from voice_rooms where owner_id = ? and status = 'ACTIVE' and not newbie", Long.class, userId);

@@ -53,4 +53,9 @@ public class RefreshToken {
     public void revoke(Instant now) {
         if (revokedAt == null) revokedAt = now;
     }
+
+    /** Signed out on this device: a fixed old revoked_at, so it never counts as a just-rotated token. */
+    public void signOut() {
+        revokedAt = Instant.parse("2000-01-01T00:00:00Z");
+    }
 }
