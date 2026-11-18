@@ -128,7 +128,7 @@ public class ShopPurchaseService {
             String media = p.getAssetUrl();
             String format = formatOf(media);
             for (int i = 0; i < qty; i++) {
-                rewards.grantShopWearable(userId, p.getName(), slot, media, format, days);
+                rewards.grantShopWearable(userId, p.getName(), slot, media, format, days, p.getEntryAvatar());
             }
         } else {
             // An item that lasts N days runs out N days after the last purchase (buying again while it is valid adds the days on)

@@ -114,4 +114,15 @@ public class UpdateProductRequest {
     public void setDisplayOrder(Integer displayOrder) {
         this.displayOrder = displayOrder;
     }
+
+    /** Entry animations: OVERLAY, SLOT, SLOT:key or NONE. */
+    private String entryAvatar;
+
+    public String getEntryAvatar() {
+        return entryAvatar;
+    }
+
+    public void setEntryAvatar(String entryAvatar) {
+        this.entryAvatar = entryAvatar;
+    }
 }

@@ -67,6 +67,17 @@ public class ProductResponse {
         return currency;
     }
 
+    private String entryAvatar;
+
+    public ProductResponse entryAvatar(String v) {
+        this.entryAvatar = v;
+        return this;
+    }
+
+    public String getEntryAvatar() {
+        return entryAvatar;
+    }
+
     public Integer getValidDays() {
         return validDays;
     }
