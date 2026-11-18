@@ -42,6 +42,13 @@ public class GiftCatalogController {
             } catch (Exception ignored) {
                 // The catalog still works without it
             }
+            // "Server notification" (admin switch): the app shows the message box for these gifts
+            try {
+                java.util.Set<String> loud = new java.util.HashSet<>(jdbc.queryForList("select id from gifts where announce", String.class));
+                out.forEach(m -> m.put("announce", loud.contains(String.valueOf(m.get("id")))));
+            } catch (Exception ignored) {
+                // Without it the app falls back to its own list
+            }
             return out;
         });
     }
