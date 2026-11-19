@@ -512,6 +512,28 @@ public class ParivarTreasureService {
         return null;
     }
 
+    /** What a library item is worn as, from its name, else from its library category ("Chat Frames"). */
+    static String slotOf(String name, String category) {
+        String s = slotFromName(name);
+        return s != null ? s : slotFromName(category);
+    }
+
+    private static final java.util.regex.Pattern RING = java.util.regex.Pattern.compile("\\brings?\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** A library item that is a CP ring, by its name or library category. */
+    static boolean isRing(String name, String category) {
+        return (name != null && RING.matcher(name).find()) || (category != null && RING.matcher(category).find());
+    }
+
+    /** A ring won from a chest goes into the CP ring bag (id "lib-N"), so the Bag can offer "Add to CP". It adds no Charm of its own. */
+    private void grantRing(Long userId, long collectibleId, String name, String mediaUrl) {
+        String ringId = "lib-" + collectibleId;
+        String img = mediaUrl != null && mediaUrl.length() <= 300 ? mediaUrl : null;
+        jdbc.update("insert into cp_rings (id, name, price, rarity, image_url, sort_order, active, charm, cp_charm) values (?, left(?, 60), 1, 'Chest', ?, 300, false, 0, 0)"
+                + " on conflict (id) do update set name = excluded.name, image_url = excluded.image_url", ringId, name, img);
+        jdbc.update("insert into cp_ring_bag (user_id, ring_id, quantity) values (?, ?, 1) on conflict (user_id, ring_id) do update set quantity = cp_ring_bag.quantity + 1", userId, ringId);
+    }
+
     /** Puts a payout into the wallet, the Diamond wallet, the bag, the VIP and the profile collection. Each credit has its own once-only key. */
     private void grant(Long chestId, Long userId, Payout p) {
         String base = "treasure:" + chestId + ":" + userId;
@@ -540,7 +562,13 @@ public class ParivarTreasureService {
                     List<Map<String, Object>> cr = jdbc.queryForList("select c.kind, c.name, c.media_url, c.media_format, c.wear_slot, k.name as cat from parivar_collectibles c left join parivar_library_categories k on k.id = c.category_id where c.id = ?", l(it.get("ref")));
                     if (cr.isEmpty()) throw new IllegalStateException("A treasure collectible was removed");
                     // The slot set in the library, else told by the name ("dragon chat bubble" is a bubble)
-                    String slot = cr.get(0).get("wear_slot") != null ? (String) cr.get(0).get("wear_slot") : slotFromName((String) cr.get(0).get("name"));
+                    String slot = cr.get(0).get("wear_slot") != null ? (String) cr.get(0).get("wear_slot") : null;
+                    // A ring goes to the CP ring bag (Bag: "Add to CP")
+                    if (slot == null && isRing((String) cr.get(0).get("name"), (String) cr.get(0).get("cat"))) {
+                        grantRing(userId, l(it.get("ref")), (String) cr.get(0).get("name"), (String) cr.get(0).get("media_url"));
+                        break;
+                    }
+                    if (slot == null) slot = slotOf((String) cr.get(0).get("name"), (String) cr.get(0).get("cat"));
                     if (slot != null) {
                         // A frame / entry / bubble / badge: into the Bag with a Wear button
                         bag.grantWearable(userId, (String) cr.get(0).get("name"), slot, (String) cr.get(0).get("media_url"), (String) cr.get(0).get("media_format"), days);
