@@ -9,6 +9,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
+import java.util.List;
 
 /**
  * One account per phone. The app sends a device id (X-Device-Id: the phone's own id inside the Android app, a random id
@@ -82,10 +83,55 @@ public class DeviceGuard {
         if (n != null && n > 0) throw new AuthService.AuthException(MESSAGE);
     }
 
+    public static final String BANNED_MESSAGE = "This phone has been banned from Panchayat.";
+
+    /**
+     * Refuses a phone an admin banned for good: it can't sign in, and can't open an account. The phone id always counts.
+     * The browser fingerprint together with the network only counts for a NEW account (many phones of one model look
+     * alike, so it must never lock an existing person out).
+     */
+    public void assertNotBanned(boolean newAccount) {
+        String h = currentHash();
+        String fp = newAccount ? currentFingerprint() : null;
+        String net = newAccount ? network.currentNetwork() : null;
+        if (h == null && fp == null) return;
+        Integer n = jdbc.queryForObject("select count(*) from banned_devices where (?::text is not null and device_hash = ?)"
+                + " or (?::text is not null and ?::text is not null and fp = ? and ip = ?)", Integer.class, h, h, fp, net, fp, net);
+        if (n != null && n > 0) throw new AuthService.AuthException(BANNED_MESSAGE);
+    }
+
+    /** Bans every phone this account has been seen on, for good. Returns how many phones were put on the list. */
+    public int banDevicesOf(Long userId, String reason, String admin) {
+        String why = reason == null || reason.isBlank() ? null : reason.strip().substring(0, Math.min(300, reason.strip().length()));
+        List<String> hashes = jdbc.queryForList("select device_hash from user_devices where user_id = ?"
+                + " union select signup_device from users where id = ? and signup_device is not null", String.class, userId, userId);
+        int count = 0;
+        for (String h : hashes) {
+            count += jdbc.update("insert into banned_devices (device_hash, user_id, reason, banned_by) values (?, ?, ?, ?)"
+                    + " on conflict (device_hash) where device_hash is not null do nothing", h, userId, why, admin);
+        }
+        // The browser fingerprint + network of the signup, for a person who clears their data to start again
+        jdbc.query("select signup_fp, signup_ip from users where id = ?", rs -> {
+            String fp = rs.getString(1);
+            String ip = rs.getString(2);
+            if (fp != null && ip != null && jdbc.queryForObject("select count(*) from banned_devices where fp = ? and ip = ?", Integer.class, fp, ip) == 0) {
+                jdbc.update("insert into banned_devices (fp, ip, user_id, reason, banned_by) values (?, ?, ?, ?, ?)", fp, ip, userId, why, admin);
+            }
+        }, userId);
+        return count;
+    }
+
+    /** Lifts the phone bans that came from this account (when the admin unbans it). */
+    public int unbanDevicesOf(Long userId) {
+        return jdbc.update("delete from banned_devices where user_id = ?", userId);
+    }
+
     /** Ties the account to this phone if it isn't tied to one yet (a new account, or an older one signing in). */
     public void remember(Long userId, boolean created) {
         if (userId == null) return;
         String h = currentHash();
+        // Every phone the account is seen on, so a phone ban reaches all of them
+        if (h != null) jdbc.update("insert into user_devices (user_id, device_hash) values (?, ?) on conflict (user_id, device_hash) do update set last_seen = now()", userId, h);
         if (h != null) jdbc.update("update users set signup_device = ? where id = ? and signup_device is null", h, userId);
         String fp = currentFingerprint();
         if (fp != null) jdbc.update("update users set signup_fp = ? where id = ? and signup_fp is null", fp, userId);

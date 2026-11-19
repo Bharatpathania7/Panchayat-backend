@@ -101,7 +101,10 @@ public class AuthService {
         String email = normalizeEmail(request.email());
 
         // A new account on a phone that already has one: say so now, before a code is sent
-        if (userRepository.findByEmailIgnoreCase(email).isEmpty()) deviceGuard.assertCanOpenAccount();
+        boolean isNewAccount = userRepository.findByEmailIgnoreCase(email).isEmpty();
+        // A phone an admin banned for good gets no code at all
+        deviceGuard.assertNotBanned(isNewAccount);
+        if (isNewAccount) deviceGuard.assertCanOpenAccount();
 
         boolean review = isReviewAccount(email);
         String otp = review ? reviewOtp : String.format(
@@ -184,6 +187,9 @@ public class AuthService {
         // Delete the OTP after successful verification.
         emailOtpRepository.delete(emailOtp);
         emailOtpRepository.flush();
+
+        // A phone an admin banned for good can't sign in or open an account
+        deviceGuard.assertNotBanned(userRepository.findByEmailIgnoreCase(email).isEmpty());
 
         // Find the existing user or create a new account.
         boolean[] created = {false};

@@ -81,6 +81,9 @@ public class GoogleAuthService {
 
         String email = googleEmail.trim().toLowerCase(Locale.ROOT);
 
+        // A phone an admin banned for good can't sign in or open an account
+        deviceGuard.assertNotBanned(userRepository.findByEmailIgnoreCase(email).isEmpty());
+
         // Find the existing account or create a new one.
         boolean[] created = {false};
         User user = userRepository.findByEmailIgnoreCase(email)

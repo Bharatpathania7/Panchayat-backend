@@ -36,8 +36,11 @@ public class AdminUsersController {
     private final SimpUserRegistry online;
     private final AccountBanService bans;
 
-    public AdminUsersController(JdbcTemplate jdbc, SimpUserRegistry online, AccountBanService bans) {
+    private final com.panchayat.backend.auth.service.DeviceGuard devices;
+
+    public AdminUsersController(JdbcTemplate jdbc, SimpUserRegistry online, AccountBanService bans, com.panchayat.backend.auth.service.DeviceGuard devices) {
         this.bans = bans;
+        this.devices = devices;
         this.jdbc = jdbc;
         this.online = online;
     }
@@ -209,23 +212,32 @@ public class AdminUsersController {
         return m;
     }
 
-    public record BanRequest(Integer days, String reason) {
+    /** banDevice: also ban the person's phone(s) for good (only with a permanent ban). */
+    public record BanRequest(Integer days, String reason, Boolean banDevice) {
     }
 
     /** Ban an account: permanent when days is empty, otherwise a suspension for that many days. */
     @PostMapping("/{id:[0-9]+}/ban")
     public Map<String, Object> ban(@PathVariable Long id, @RequestBody BanRequest body, org.springframework.security.core.Authentication auth) {
-        AccountBanService.Ban b = bans.ban(id, body.days(), body.reason(), auth == null ? null : auth.getName());
+        boolean withDevice = Boolean.TRUE.equals(body.banDevice());
+        if (withDevice && body.days() != null) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "A phone ban is permanent: choose Permanent for the account too.");
+        }
+        String admin = auth == null ? null : auth.getName();
+        AccountBanService.Ban b = bans.ban(id, body.days(), body.reason(), admin);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("banned", true);
         m.put("permanent", b.permanent());
         m.put("until", b.until());
+        if (withDevice) m.put("phonesBanned", devices.banDevicesOf(id, body.reason(), admin));
         return m;
     }
 
     @PostMapping("/{id:[0-9]+}/unban")
     public Map<String, Object> unban(@PathVariable Long id, org.springframework.security.core.Authentication auth) {
         bans.unban(id, auth == null ? null : auth.getName());
+        // Unbanning the person also lifts the phone ban that came with it
+        devices.unbanDevicesOf(id);
         return Map.of("banned", false);
     }
 
