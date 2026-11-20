@@ -898,14 +898,12 @@ public class ParivarService {
         return profile(actor, id);
     }
 
-    /** A gift between two members of the same Parivar adds activity (coins per EXP, daily cap per person: both are settings). */
+    /** Any gift the sender sends (in a room or direct) adds activity to the SENDER's own Parivar, whoever the receiver is (coins per EXP, daily cap per person: both are settings). */
     @Transactional
     public void onGift(Long senderId, Long receiverId, String giftId, int count, long coins, String requestId) {
-        if (senderId == null || receiverId == null || coins <= 0) return;
-        List<Long> same = jdbc.queryForList("select a.parivar_id from parivar_members a join parivar_members b on b.parivar_id = a.parivar_id join parivars p on p.id = a.parivar_id"
-                + " where a.user_id = ? and b.user_id = ? and p.status = 'ACTIVE'", Long.class, senderId, receiverId);
-        if (same.isEmpty()) return;
-        Long id = same.get(0);
+        if (senderId == null || coins <= 0) return;
+        Long id = myParivarId(senderId);
+        if (id == null) return;
         Map<String, Object> s = settings();
         if (!b(s.get("enabled"))) return;
         long per = Math.max(1, l(s.get("gift_coins_per_exp")));

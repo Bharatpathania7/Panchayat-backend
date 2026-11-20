@@ -266,6 +266,7 @@ public class UserProfileService {
                 user.getAvatarSkinTone(),
                 user.getAvatarOutfit(),
                 user.getAvatarHair(),
+                user.getGender(),
 
                 vip.active(),
                 vip.level(),

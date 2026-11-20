@@ -99,7 +99,10 @@ public class RoomRedPacketService {
         Boolean sold = jdbc.queryForObject("select exists (select 1 from red_packet_products where active and coin_value = ?)", Boolean.class, amount);
         if (!Boolean.TRUE.equals(sold)) throw bad("There's no red packet of that size.");
 
-        VoiceRoom room = rooms.findByIdForUpdate(roomId)
+        // A plain read, not findByIdForUpdate: dropping a red packet never changes the room row itself, and holding
+        // that row's write lock for this whole transaction used to block anyone (including an admin) from joining
+        // the room while it ran.
+        VoiceRoom room = rooms.findById(roomId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
         if (!"ACTIVE".equals(room.getStatus())) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "This room is closed");
         if (participants.findByRoomIdAndUserIdAndStatus(roomId, senderId, "JOINED").isEmpty()) throw forbidden("Join the room to drop a red packet.");
@@ -246,17 +249,41 @@ public class RoomRedPacketService {
                 "select user_id, sum(coins) as coins from room_red_packet_grabs where packet_id = ? group by user_id", id)) {
             paid.put(((Number) w.get("user_id")).longValue(), ((Number) w.get("coins")).longValue());
         }
-        if (left > 0) {
+        // Whatever the rain's 15 seconds left unclaimed: the whole packet still reaches the room, split among
+        // whoever already grabbed (in proportion to their luck so far) instead of quietly going back to the
+        // sender. A single looter (an owner alone in a locked room, say) gets all of it. Only when truly
+        // nobody grabbed anything does it return to the sender.
+        long refunded = 0;
+        if (left > 0 && !paid.isEmpty()) {
+            long totalGrabbed = paid.values().stream().mapToLong(Long::longValue).sum();
+            List<Map.Entry<Long, Long>> entries = new ArrayList<>(paid.entrySet());
+            long distributed = 0;
+            for (int i = 0; i < entries.size(); i++) {
+                long uid = entries.get(i).getKey();
+                long already = entries.get(i).getValue();
+                long extra = i == entries.size() - 1
+                        ? left - distributed
+                        : (totalGrabbed > 0 ? left * already / totalGrabbed : left / entries.size());
+                distributed += extra;
+                if (extra <= 0) continue;
+                Long bonusGrabId = jdbc.queryForObject("insert into room_red_packet_grabs (packet_id, user_id, coins, paid) values (?, ?, ?, true) returning id", Long.class, id, uid, extra);
+                wallet.credit(uid, extra, "RED_PACKET_GRAB", "redpacket:" + id, "rp-bonus:" + bonusGrabId, "Won from red packet " + id);
+                paid.merge(uid, extra, Long::sum);
+                lateCredits.merge(uid, extra, Long::sum);
+            }
+        } else if (left > 0) {
+            refunded = left;
             wallet.credit(sender, left, "RED_PACKET_REFUND", "redpacket:" + id, "rp-refund:" + id, "Unclaimed coins from red packet " + id);
         }
-        jdbc.update("update room_red_packets set settled = true, refunded = ?, coins_left = 0 where id = ?", left, id);
+        jdbc.update("update room_red_packets set settled = true, refunded = ?, coins_left = 0 where id = ?", refunded, id);
         Map<String, Object> view = view(id, "ENDED", null, null);
-        view.put("refunded", left);
+        view.put("refunded", refunded);
         view.put("top", topLooters(paid));
+        long finalRefunded = refunded;
         afterCommit(() -> {
             broadcast(roomId, view);
             lateCredits.forEach((uid, coins) -> walletPush.pushBalance(uid, "RED_PACKET_GRAB", coins));
-            if (left > 0) walletPush.pushBalance(sender, "RED_PACKET_REFUND", left);
+            if (finalRefunded > 0) walletPush.pushBalance(sender, "RED_PACKET_REFUND", finalRefunded);
         });
     }
 

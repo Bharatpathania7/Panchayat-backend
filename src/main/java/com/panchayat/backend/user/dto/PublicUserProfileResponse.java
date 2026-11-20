@@ -17,6 +17,9 @@ public record PublicUserProfileResponse(
         String avatarOutfit,
         String avatarHair,
 
+        // MALE | FEMALE | OTHER | PREFER_NOT_TO_SAY, or null (the app only shows an icon for MALE/FEMALE)
+        String gender,
+
         // VIP details
         boolean vipActive,
         Integer vipLevel,
