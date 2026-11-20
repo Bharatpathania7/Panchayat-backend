@@ -1,5 +1,6 @@
 package com.panchayat.backend.admin.rooms;
 
+import com.panchayat.backend.rooms.service.RoomLevels;
 import com.panchayat.backend.voice.entity.VoiceRoom;
 import com.panchayat.backend.voice.entity.VoiceRoomType;
 import com.panchayat.backend.voice.repository.VoiceRoomRepository;
@@ -51,26 +52,40 @@ public class AdminRoomController {
         m.put("ownerPublicId", rs.getObject("owner_public_id"));
         m.put("official", rs.getBoolean("official"));
         m.put("online", rs.getLong("online"));
+        long exp = rs.getLong("exp");
+        m.put("exp", exp);
+        m.put("level", RoomLevels.level(exp));
+        m.put("levelMembers", RoomLevels.MEMBERS[RoomLevels.level(exp) - 1]);
         m.put("createdAt", rs.getTimestamp("created_at") == null ? null : rs.getTimestamp("created_at").toInstant().toString());
         m.put("admins", jdbc.queryForList("select a.user_id as \"userId\", u.full_name as name, u.public_id as \"publicId\" from voice_room_admins a join users u on u.id = a.user_id where a.room_id = ? order by a.id", id));
         return m;
     }
 
-    private static final String SELECT = "select r.id, r.name, r.description, r.category, r.room_type, r.is_private, r.official, r.max_participants, r.status, r.owner_id, r.created_at,"
+    private static final String SELECT = "select r.id, r.name, r.description, r.category, r.room_type, r.is_private, r.official, r.max_participants, r.status, r.owner_id, r.created_at, r.exp,"
             + " u.full_name as owner_name, u.public_id as owner_public_id,"
             + " (select count(*) from voice_room_participants p where p.room_id = r.id and p.status = 'JOINED') as online"
             + " from voice_rooms r left join users u on u.id = r.owner_id";
 
     @GetMapping
-    public List<Map<String, Object>> list(@RequestParam(required = false) String q) {
+    public List<Map<String, Object>> list(@RequestParam(required = false) String q, @RequestParam(required = false) Integer level) {
         String where = " where r.parivar_id is null";
-        Object[] args = new Object[0];
+        List<Object> args = new java.util.ArrayList<>();
         if (q != null && !q.isBlank()) {
             String like = "%" + q.trim().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
             where += " and (r.name ilike ? or u.full_name ilike ? or cast(r.id as text) = ?)";
-            args = new Object[]{like, like, q.trim()};
+            args.add(like);
+            args.add(like);
+            args.add(q.trim());
         }
-        return jdbc.query(SELECT + where + " order by (r.status = 'ACTIVE') desc, r.created_at desc limit 200", (rs, i) -> row(rs), args);
+        // Level isn't its own column: the admin panel asks for one by its EXP range (same table as RoomLevels)
+        if (level != null && level >= 1 && level <= RoomLevels.EXP.length) {
+            long from = RoomLevels.EXP[level - 1];
+            Long to = level < RoomLevels.EXP.length ? RoomLevels.EXP[level] : null;
+            where += to == null ? " and r.exp >= ?" : " and r.exp >= ? and r.exp < ?";
+            args.add(from);
+            if (to != null) args.add(to);
+        }
+        return jdbc.query(SELECT + where + " order by (r.status = 'ACTIVE') desc, r.created_at desc limit 200", (rs, i) -> row(rs), args.toArray());
     }
 
     @GetMapping("/{id:[0-9]+}")

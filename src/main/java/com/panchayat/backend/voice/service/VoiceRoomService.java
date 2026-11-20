@@ -13,6 +13,7 @@ import com.panchayat.backend.voice.dto.VoiceRoomParticipantResponse;
 import com.panchayat.backend.vip.entity.UserEquippedCosmetic;
 import com.panchayat.backend.vip.repository.UserEquippedCosmeticRepository;
 import com.panchayat.backend.rooms.service.LiveKitPermissionService;
+import com.panchayat.backend.rooms.service.RoomLevels;
 import com.panchayat.backend.rooms.service.RoomPresenceService;
 import com.panchayat.backend.rooms.service.RoomStateService;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -437,7 +438,11 @@ public class VoiceRoomService {
                             "JOINED"
                     );
 
-            if (activeCount >= room.getMaxParticipants()) {
+            // A room's own level raises how many people can be in it at once (same table shown in the app's
+            // Room Levels page); the capacity chosen at creation is only a floor under that.
+            int levelCap = RoomLevels.MEMBERS[RoomLevels.level(room.getExp()) - 1];
+            int cap = Math.max(room.getMaxParticipants(), levelCap);
+            if (activeCount >= cap) {
                 throw new ResponseStatusException(
                         HttpStatus.CONFLICT,
                         "Voice room is full"
