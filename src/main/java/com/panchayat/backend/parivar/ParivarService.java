@@ -464,7 +464,7 @@ public class ParivarService {
                         + " coalesce(sum(case when kind = 'DONATION' and created_at >= ? then coins else 0 end), 0) as gold_weekly,"
                         + " coalesce(sum(case when created_at >= ? then exp else 0 end), 0) as activity_weekly"
                         + " from parivar_activity where parivar_id = ? group by user_id",
-                rs2 -> donated.put(rs2.getLong("user_id"), new long[]{rs2.getLong("gold_total"), rs2.getLong("gold_weekly"), rs2.getLong("activity_weekly")}), ws, ws, id);
+                (rs2, i2) -> donated.put(rs2.getLong("user_id"), new long[]{rs2.getLong("gold_total"), rs2.getLong("gold_weekly"), rs2.getLong("activity_weekly")}), ws, ws, id);
         List<Map<String, Object>> members = jdbc.query(
                 "select m.user_id, m.role, m.contribution, m.joined_at, u.full_name, u.avatar_url, u.public_id from parivar_members m join users u on u.id = m.user_id where m.parivar_id = ?"
                         + " order by case m.role when 'LEADER' then 0 when 'DEPUTY' then 1 when 'ADMIN' then 2 else 3 end, m.contribution desc, m.joined_at",
