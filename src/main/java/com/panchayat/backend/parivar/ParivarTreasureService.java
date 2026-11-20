@@ -323,7 +323,7 @@ public class ParivarTreasureService {
 
     /* ======================= send ======================= */
 
-    public record SendRequest(String mode, Long targetUserId) {
+    public record SendRequest(String mode, Long targetUserId, List<Long> targetUserIds) {
     }
 
     @Transactional
@@ -332,7 +332,7 @@ public class ParivarTreasureService {
         String role = core.roleOf(parivarId, userId);
         if (!"LEADER".equals(role) && !"DEPUTY".equals(role)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the Leader and the Deputies can send the chest.");
         String mode = req == null || req.mode() == null ? "" : req.mode().toUpperCase(Locale.ROOT);
-        if (!List.of("ALL", "TARGET", "TAKE_ALL").contains(mode)) throw ParivarService.bad("Choose how to send the chest.");
+        if (!List.of("ALL", "TARGET", "TAKE_ALL", "MULTIPLE").contains(mode)) throw ParivarService.bad("Choose how to send the chest.");
         List<Map<String, Object>> cl = jdbc.queryForList("select * from treasure_chests where id = ? and parivar_id = ? for update", chestId, parivarId);
         if (cl.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That chest doesn't exist.");
         Map<String, Object> c = cl.get(0);
@@ -350,6 +350,13 @@ public class ParivarTreasureService {
             if (target == null || core.roleOf(parivarId, target) == null) throw ParivarService.bad("Choose a member of this Parivar.");
         } else if ("TAKE_ALL".equals(mode)) {
             target = userId;
+        } else if ("MULTIPLE".equals(mode)) {
+            // A chosen few, not the whole Parivar and not just one: the chest is planned for (and split only
+            // among) these members, same as "Everyone" but for a smaller, hand-picked group.
+            List<Long> chosen = req.targetUserIds() == null ? List.of() : req.targetUserIds().stream().distinct().toList();
+            if (chosen.size() < 2) throw ParivarService.bad("Choose at least 2 members.");
+            for (Long u : chosen) if (core.roleOf(parivarId, u) == null) throw ParivarService.bad("Choose members of this Parivar.");
+            members = chosen;
         }
 
         Map<Long, Payout> plan = plan(tier, c, members);
