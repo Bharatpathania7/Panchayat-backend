@@ -3,6 +3,7 @@ package com.panchayat.backend.rooms.controller;
 import com.panchayat.backend.auth.entity.User;
 import com.panchayat.backend.auth.repository.UserRepository;
 import com.panchayat.backend.rooms.dto.RoomStateResponse;
+import com.panchayat.backend.pk.service.RoomPkService;
 import com.panchayat.backend.rooms.service.RoomStateService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -23,10 +24,12 @@ public class RoomStateController {
 
     private final RoomStateService state;
     private final UserRepository userRepository;
+    private final RoomPkService pk;
 
-    public RoomStateController(RoomStateService state, UserRepository userRepository) {
+    public RoomStateController(RoomStateService state, UserRepository userRepository, RoomPkService pk) {
         this.state = state;
         this.userRepository = userRepository;
+        this.pk = pk;
     }
 
     @GetMapping("/state")
@@ -39,12 +42,17 @@ public class RoomStateController {
 
     @PostMapping("/seats/{index:[0-9]+}/take")
     public RoomStateResponse take(@PathVariable Long roomId, @PathVariable int index, Authentication auth) {
-        return state.takeSeat(roomId, me(auth), index);
+        Long me = me(auth);
+        // A 1v1 fighter moving to another seat forfeits: the other side wins
+        pk.forfeitIfSeated(roomId, me);
+        return state.takeSeat(roomId, me, index);
     }
 
     @PostMapping("/seats/leave")
     public RoomStateResponse leave(@PathVariable Long roomId, Authentication auth) {
-        return state.leaveSeat(roomId, me(auth));
+        Long me = me(auth);
+        pk.forfeitIfSeated(roomId, me);
+        return state.leaveSeat(roomId, me);
     }
 
     @PostMapping("/mic-queue/cancel")

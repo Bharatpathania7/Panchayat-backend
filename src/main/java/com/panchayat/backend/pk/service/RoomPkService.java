@@ -166,6 +166,27 @@ public class RoomPkService {
         }
     }
 
+    /**
+     * A 1v1 fighter (red or blue seat) is about to leave their seat or move to another one: if a 1v1 PK is live and
+     * they're one of the two fighters, the PK ends right now and the OTHER side wins by forfeit. No-op otherwise
+     * (team PK, no PK running, or this person isn't one of the two fighters). Call this before the seat itself
+     * changes, so the fighter's current seat can still be read.
+     */
+    public void forfeitIfSeated(Long roomId, Long userId) {
+        Pk pk = battles.get(roomId);
+        if (pk == null) return;
+        synchronized (pk) {
+            if (!"live".equals(pk.phase) || !"1v1".equals(pk.mode)) return;
+            int seat = roomState.seatIndexOf(roomId, userId);
+            String side = seat == RED_SEAT ? "red" : seat == BLUE_SEAT ? "blue" : null;
+            if (side == null) return;
+            pk.phase = "done";
+            pk.winner = "red".equals(side) ? "blue" : "red";
+            publish(roomId, pk, "FORFEITED", userId);
+            timer.schedule(() -> clearFinished(roomId, pk), 90, TimeUnit.SECONDS);
+        }
+    }
+
     /** A PK is running in this room right now (gifts sent now earn PK Coins). */
     public boolean isLive(Long roomId) {
         Pk pk = battles.get(roomId);

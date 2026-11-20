@@ -1,8 +1,11 @@
 package com.panchayat.backend.parivar;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.panchayat.backend.admin.media.MediaUrls;
 import com.panchayat.backend.wallet.service.CoinWalletService;
 import com.panchayat.backend.wallet.service.WalletPushService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -29,6 +32,8 @@ import java.util.*;
 @Service
 public class ParivarService {
 
+    private static final Logger log = LoggerFactory.getLogger(ParivarService.class);
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     /** Public Parivar ID shown to people = 4,000,000 + internal id. */
     public static final long CODE_BASE = 4_000_000L;
@@ -522,8 +527,24 @@ public class ParivarService {
         if (memberCount(id) >= capacity(level)) throw conflict("This Parivar is full.");
         jdbc.update("insert into parivar_members (parivar_id, user_id, role) values (?, ?, 'MEMBER')", id, userId);
         activity(id, userId, null, "JOINED", 0, 0, "joined the Parivar", null);
-        // Everyone in the family chat sees who just arrived
-        system(id, "\uD83D\uDC4B Welcome " + nameOf(userId) + " to the Parivar!");
+        // Everyone in the family chat sees who just arrived, as themselves: a little "hi" card with Welcome / Send a gift
+        welcomeCard(id, userId);
+    }
+
+    /** The new member's own "hi everyone" card in the family chat, with Welcome and Send a gift buttons. */
+    private void welcomeCard(Long parivarId, Long userId) {
+        Map<String, Object> u = jdbc.queryForMap("select full_name, avatar_url from users where id = ?", userId);
+        Map<String, Object> card = new LinkedHashMap<>();
+        card.put("u", String.valueOf(userId));
+        card.put("n", nameOf(userId));
+        card.put("a", MediaUrls.link((String) u.get("avatar_url")));
+        try {
+            // Plain waving hand (no variation selector): an exact 2-char prefix the app matches to parse the card
+            system(parivarId, "\uD83D\uDC4B" + JSON.writeValueAsString(card));
+        } catch (Exception e) {
+            log.warn("Welcome card not posted for Parivar {}: {}", parivarId, e.getMessage());
+            system(parivarId, "\uD83D\uDC4B Welcome " + nameOf(userId) + " to the Parivar!");
+        }
     }
 
     @Transactional
@@ -744,7 +765,23 @@ public class ParivarService {
         activity(id, userId, null, "DONATION", exp, amount, "donated " + amount + " coins to the Parivar", ref);
         if (exp > 0) addExp(id, userId, exp);
         walletPush.pushBalance(userId, "PARIVAR_DONATION", -amount);
+        donationCard(id, userId, amount, after);
         return profile(userId, id);
+    }
+
+    /** "X donated N Family Fund" in the family chat. */
+    private void donationCard(Long parivarId, Long userId, long amount, long after) {
+        Map<String, Object> card = new LinkedHashMap<>();
+        card.put("n", nameOf(userId));
+        card.put("a", amount);
+        card.put("f", after);
+        try {
+            // Plain moneybag (no variation selector): an exact 2-char prefix the app matches to parse the card
+            system(parivarId, "💰" + JSON.writeValueAsString(card));
+        } catch (Exception e) {
+            log.warn("Donation card not posted for Parivar {}: {}", parivarId, e.getMessage());
+            system(parivarId, "💰 " + nameOf(userId) + " donated " + amount + " coins to the Parivar.");
+        }
     }
 
     public List<Map<String, Object>> fundsHistory(Long userId, Long id) {

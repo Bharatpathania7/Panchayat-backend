@@ -79,6 +79,10 @@ public class RoomAuctionService {
         String tagKind;
         String tagToken;
         long round;
+        /** A pending invite to the auction seat: who was invited, by whom, and when it runs out (ms). */
+        Long inviteeId;
+        Long invitedBy;
+        long inviteExpires;
     }
 
     private Auction of(Long roomId) {
@@ -105,6 +109,7 @@ public class RoomAuctionService {
         synchronized (a) {
             if (!"idle".equals(a.phase) || a.itemId != null) throw conflict("Someone is already on the auction seat");
             a.itemId = target;
+            a.inviteeId = null;
             a.bids.clear();
             a.winnerId = null;
             a.tagKind = null;
@@ -126,6 +131,89 @@ public class RoomAuctionService {
             Long was = a.itemId;
             reset(a);
             return publish(roomId, a, "LEFT", was);
+        }
+    }
+
+    /** The owner or an admin removes the person on the auction seat (not while bidding is open). */
+    public Map<String, Object> remove(Long roomId, Long actor) {
+        VoiceRoom room = activeRoom(roomId);
+        requireMod(room, actor);
+        Auction a = of(roomId);
+        synchronized (a) {
+            if (a.itemId == null) return snapshot(roomId, a, null, null);
+            if ("bidding".equals(a.phase) || "closing".equals(a.phase)) throw conflict("Bidding is open. End it first, then remove them.");
+            Long was = a.itemId;
+            reset(a);
+            return publish(roomId, a, "REMOVED", was);
+        }
+    }
+
+    private static final long INVITE_MS = 30_000;
+
+    /** The owner or an admin invites someone to the empty auction seat: they accept or refuse. */
+    public Map<String, Object> invite(Long roomId, Long actor, Long userId) {
+        VoiceRoom room = activeRoom(roomId);
+        requireMod(room, actor);
+        if (userId == null) throw bad("Choose who to invite");
+        if (room.getOwnerId().equals(userId)) throw conflict("The owner's seat is fixed. Invite someone else.");
+        requireInRoom(roomId, userId);
+        Auction a = of(roomId);
+        final long expiresAt;
+        synchronized (a) {
+            if (!"idle".equals(a.phase) || a.itemId != null) throw conflict("Someone is already on the auction seat");
+            expiresAt = System.currentTimeMillis() + INVITE_MS;
+            a.inviteeId = userId;
+            a.invitedBy = actor;
+            a.inviteExpires = expiresAt;
+        }
+        timer.schedule(() -> {
+            synchronized (a) {
+                if (userId.equals(a.inviteeId) && a.inviteExpires == expiresAt) {
+                    a.inviteeId = null;
+                    a.invitedBy = null;
+                    publish(roomId, a, "INVITE_EXPIRED", userId);
+                }
+            }
+        }, INVITE_MS + 200, TimeUnit.MILLISECONDS);
+        synchronized (a) {
+            return publish(roomId, a, "INVITED", userId);
+        }
+    }
+
+    /** The invited person takes the auction seat. */
+    public Map<String, Object> acceptInvite(Long roomId, Long actor) {
+        activeRoom(roomId);
+        Auction a = of(roomId);
+        synchronized (a) {
+            if (!actor.equals(a.inviteeId) || a.inviteExpires < System.currentTimeMillis()) throw conflict("That invite is no longer open");
+            a.inviteeId = null;
+            a.invitedBy = null;
+        }
+        return sit(roomId, actor, null);
+    }
+
+    public Map<String, Object> declineInvite(Long roomId, Long actor) {
+        activeRoom(roomId);
+        Auction a = of(roomId);
+        synchronized (a) {
+            if (!actor.equals(a.inviteeId)) return snapshot(roomId, a, null, null);
+            a.inviteeId = null;
+            a.invitedBy = null;
+            return publish(roomId, a, "INVITE_DECLINED", actor);
+        }
+    }
+
+    /** The owner or an admin takes the invite back. */
+    public Map<String, Object> cancelInvite(Long roomId, Long actor) {
+        VoiceRoom room = activeRoom(roomId);
+        requireMod(room, actor);
+        Auction a = of(roomId);
+        synchronized (a) {
+            if (a.inviteeId == null) return snapshot(roomId, a, null, null);
+            Long was = a.inviteeId;
+            a.inviteeId = null;
+            a.invitedBy = null;
+            return publish(roomId, a, "INVITE_CANCELLED", was);
         }
     }
 
@@ -288,6 +376,8 @@ public class RoomAuctionService {
         a.winnerId = null;
         a.tagKind = null;
         a.declaration = "";
+        a.inviteeId = null;
+        a.invitedBy = null;
     }
 
     private Map<String, Object> publish(Long roomId, Auction a, String event, Long actor) {
@@ -319,6 +409,7 @@ public class RoomAuctionService {
         out.put("bids", bids);
         out.put("winner", a.winnerId == null ? null : Map.of("userId", String.valueOf(a.winnerId), "total", a.winnerTotal));
         out.put("tagResult", a.tagKind == null ? null : Map.of("kind", a.tagKind, "token", a.tagToken == null ? "bicycle" : a.tagToken));
+        out.put("invite", a.inviteeId == null ? null : Map.of("userId", String.valueOf(a.inviteeId), "byUserId", a.invitedBy == null ? "" : String.valueOf(a.invitedBy), "expiresAt", a.inviteExpires));
         if (event != null) out.put("event", Map.of("type", event, "actorId", actor == null ? "" : String.valueOf(actor)));
         return out;
     }

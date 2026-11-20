@@ -17,6 +17,7 @@ import com.panchayat.backend.voice.repository.VoiceRoomRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
@@ -553,6 +554,29 @@ public class RoomStateService {
         synchronized (live) {
             reconcile(fresh, live);
             return publish(fresh, live, event(admin ? "ADMIN_ADDED" : "ADMIN_REMOVED", actor, target, null, admin));
+        }
+    }
+
+    /**
+     * Staff action (an Official PK room, from the admin panel): makes someone a room admin without the owner's own
+     * click, the follow/member requirement or the room-level admin cap, so they can set up, start and close PK
+     * battles (and do everything else an admin can) in that room. The room sees it as the owner's own doing.
+     */
+    @Transactional
+    public RoomStateResponse setAdminByStaff(Long roomId, Long target) {
+        Ctx ctx = load(roomId);
+        if (ctx.isOwner(target)) throw conflict("The owner is already in charge of the room");
+        if (!ctx.isAdmin(target)) adminRepository.save(new RoomAdmin(roomId, target, ctx.room().getOwnerId()));
+        participantRepository.findByRoomIdAndUserIdAndStatus(roomId, target, "JOINED")
+                .ifPresent(p -> {
+                    p.setRole("MODERATOR");
+                    participantRepository.save(p);
+                });
+        Ctx fresh = load(roomId);
+        Live live = live(fresh);
+        synchronized (live) {
+            reconcile(fresh, live);
+            return publish(fresh, live, event("ADMIN_ADDED", ctx.room().getOwnerId(), target, null, true));
         }
     }
 

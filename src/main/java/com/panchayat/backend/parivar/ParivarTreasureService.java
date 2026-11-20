@@ -9,6 +9,8 @@ import com.panchayat.backend.rewards.service.SpendRewardService;
 import com.panchayat.backend.wallet.service.CoinWalletService;
 import com.panchayat.backend.wallet.service.DiamondService;
 import com.panchayat.backend.wallet.service.WalletPushService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -32,6 +34,7 @@ import java.util.*;
 @Service
 public class ParivarTreasureService {
 
+    private static final Logger log = LoggerFactory.getLogger(ParivarTreasureService.class);
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Map<String, Integer> POINTS = Map.of("COMMON", 1, "PREMIUM", 5, "EPIC", 25, "LEGENDARY", 100, "ULTRA_RARE", 400);
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -391,7 +394,7 @@ public class ParivarTreasureService {
                 throw new IllegalStateException(ex);
             }
             jdbc.update("insert into treasure_payouts (distribution_id, chest_id, parivar_id, user_id, coins, diamonds, items, score) values (?, ?, ?, ?, ?, ?, ?, ?)", did, chestId, parivarId, e.getKey(), p.coins, p.diamonds, items, p.score);
-            grant(chestId, e.getKey(), p);
+            grant(chestId, parivarId, e.getKey(), p);
         }
         jdbc.update("update treasure_chests set status = 'OPENED', opened_at = now() where id = ?", chestId);
         audit(chestId, parivarId, userId, "SEND_" + mode, plan.size() + " people, " + sumCoins + " coins, " + sumDiamonds + " diamonds" + (target != null ? ", to user " + target : ""));
@@ -535,13 +538,15 @@ public class ParivarTreasureService {
     }
 
     /** Puts a payout into the wallet, the Diamond wallet, the bag, the VIP and the profile collection. Each credit has its own once-only key. */
-    private void grant(Long chestId, Long userId, Payout p) {
+    private void grant(Long chestId, Long parivarId, Long userId, Payout p) {
         String base = "treasure:" + chestId + ":" + userId;
         if (p.coins > 0) {
             wallet.credit(userId, p.coins, "PARIVAR_TREASURE", "treasure:" + chestId, base + ":coins", "Family Treasure chest");
             walletPush.pushBalance(userId, "PARIVAR_TREASURE", p.coins);
         }
         if (p.diamonds > 0) diamonds.credit(userId, p.diamonds, "PARIVAR_TREASURE", base + ":dia");
+        // Frame / bubble / entry / badge / gift wins: a rich card in the family chat (the full "You won" popup already shows on the winner's own screen)
+        List<Map<String, Object>> cards = new ArrayList<>();
         int idx = 0;
         for (Map<String, Object> it : p.items) {
             String kind = (String) it.get("kind");
@@ -553,9 +558,16 @@ public class ParivarTreasureService {
             idx++;
             switch (kind) {
                 case "GIFT" -> {
-                    if (it.get("giftId") != null) bag.grantGachaGift(userId, (String) it.get("giftId"), (int) Math.max(1, amount), days);
+                    if (it.get("giftId") != null) {
+                        bag.grantGachaGift(userId, (String) it.get("giftId"), (int) Math.max(1, amount), days);
+                        cards.add(Map.of("n", label == null ? "Gift" : label, "s", "", "u", "", "m", "", "x", days > 0 ? Instant.now().plus(Duration.ofDays(days)).toString() : ""));
+                    }
                 }
-                case "ITEM" -> bag.grantGachaItem(userId, l(it.get("ref")), days > 0 ? days : (int) amount);
+                case "ITEM" -> {
+                    String name = bag.grantGachaItem(userId, l(it.get("ref")), days > 0 ? days : (int) amount);
+                    int len = days > 0 ? days : (int) amount;
+                    cards.add(Map.of("n", name, "s", "", "u", "", "m", "", "x", len > 0 ? Instant.now().plus(Duration.ofDays(len)).toString() : ""));
+                }
                 case "VIP_CARD" -> vip.grantVip(userId, new AdminVipGrantRequest((int) Math.max(1, amount)));
                 case "PROFILE_TITLE" -> profileTitles.grantUsual(userId, l(it.get("ref")), "TREASURE", days > 0 ? days : (int) amount);
                 case "COLLECTIBLE" -> {
@@ -572,6 +584,7 @@ public class ParivarTreasureService {
                     if (slot != null) {
                         // A frame / entry / bubble / badge: into the Bag with a Wear button
                         bag.grantWearable(userId, (String) cr.get(0).get("name"), slot, (String) cr.get(0).get("media_url"), (String) cr.get(0).get("media_format"), days);
+                        cards.add(Map.of("n", (String) cr.get(0).get("name"), "s", slot, "u", (String) cr.get(0).getOrDefault("media_url", ""), "m", (String) cr.get(0).getOrDefault("media_format", ""), "x", days > 0 ? Instant.now().plus(Duration.ofDays(days)).toString() : ""));
                         break;
                     }
                     jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref, category, expires_at) values (?, ?, ?, ?, 'TREASURE', ?, ?, case when ? > 0 then now() + make_interval(days => ?) end) on conflict do nothing",
@@ -580,6 +593,19 @@ public class ParivarTreasureService {
                 case "TITLE", "BADGE" -> jdbc.update("insert into user_collection (user_id, kind, label, image_url, source, ref, expires_at) values (?, ?, ?, ?, 'TREASURE', ?, case when ? > 0 then now() + make_interval(days => ?) end) on conflict do nothing",
                         userId, kind, label, ((String) it.get("imageUrl")).isEmpty() ? null : it.get("imageUrl"), base + ":" + idx, days, days);
                 default -> throw new IllegalStateException("Unknown treasure reward " + kind);
+            }
+        }
+        if (!cards.isEmpty()) {
+            String winner = jdbc.queryForObject("select full_name from users where id = ?", String.class, userId);
+            Map<String, Object> first = cards.get(0);
+            Map<String, Object> card = new LinkedHashMap<>(first);
+            card.put("f", winner);
+            card.put("p", cards.size() - 1);
+            try {
+                // Plain medal (no variation selector): the app matches this exact 2-char prefix to parse the card
+                core.system(parivarId, "🎖" + JSON.writeValueAsString(card));
+            } catch (Exception e) {
+                log.warn("Reward card not posted for Parivar {}: {}", parivarId, e.getMessage());
             }
         }
     }

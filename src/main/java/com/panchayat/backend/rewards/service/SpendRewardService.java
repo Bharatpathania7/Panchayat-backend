@@ -258,23 +258,31 @@ public class SpendRewardService {
         return pool.get(pool.size() - 1);
     }
 
-    /** A gift card won in Parivar Gacha: `qty` of a gift into the person's Bag (it expires after `days` days, 0 = never). */
+    /** A gift card won in Parivar Gacha: `qty` of a gift into the person's Bag (it expires after `days` days, 0 = never). Shows the "You won" popup. */
     @Transactional
     public void grantGachaGift(Long userId, String giftId, int qty, int days) {
         String name = jdbc.query("select name from gifts where id = ?", rs -> rs.next() ? rs.getString(1) : giftId, giftId);
         Instant now = Instant.now();
-        jdbc.update("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, granted_at, expires_at)"
-                        + " values (?, null, null, 'GACHA', 'Parivar Gacha', ?, 'GIFT', ?, ?, ?, null, ?, ?)",
-                userId, name + " Gift Card", giftId, qty, qty, Timestamp.from(now), days > 0 ? Timestamp.from(now.plus(Duration.ofDays(days))) : null);
+        Long id = jdbc.queryForObject("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, granted_at, expires_at)"
+                        + " values (?, null, null, 'GACHA', 'Parivar Gacha', ?, 'GIFT', ?, ?, ?, null, ?, ?) returning id",
+                Long.class, userId, name + " Gift Card", giftId, qty, qty, Timestamp.from(now), days > 0 ? Timestamp.from(now.plus(Duration.ofDays(days))) : null);
+        notifyWon(userId, id);
     }
 
-    /** A library picture / animation that can be worn (frame, bubble, entry, badge, profile effect), won from a Family chest, for `days` days (0 = it never runs out). */
+    /** A library picture / animation that can be worn (frame, bubble, entry, badge, profile effect), won from a Family chest, for `days` days (0 = it never runs out). Shows the "You won" popup. */
     @Transactional
     public void grantWearable(Long userId, String name, String slot, String mediaUrl, String mediaFormat, int days) {
         Instant now = Instant.now();
-        jdbc.update("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, granted_at, expires_at)"
-                        + " values (?, null, null, 'GACHA', 'Parivar chest', ?, ?, null, 1, null, ?, ?, ?, ?, ?)",
-                userId, name, slot, slot, mediaUrl, mediaFormat, Timestamp.from(now), days > 0 ? Timestamp.from(now.plus(Duration.ofDays(days))) : null);
+        Long id = jdbc.queryForObject("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, granted_at, expires_at)"
+                        + " values (?, null, null, 'GACHA', 'Parivar chest', ?, ?, null, 1, null, ?, ?, ?, ?, ?) returning id",
+                Long.class, userId, name, slot, slot, mediaUrl, mediaFormat, Timestamp.from(now), days > 0 ? Timestamp.from(now.plus(Duration.ofDays(days))) : null);
+        notifyWon(userId, id);
+    }
+
+    /** Shows the "You won" popup for one reward row just granted (chest / Gacha, never a Shop purchase). */
+    private void notifyWon(Long userId, Long rewardId) {
+        Map<String, Object> row = own(userId, rewardId);
+        afterCommit(() -> push(userId, List.of(row)));
     }
 
     /** Something worn (frame, chat bubble, entry effect ...) bought in the Shop: into the Bag for `days` days (0 = it never runs out). */
@@ -292,7 +300,7 @@ public class SpendRewardService {
                 "ENTRY".equals(slot) ? entryAvatar : null);
     }
 
-    /** A frame, chat bubble or entry animation won in Parivar Gacha, from the Spend rewards items, for `days` days (0 = the item's own length). */
+    /** A frame, chat bubble or entry animation won in Parivar Gacha, from the Spend rewards items, for `days` days (0 = the item's own length). Shows the "You won" popup. */
     @Transactional
     public String grantGachaItem(Long userId, long ruleItemId, int days) {
         List<Map<String, Object>> it = jdbc.queryForList("select name, item_type, duration_days, media_url, media_format, sound_url from reward_rule_items where id = ?", ruleItemId);
@@ -301,10 +309,11 @@ public class SpendRewardService {
         int len = days > 0 ? days : (i.get("duration_days") == null ? 0 : ((Number) i.get("duration_days")).intValue());
         Instant now = Instant.now();
         String type = (String) i.get("item_type");
-        jdbc.update("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, sound_url, granted_at, expires_at)"
-                        + " values (?, null, ?, 'GACHA', 'Parivar Gacha', ?, ?, null, 1, null, ?, ?, ?, ?, ?, ?)",
-                userId, ruleItemId, i.get("name"), type, slotOf(type), i.get("media_url"), i.get("media_format"), i.get("sound_url"), Timestamp.from(now),
+        Long id = jdbc.queryForObject("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, sound_url, granted_at, expires_at)"
+                        + " values (?, null, ?, 'GACHA', 'Parivar Gacha', ?, ?, null, 1, null, ?, ?, ?, ?, ?, ?) returning id",
+                Long.class, userId, ruleItemId, i.get("name"), type, slotOf(type), i.get("media_url"), i.get("media_format"), i.get("sound_url"), Timestamp.from(now),
                 len > 0 ? Timestamp.from(now.plus(Duration.ofDays(len))) : null);
+        notifyWon(userId, id);
         return (String) i.get("name");
     }
 

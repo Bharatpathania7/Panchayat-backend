@@ -97,6 +97,31 @@ public class RoomGamesController {
         return auction.leave(roomId, me(auth));
     }
 
+    @PostMapping("/auction/remove")
+    public Map<String, Object> removeFromAuction(@PathVariable Long roomId, Authentication auth) {
+        return auction.remove(roomId, me(auth));
+    }
+
+    @PostMapping("/auction/invite")
+    public Map<String, Object> inviteToAuction(@PathVariable Long roomId, @RequestBody Seat b, Authentication auth) {
+        return auction.invite(roomId, me(auth), b == null ? null : b.userId());
+    }
+
+    @PostMapping("/auction/invite/accept")
+    public Map<String, Object> acceptAuctionInvite(@PathVariable Long roomId, Authentication auth) {
+        return auction.acceptInvite(roomId, me(auth));
+    }
+
+    @PostMapping("/auction/invite/decline")
+    public Map<String, Object> declineAuctionInvite(@PathVariable Long roomId, Authentication auth) {
+        return auction.declineInvite(roomId, me(auth));
+    }
+
+    @PostMapping("/auction/invite/cancel")
+    public Map<String, Object> cancelAuctionInvite(@PathVariable Long roomId, Authentication auth) {
+        return auction.cancelInvite(roomId, me(auth));
+    }
+
     @PutMapping("/auction/declaration")
     public Map<String, Object> declare(@PathVariable Long roomId, @RequestBody Declaration b, Authentication auth) {
         if (b == null) throw bad();

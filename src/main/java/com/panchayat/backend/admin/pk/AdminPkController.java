@@ -3,6 +3,7 @@ package com.panchayat.backend.admin.pk;
 import com.panchayat.backend.common.PublicIds;
 import com.panchayat.backend.pk.coins.PkCoinService;
 import com.panchayat.backend.pk.service.RoomPkService;
+import com.panchayat.backend.rooms.service.RoomStateService;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -23,8 +24,11 @@ import java.util.*;
  *   GET  /api/v1/admin/pk/transactions?user=&kind=      the log
  *   POST /api/v1/admin/pk/adjust { user, amount, reason }   grant (amount > 0) or deduct (amount < 0)
  *   GET  /api/v1/admin/pk/rooms                         Official PK rooms
- *   POST /api/v1/admin/pk/rooms { room, title }         make a room an Official PK room (room ID or internal id)
+ *   POST /api/v1/admin/pk/rooms { room, title, hostUser? }   make a room an Official PK room (room ID or internal id);
+ *                                                        hostUser (optional) also becomes a room admin there, so they
+ *                                                        can run its PK (1v1 or multiplayer, any rule/length) from the app
  *   DELETE /api/v1/admin/pk/rooms/{roomId}              no longer official
+ *   POST /api/v1/admin/pk/rooms/{roomId}/host { user }  add a host admin to an existing Official PK room
  *   POST /api/v1/admin/pk/rooms/{roomId}/battle { mode, rule, minutes }   set up and start its PK
  *   DELETE /api/v1/admin/pk/rooms/{roomId}/battle       close its PK
  */
@@ -35,17 +39,21 @@ public class AdminPkController {
 
     private final PkCoinService pkCoins;
     private final RoomPkService pk;
+    private final RoomStateService roomState;
     private final JdbcTemplate jdbc;
 
-    public AdminPkController(PkCoinService pkCoins, RoomPkService pk, JdbcTemplate jdbc) {
+    public AdminPkController(PkCoinService pkCoins, RoomPkService pk, RoomStateService roomState, JdbcTemplate jdbc) {
         this.pkCoins = pkCoins;
         this.pk = pk;
+        this.roomState = roomState;
         this.jdbc = jdbc;
     }
 
     public record AdjustRequest(String user, Long amount, String reason) {}
 
-    public record RoomRequest(String room, String title) {}
+    public record RoomRequest(String room, String title, String hostUser) {}
+
+    public record HostRequest(String user) {}
 
     public record BattleRequest(String mode, String rule, Integer minutes) {}
 
@@ -109,6 +117,9 @@ public class AdminPkController {
                     m.put("ownerName", rs.getString("owner_name"));
                     m.put("online", rs.getLong("online"));
                     m.put("live", pk.isLive(id));
+                    // Room admins (added here as host admins, or by the owner): they can run this room's PK from the app
+                    m.put("hosts", jdbc.query("select u.id, u.full_name from voice_room_admins a join users u on u.id = a.user_id where a.room_id = ? order by a.id",
+                            (hrs, hi) -> Map.of("userId", String.valueOf(hrs.getLong(1)), "name", hrs.getString(2)), id));
                     return m;
                 });
     }
@@ -120,7 +131,17 @@ public class AdminPkController {
         String title = body == null || body.title() == null || body.title().isBlank() ? null : body.title().strip();
         if (title != null && title.length() > 80) title = title.substring(0, 80);
         jdbc.update("update voice_rooms set official_pk = true, official_pk_title = ? where id = ?", title, id);
+        if (body != null && body.hostUser() != null && !body.hostUser().isBlank()) roomState.setAdminByStaff(id, userId(body.hostUser()));
         return Map.of("roomId", String.valueOf(id), "officialPk", true);
+    }
+
+    /** Adds another host admin to an Official PK room already made (owner, or run from here again). */
+    @PostMapping("/rooms/{roomId:[0-9]+}/host")
+    public Map<String, Object> addHost(@PathVariable Long roomId, @RequestBody HostRequest body) {
+        requireOfficial(roomId);
+        if (body == null || body.user() == null || body.user().isBlank()) throw bad("Type the host's ID.");
+        roomState.setAdminByStaff(roomId, userId(body.user()));
+        return Map.of("roomId", String.valueOf(roomId), "hostAdded", true);
     }
 
     @DeleteMapping("/rooms/{roomId:[0-9]+}")
