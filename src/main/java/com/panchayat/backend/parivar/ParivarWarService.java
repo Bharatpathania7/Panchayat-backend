@@ -307,9 +307,7 @@ public class ParivarWarService {
             if (jdbc.update("update parivar_inventory set qty = qty - 1 where parivar_id = ? and kind = 'ATTEMPT' and ref = 0 and qty >= 1", parivarId) == 0)
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Your Parivar has used all of today's Chori attempts.");
         }
-        Timestamp last = jdbc.query("select max(created_at) from parivar_steal_log where thief_parivar = ?", rs -> rs.next() ? rs.getTimestamp(1) : null, parivarId);
-        long cdMin = ((Number) s.get("steal_cooldown_minutes")).longValue();
-        if (last != null && Duration.between(last.toInstant(), Instant.now()).toMinutes() < cdMin) throw new ResponseStatusException(HttpStatus.CONFLICT, "Chori is cooling down. Try again in a while.");
+        // No cooldown: only the daily attempt count (checked above) and the target's own Kavach limit how often Chori runs
         long minFunds = l(s.get("steal_min_target_funds"));
         if (l(target.get("funds")) < minFunds) throw new ResponseStatusException(HttpStatus.CONFLICT, "That Parivar doesn't have enough in its treasury.");
 
@@ -321,8 +319,11 @@ public class ParivarWarService {
             result = "BLOCKED"; // the target's Kavach held
         } else if (random.nextInt(100) < ((Number) s.get("steal_success_percent")).intValue()) {
             result = "SUCCESS";
-            long share = (long) Math.floor(l(target.get("funds")) * ((java.math.BigDecimal) s.get("steal_take_percent")).doubleValue() / 100.0);
-            amount = Math.max(0, Math.min(share, Math.min(l(s.get("steal_max_take")), l(target.get("funds")))));
+            // Random each time, up to the admin's share % of what the target actually has right now: a rich
+            // target can lose a lot, a poor one loses little — never a fixed amount.
+            long ceiling = (long) Math.floor(l(target.get("funds")) * ((java.math.BigDecimal) s.get("steal_take_percent")).doubleValue() / 100.0);
+            long cap = Math.max(0, Math.min(ceiling, Math.min(l(s.get("steal_max_take")), l(target.get("funds")))));
+            amount = cap <= 0 ? 0 : 1 + random.nextLong(cap);
             if (amount > 0) {
                 core.changeFunds(targetId, userId, -amount, "CHORI", ref + ":out");
                 core.changeFunds(parivarId, userId, amount, "CHORI", ref + ":in");
@@ -339,7 +340,8 @@ public class ParivarWarService {
             case "SUCCESS" -> {
                 core.activity(parivarId, userId, null, "STEAL", 0, amount, "took " + amount + " funds from " + tn + " (Chori)", null);
                 core.activity(targetId, userId, null, "STEAL", 0, amount, mn + " took " + amount + " funds from the treasury (Chori)", null);
-                core.world("ATTACK", parivarId, targetId, "\uD83E\uDD77 " + mn + " attacked " + tn + " and took " + amount + " funds from its treasury!", amount);
+                // A server-wide notice only for a big hit (over 1 lakh); smaller ones stay between the two Parivars
+                if (amount > 100_000) core.world("ATTACK", parivarId, targetId, "\uD83E\uDD77 " + mn + " attacked " + tn + " and took " + amount + " funds from its treasury!", amount);
                 core.system(targetId, "🥷 " + mn + " took " + amount + " funds from the treasury!");
                 core.system(parivarId, "🥷 Chori worked! " + amount + " funds from " + tn + ".");
             }
