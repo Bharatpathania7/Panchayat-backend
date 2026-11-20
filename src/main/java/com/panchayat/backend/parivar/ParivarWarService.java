@@ -188,6 +188,39 @@ public class ParivarWarService {
         }
     }
 
+    /** A Kavach that just absorbed a Chori attempt: it ends right now, and the family's own stockpile (if any) replaces it at once. */
+    private void destroyKavach(Long parivarId, long barrierId, String attackerName) {
+        List<String> names = jdbc.queryForList("select name from parivar_barriers where id = ?", String.class, barrierId);
+        String name = names.isEmpty() ? "Kavach" : names.get(0);
+        jdbc.update("update parivar_barriers set expires_at = now(), notified = true where id = ?", barrierId);
+        core.system(parivarId, "💥 " + name + " was destroyed blocking a Chori by " + attackerName + "!");
+        autoActivateNext(parivarId);
+    }
+
+    /** After a Kavach is destroyed or runs out: the next one from the family's own stockpile (highest strength first) turns on by itself. */
+    private void autoActivateNext(Long parivarId) {
+        if (activeBarrier(parivarId) != null) return;
+        List<Map<String, Object>> owned = jdbc.query(
+                "select t.id, t.name, t.strength, t.duration_minutes from parivar_inventory i join parivar_barrier_types t on t.id = i.ref"
+                        + " where i.parivar_id = ? and i.kind = 'BARRIER' and i.qty > 0 and t.active order by t.strength desc, t.id limit 1",
+                (rs, i) -> {
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", rs.getLong("id"));
+                    m.put("name", rs.getString("name"));
+                    m.put("strength", rs.getInt("strength"));
+                    m.put("durationMinutes", rs.getInt("duration_minutes"));
+                    return m;
+                }, parivarId);
+        if (owned.isEmpty()) return;
+        Map<String, Object> t = owned.get(0);
+        long typeId = l(t.get("id"));
+        if (!economy.takeInventory(parivarId, "BARRIER", typeId, 1)) return;
+        Timestamp expires = Timestamp.from(Instant.now().plus(Duration.ofMinutes(((Number) t.get("durationMinutes")).longValue())));
+        jdbc.update("insert into parivar_barriers (parivar_id, type_id, name, strength, activated_by, expires_at, ref_key) values (?, ?, ?, ?, null, ?, ?)",
+                parivarId, typeId, t.get("name"), t.get("strength"), expires, "auto:" + parivarId + ":" + System.nanoTime());
+        core.system(parivarId, "🛡️ " + t.get("name") + " switched on automatically from your stockpile.");
+    }
+
     /* ======================= Chori ======================= */
 
     private Map<String, Object> rules() {
@@ -315,8 +348,11 @@ public class ParivarWarService {
         int strength = barrier == null ? 0 : ((Number) barrier.get("strength")).intValue();
         String result;
         long amount = 0;
-        if (strength > 0 && random.nextInt(100) < strength) {
-            result = "BLOCKED"; // the target's Kavach held
+        if (barrier != null) {
+            // A Kavach up is a hard block, no chance roll: it absorbs this one attempt and is destroyed doing it.
+            // The family's own stockpile (if they bought more) turns the next one on right away.
+            result = "BLOCKED";
+            destroyKavach(targetId, l(barrier.get("id")), (String) me.get("name"));
         } else if (random.nextInt(100) < ((Number) s.get("steal_success_percent")).intValue()) {
             result = "SUCCESS";
             // Random each time, up to the admin's share % of what the target actually has right now: a rich
