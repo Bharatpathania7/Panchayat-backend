@@ -457,10 +457,19 @@ public class ParivarService {
         m.put("createdAt", ((Timestamp) p.get("created_at")).toInstant().toString());
         Timestamp ws = weekStart();
         m.put("weekExp", l(jdbc.queryForObject("select coalesce(sum(exp), 0) from parivar_activity where parivar_id = ? and created_at >= ?", Long.class, id, ws)));
+        // Each member's donations split by kind, this week and lifetime, for the Members tab's Gold / Activity Donation columns
+        Map<Long, long[]> donated = new HashMap<>();
+        jdbc.query("select user_id,"
+                        + " coalesce(sum(case when kind = 'DONATION' then coins else 0 end), 0) as gold_total,"
+                        + " coalesce(sum(case when kind = 'DONATION' and created_at >= ? then coins else 0 end), 0) as gold_weekly,"
+                        + " coalesce(sum(case when created_at >= ? then exp else 0 end), 0) as activity_weekly"
+                        + " from parivar_activity where parivar_id = ? group by user_id",
+                rs2 -> donated.put(rs2.getLong("user_id"), new long[]{rs2.getLong("gold_total"), rs2.getLong("gold_weekly"), rs2.getLong("activity_weekly")}), ws, ws, id);
         List<Map<String, Object>> members = jdbc.query(
                 "select m.user_id, m.role, m.contribution, m.joined_at, u.full_name, u.avatar_url, u.public_id from parivar_members m join users u on u.id = m.user_id where m.parivar_id = ?"
                         + " order by case m.role when 'LEADER' then 0 when 'DEPUTY' then 1 when 'ADMIN' then 2 else 3 end, m.contribution desc, m.joined_at",
                 (rs, i) -> {
+                    long[] d = donated.getOrDefault(rs.getLong("user_id"), new long[3]);
                     Map<String, Object> x = new LinkedHashMap<>();
                     x.put("userId", String.valueOf(rs.getLong("user_id")));
                     x.put("name", rs.getString("full_name"));
@@ -469,6 +478,10 @@ public class ParivarService {
                     x.put("role", rs.getString("role"));
                     x.put("contribution", rs.getLong("contribution"));
                     x.put("joinedAt", rs.getTimestamp("joined_at").toInstant().toString());
+                    x.put("goldDonationTotal", d[0]);
+                    x.put("goldDonationWeekly", d[1]);
+                    x.put("activityDonationTotal", rs.getLong("contribution"));
+                    x.put("activityDonationWeekly", d[2]);
                     return x;
                 }, id);
         m.put("members", members);
