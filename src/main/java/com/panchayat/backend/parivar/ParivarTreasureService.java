@@ -607,6 +607,9 @@ public class ParivarTreasureService {
             } catch (Exception e) {
                 log.warn("Reward card not posted for Parivar {}: {}", parivarId, e.getMessage());
             }
+            // Also in the Family activity feed (News > Family activity), so it stays visible after the chat scrolls on
+            core.activity(parivarId, userId, null, "CHEST_WIN", 0, 0,
+                    "won " + first.get("n") + " from a Family Treasure chest" + (cards.size() > 1 ? " (+" + (cards.size() - 1) + " more)" : ""), base + ":card");
         }
     }
 }

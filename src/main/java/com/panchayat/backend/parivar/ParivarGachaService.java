@@ -196,6 +196,8 @@ public class ParivarGachaService {
             x.put("paidWith", paid.get(i));
             results.add(x);
             if ("LEGENDARY".equals(r.get("rarity")) || "EPIC".equals(r.get("rarity"))) core.system(parivarId, "🎰 " + name(userId) + " won " + r.get("label") + " from " + machine.get("name") + "!");
+            // Every win goes in the Family activity feed (News > Family activity), not only the loud chat announcement
+            core.activity(parivarId, userId, null, "GACHA_WIN", 0, 0, "won " + r.get("label") + " from " + machine.get("name"), ref);
         }
         jdbc.update("insert into parivar_activity (parivar_id, user_id, kind, exp, label, qty, ref) values (?, ?, 'GACHA', 0, ?, ?, ?)", parivarId, userId, "rolled " + machine.get("name") + (times > 1 ? " x" + times : ""), times, "gacharoll:" + base);
         Map<String, Object> res = new LinkedHashMap<>();
