@@ -457,7 +457,7 @@ public class ParivarService {
         m.put("createdAt", ((Timestamp) p.get("created_at")).toInstant().toString());
         Timestamp ws = weekStart();
         m.put("weekExp", l(jdbc.queryForObject("select coalesce(sum(exp), 0) from parivar_activity where parivar_id = ? and created_at >= ?", Long.class, id, ws)));
-        // Each member's donations split by kind, this week and lifetime, for the Members tab's Gold / Activity Donation columns
+        // Each member's donations split by kind, this week and lifetime, for the Members tab's Gold Donation / Activity Donation columns
         Map<Long, long[]> donated = new HashMap<>();
         jdbc.query("select user_id,"
                         + " coalesce(sum(case when kind = 'DONATION' then coins else 0 end), 0) as gold_total,"
