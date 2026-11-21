@@ -145,6 +145,8 @@ public class AdminRoomController {
             room.setPassword(pw);
         }
         VoiceRoom saved = rooms.saveAndFlush(room);
+        // Official rooms are always max level (10): no grind, full member/admin capacity from day one
+        if (official) maxOutLevel(saved.getId());
         return one(saved.getId());
     }
 
@@ -175,7 +177,15 @@ public class AdminRoomController {
             r.setOwnerId(b.ownerId());
         }
         rooms.saveAndFlush(r);
+        // Official rooms are always max level (10): no grind, full member/admin capacity from day one
+        if (Boolean.TRUE.equals(b.official())) maxOutLevel(id);
         return one(id);
+    }
+
+    /** Official rooms skip the EXP grind: straight to level 10 (exp is JDBC-only, not through the JPA entity). */
+    private void maxOutLevel(Long id) {
+        long maxExp = com.panchayat.backend.rooms.service.RoomLevels.EXP[com.panchayat.backend.rooms.service.RoomLevels.EXP.length - 1];
+        jdbc.update("update voice_rooms set exp = ? where id = ? and exp < ?", maxExp, id, maxExp);
     }
 
     /** Closes a room: it leaves the app's list and everyone inside is marked as left. */
