@@ -567,7 +567,7 @@ public class NewbieService {
     @Transactional
     public Map<String, Object> setExtraSeats(Long roomId, Long actor, boolean enabled, boolean panelAdmin) {
         VoiceRoom room = rooms.findById(roomId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Room not found"));
-        if (!room.isNewbie()) throw bad("Extra welcome seats are only for Newbie Welcome Rooms.");
+        if (!room.isNewbie() && !room.isOfficial()) throw bad("Extra welcome seats are only for Newbie Welcome Rooms and Official rooms.");
         if (!"ACTIVE".equals(room.getStatus())) throw conflict("This room is closed.");
         if (!panelAdmin) {
             boolean owner = actor != null && actor.equals(room.getOwnerId());

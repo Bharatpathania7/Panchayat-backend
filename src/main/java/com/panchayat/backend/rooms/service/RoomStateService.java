@@ -730,7 +730,7 @@ public class RoomStateService {
 
     public static int seatCount(VoiceRoom room) {
         int base = room.getRoomType() == com.panchayat.backend.voice.entity.VoiceRoomType.WATCH ? SEATS_WATCH : SEATS_VOICE;
-        return room.isNewbie() && room.isExtraSeats() ? base + SEATS_EXTRA : base;
+        return (room.isNewbie() || room.isOfficial()) && room.isExtraSeats() ? base + SEATS_EXTRA : base;
     }
 
     /** Tells everyone in the room about something that is not a seat change (for example a welcome for a new member). */

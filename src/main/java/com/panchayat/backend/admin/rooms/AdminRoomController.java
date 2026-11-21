@@ -115,7 +115,9 @@ public class AdminRoomController {
     public Map<String, Object> create(@RequestBody RoomBody b) {
         if (b == null || b.name() == null || b.name().strip().length() < 3) throw bad("The room name must be at least 3 letters.");
         boolean official = Boolean.TRUE.equals(b.official());
-        Long owner = official ? sarpanchId() : b.ownerId();
+        // An official room can be anyone's (its own host, who can then add admins there) — Sarpanch is only the default
+        // when the admin ticks "Official" without picking a user.
+        Long owner = b.ownerId() != null ? b.ownerId() : (official ? sarpanchId() : null);
         if (owner == null) throw bad("Pick the user who will own this room.");
         userMustExist(owner);
         VoiceRoom room = new VoiceRoom();
@@ -166,11 +168,9 @@ public class AdminRoomController {
             if (!pw.isEmpty() && !pw.matches("\\d{4}")) throw bad("The password must be 4 digits.");
             r.setPassword(pw.isEmpty() ? null : pw);
         }
-        if (b.official() != null && b.official() != r.isOfficial()) {
-            r.setOfficial(b.official());
-            if (b.official()) r.setOwnerId(sarpanchId());
-        }
-        if (!r.isOfficial() && b.ownerId() != null && !b.ownerId().equals(r.getOwnerId())) {
+        if (b.official() != null) r.setOfficial(b.official());
+        // An official room keeps whoever its owner is (Sarpanch or anyone else the admin picked) unless changed here
+        if (b.ownerId() != null && !b.ownerId().equals(r.getOwnerId())) {
             userMustExist(b.ownerId());
             r.setOwnerId(b.ownerId());
         }
