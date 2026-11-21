@@ -45,7 +45,7 @@ public class GaddarService {
     static final double RADIUS = GaddarMaps.RADIUS;
     static final double TASK_RANGE = 70, TASK_SECONDS = 3.0, KILL_RANGE = 85, REPORT_RANGE = 110, EMERGENCY_RANGE = 100;
     static final double FIX_RANGE = 75, FIX_SECONDS = 3.0, VENT_RANGE = 60, VENT_SEE = 170;
-    static final long FIRST_KILL_MS = 12_000, EMERGENCY_AFTER_MS = 15_000, VOTE_MS = 25_000, TURN_MS = 25_000, RESULT_MS = 6_000, ENDED_MS = 60_000;
+    static final long FIRST_KILL_MS = 12_000, EMERGENCY_AFTER_MS = 15_000, VOTE_MS = 25_000, TURN_MS = 30_000, RESULT_MS = 6_000, ENDED_MS = 60_000;
     static final long SAB_COOLDOWN_MS = 30_000, REACTOR_MS = 40_000, FIRST_SAB_MS = 20_000;
     static final long IDLE_MS = 20_000;
     static final int TASKS_PER_PLAYER = 4;
