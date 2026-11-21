@@ -14,6 +14,9 @@ import com.panchayat.backend.voice.entity.VoiceRoom;
 import com.panchayat.backend.voice.entity.VoiceRoomParticipant;
 import com.panchayat.backend.voice.repository.VoiceRoomParticipantRepository;
 import com.panchayat.backend.voice.repository.VoiceRoomRepository;
+import com.panchayat.backend.games.jackaroo.JackarooService;
+import com.panchayat.backend.games.ludo.LudoService;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -59,6 +62,8 @@ public class RoomStateService {
     private final RoomFollowerRepository followerRepository;
     private final SimpMessagingTemplate messaging;
     private final LiveKitPermissionService permissions;
+    private final LudoService ludo;
+    private final JackarooService jackaroo;
 
     private final Map<Long, Live> rooms = new ConcurrentHashMap<>();
 
@@ -100,7 +105,9 @@ public class RoomStateService {
             RoomMemberRepository memberRepository,
             RoomFollowerRepository followerRepository,
             SimpMessagingTemplate messaging,
-            LiveKitPermissionService permissions
+            LiveKitPermissionService permissions,
+            @Lazy LudoService ludo,
+            @Lazy JackarooService jackaroo
     ) {
         this.roomRepository = roomRepository;
         this.participantRepository = participantRepository;
@@ -110,6 +117,8 @@ public class RoomStateService {
         this.followerRepository = followerRepository;
         this.messaging = messaging;
         this.permissions = permissions;
+        this.ludo = ludo;
+        this.jackaroo = jackaroo;
     }
 
     // ------------------------------------------------------------------
@@ -244,6 +253,9 @@ public class RoomStateService {
             reconcile(ctx, live);
             publish(ctx, live, event("LEFT", null, userId, null, null));
         }
+        // Gone from the room for good: don't leave them stuck occupying a game table seat there too
+        ludo.leaveRoom(roomId, userId);
+        jackaroo.leaveRoom(roomId, userId);
     }
 
     public void onRoomClosed(Long roomId) {

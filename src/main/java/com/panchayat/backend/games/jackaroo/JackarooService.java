@@ -165,6 +165,16 @@ public class JackarooService {
         return view(gameId, me);
     }
 
+    /** Someone left the voice room itself (not just the table): free their seat at any Jackaroo table there
+     *  too, so the table doesn't stay stuck full forever once they're gone. */
+    @Transactional
+    public void leaveRoom(Long roomId, Long userId) {
+        for (Long id : jdbc.queryForList(
+                "select id from room_games where room_id = ? and game = 'JACKAROO' and status in ('WAITING','PLAYING')", Long.class, roomId)) {
+            leave(id, userId);
+        }
+    }
+
     @Transactional
     public Map<String, Object> start(Long gameId, Long me) {
         Row g = lock(gameId);
