@@ -66,6 +66,9 @@ public class VoiceRoomChatService {
     private final UserRepository userRepository;
     private final ChatEncryptionService encryptionService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.moderation.ModerationService moderation;
+
     public VoiceRoomChatService(
             VoiceRoomChatMessageRepository messageRepository,
             VoiceRoomRepository roomRepository,
@@ -191,6 +194,7 @@ public class VoiceRoomChatService {
             }
         }
 
+        moderation.check(user.getId(), "ROOM_CHAT", roomId, normalizedMessage);
         ChatEncryptionService.EncryptedPayload encrypted =
                 encryptionService.encrypt(normalizedMessage);
 

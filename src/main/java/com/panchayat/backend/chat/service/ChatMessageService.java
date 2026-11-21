@@ -35,6 +35,9 @@ public class ChatMessageService {
     private ChatSocialService chatSocial;
 
     @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.moderation.ModerationService moderation;
+
+    @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbc;
 
 
@@ -87,6 +90,7 @@ public class ChatMessageService {
         // Blocked either way: no direct messages
         chatSocial.checkCanSend(conversationId, authenticatedUserId);
 
+        moderation.check(authenticatedUserId, "PRIVATE_CHAT", null, messageText);
         ChatEncryptionService.EncryptedPayload encrypted =
                 encryptionService.encrypt(messageText);
 
