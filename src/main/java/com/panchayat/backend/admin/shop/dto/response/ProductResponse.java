@@ -78,6 +78,34 @@ public class ProductResponse {
         return entryAvatar;
     }
 
+    private String animationUrl;
+    private String animationFormat;
+
+    public ProductResponse animation(String url, String format) {
+        this.animationUrl = url;
+        this.animationFormat = format;
+        return this;
+    }
+
+    public String getAnimationUrl() {
+        return animationUrl;
+    }
+
+    public String getAnimationFormat() {
+        return animationFormat;
+    }
+
+    private String giftId;
+
+    public ProductResponse giftId(String v) {
+        this.giftId = v;
+        return this;
+    }
+
+    public String getGiftId() {
+        return giftId;
+    }
+
     public Integer getValidDays() {
         return validDays;
     }

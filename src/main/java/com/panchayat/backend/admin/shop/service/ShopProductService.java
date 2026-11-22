@@ -63,6 +63,9 @@ public class ShopProductService {
         product.setValidDays(request.getValidDays());
         product.setWearSlot(cleanSlot(request.getWearSlot()));
         product.setEntryAvatar(cleanEntryAvatar(request.getEntryAvatar()));
+        product.setAnimationUrl(request.getAnimationUrl());
+        product.setAnimationFormat(request.getAnimationFormat());
+        product.setGiftId(request.getGiftId());
         product.setActive(true);
 
         ShopProduct savedProduct = productRepository.save(product);
@@ -135,6 +138,9 @@ public class ShopProductService {
         product.setValidDays(request.getValidDays());
         product.setWearSlot(cleanSlot(request.getWearSlot()));
         product.setEntryAvatar(cleanEntryAvatar(request.getEntryAvatar()));
+        product.setAnimationUrl(request.getAnimationUrl());
+        product.setAnimationFormat(request.getAnimationFormat());
+        product.setGiftId(request.getGiftId());
 
         ShopProduct updatedProduct = productRepository.save(product);
 
@@ -269,7 +275,8 @@ public class ShopProductService {
                 product.getActive(),
                 product.getCreatedAt(),
                 product.getUpdatedAt()
-        ).wear(product.getValidDays(), product.getWearSlot()).entryAvatar(product.getEntryAvatar()).currency(product.getCategory().getCurrency());
+        ).wear(product.getValidDays(), product.getWearSlot()).entryAvatar(product.getEntryAvatar()).currency(product.getCategory().getCurrency())
+                .animation(product.getAnimationUrl(), product.getAnimationFormat()).giftId(product.getGiftId());
     }
 
     private static String cleanEntryAvatar(String s) {

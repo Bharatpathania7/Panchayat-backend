@@ -120,8 +120,13 @@ public class ShopPurchaseService {
         return r;
     }
 
-    /** Puts what was bought in the Bag: something to wear (for the days the admin set; 0 = for ever), or a Shop item. */
+    /** Puts what was bought in the Bag: something to wear (for the days the admin set; 0 = for ever), a Shop
+     *  item, or — if it's a Gifts-category item linked to a real gift — the Package tab of "Send a gift". */
     private void deliver(Long userId, ShopProduct p, int qty, int days) {
+        if (p.getGiftId() != null && !p.getGiftId().isBlank()) {
+            rewards.grantShopGift(userId, p.getGiftId(), p.getName(), qty, days);
+            return;
+        }
         String slot = wearSlot(p);
         if (slot != null) {
             // Frames, chat bubbles, entry effects ...: each one goes into the Bag as something to wear, for the number of days the admin set

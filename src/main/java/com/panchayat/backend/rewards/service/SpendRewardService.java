@@ -300,6 +300,18 @@ public class SpendRewardService {
                 "ENTRY".equals(slot) ? entryAvatar : null);
     }
 
+    /** A gift bought in the PK Shop: into the Package tab of "Send a gift" (free to send), the same
+     *  way a chest-won gift gets there. Lucky coins on it, if any, are the gift's own setting (gifts.coin_min/coin_max). */
+    @Transactional
+    public void grantShopGift(Long userId, String giftId, String giftName, int quantity, int days) {
+        Instant now = Instant.now();
+        Instant expires = days > 0 ? now.plus(Duration.ofDays(days)) : null;
+        jdbc.update("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, granted_at, expires_at)"
+                        + " values (?, null, null, 'SHOP', 'Shop', ?, 'GIFT', ?, ?, ?, null, ?, ?)",
+                userId, giftName.length() > 80 ? giftName.substring(0, 80) : giftName, giftId, quantity, quantity,
+                Timestamp.from(now), expires == null ? null : Timestamp.from(expires));
+    }
+
     /** A frame, chat bubble or entry animation won in Parivar Gacha, from the Spend rewards items, for `days` days (0 = the item's own length). Shows the "You won" popup. */
     @Transactional
     public String grantGachaItem(Long userId, long ruleItemId, int days) {

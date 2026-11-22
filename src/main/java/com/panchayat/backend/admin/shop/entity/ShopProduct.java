@@ -43,6 +43,41 @@ public class ShopProduct {
     @Column(name = "asset_type", length = 20)
     private AssetType assetType;
 
+    /** Optional, any category: played instead of (or alongside) the static asset where the app shows one. */
+    @Column(name = "animation_url", length = 1000)
+    private String animationUrl;
+    @Column(name = "animation_format", length = 10)
+    private String animationFormat;
+
+    public String getAnimationUrl() {
+        return animationUrl;
+    }
+
+    public void setAnimationUrl(String animationUrl) {
+        this.animationUrl = animationUrl;
+    }
+
+    public String getAnimationFormat() {
+        return animationFormat;
+    }
+
+    public void setAnimationFormat(String animationFormat) {
+        this.animationFormat = animationFormat;
+    }
+
+    /** Set only for a Gifts-category item: which real gift buying this delivers. Instead of the Bag
+     *  (like a wearable), it lands in the Package tab of "Send a gift", free to send, like a chest win. */
+    @Column(name = "gift_id", length = 64)
+    private String giftId;
+
+    public String getGiftId() {
+        return giftId;
+    }
+
+    public void setGiftId(String giftId) {
+        this.giftId = giftId;
+    }
+
     @Column(name = "display_order", nullable = false)
     private Integer displayOrder = 0;
 

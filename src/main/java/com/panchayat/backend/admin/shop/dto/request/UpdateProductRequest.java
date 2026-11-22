@@ -125,4 +125,35 @@ public class UpdateProductRequest {
     public void setEntryAvatar(String entryAvatar) {
         this.entryAvatar = entryAvatar;
     }
+
+    /** Optional, any category. */
+    private String animationUrl;
+    private String animationFormat;
+
+    public String getAnimationUrl() {
+        return animationUrl;
+    }
+
+    public void setAnimationUrl(String animationUrl) {
+        this.animationUrl = animationUrl;
+    }
+
+    public String getAnimationFormat() {
+        return animationFormat;
+    }
+
+    public void setAnimationFormat(String animationFormat) {
+        this.animationFormat = animationFormat;
+    }
+
+    /** Set only for a Gifts-category item: buying it then lands in the Package tab of "Send a gift". */
+    private String giftId;
+
+    public String getGiftId() {
+        return giftId;
+    }
+
+    public void setGiftId(String giftId) {
+        this.giftId = giftId;
+    }
 }
