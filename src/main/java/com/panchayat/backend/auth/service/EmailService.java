@@ -47,6 +47,45 @@ public class EmailService {
         }
     }
 
+    public void sendMaintenanceNotice(String recipientEmail, String message) {
+        try {
+            MimeMessage mime = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(mime, true, StandardCharsets.UTF_8.name());
+            helper.setFrom(new InternetAddress(fromAddress, fromName, StandardCharsets.UTF_8.name()));
+            helper.setTo(recipientEmail);
+            helper.setSubject("Panchayat is briefly closing for maintenance");
+            helper.setText(maintenancePlainText(message), maintenanceHtml(message));
+            mailSender.send(mime);
+        } catch (jakarta.mail.MessagingException | java.io.UnsupportedEncodingException e) {
+            throw new IllegalStateException("Could not build the maintenance email", e);
+        }
+    }
+
+    static String maintenancePlainText(String message) {
+        return "Hello,\n\n" + message + "\n\nThanks for your patience.\n\nRegards,\nPanchayat Team";
+    }
+
+    String maintenanceHtml(String message) {
+        String body = HtmlUtils.htmlEscape(message == null ? "" : message);
+        String logo = siteUrl + "/brand/panchayat-logo-email.png";
+        return "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                + "<meta name=\"color-scheme\" content=\"light\"><title>Panchayat maintenance</title></head>"
+                + "<body style=\"margin:0;padding:0;background:#f4efe9;\">"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f4efe9;padding:24px 12px;\"><tr><td align=\"center\">"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:480px;background:#ffffff;border-radius:20px;overflow:hidden;"
+                + "box-shadow:0 6px 24px rgba(60,20,20,0.12);font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;\">"
+                + "<tr><td align=\"center\" style=\"background:#2a0a14;background-image:linear-gradient(160deg,#4a0f24 0%,#1d0710 100%);padding:30px 20px 24px;\">"
+                + "<img src=\"" + logo + "\" width=\"220\" alt=\"Panchayat\" style=\"display:block;width:220px;max-width:70%;height:auto;border:0;\">"
+                + "</td></tr>"
+                + "<tr><td style=\"padding:32px 28px 8px;color:#2a1a1a;\">"
+                + "<div style=\"font-size:20px;font-weight:800;color:#2a0f14;\">We're briefly closing for maintenance</div>"
+                + "<div style=\"margin-top:10px;font-size:15px;line-height:1.55;color:#5a4646;\">" + body + "</div></td></tr>"
+                + "<tr><td style=\"padding:8px 28px 30px;font-size:13px;line-height:1.6;color:#7a6767;\">Thanks for your patience.</td></tr>"
+                + "<tr><td align=\"center\" style=\"background:#faf5ef;border-top:1px solid #efe3d4;padding:18px 20px;font-size:12px;line-height:1.6;color:#9a8a7a;\">"
+                + "Panchayat Team<br><a href=\"" + siteUrl + "\" style=\"color:#c0392b;text-decoration:none;\">" + siteUrl.replaceFirst("^https?://", "") + "</a></td></tr>"
+                + "</table></td></tr></table></body></html>";
+    }
+
     static String plainText(String otp) {
         return "Hello,\n\n"
                 + "Your Panchayat verification code is: " + otp + "\n\n"

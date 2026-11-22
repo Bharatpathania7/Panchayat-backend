@@ -27,15 +27,18 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final com.panchayat.backend.security.RateLimitFilter rateLimitFilter;
+    private final com.panchayat.backend.security.MaintenanceFilter maintenanceFilter;
 
     /** Sites allowed to call the API from a browser (app.cors.allowed-origins / CORS_ALLOWED_ORIGINS). */
     @org.springframework.beans.factory.annotation.Value("${app.cors.allowed-origins:https://panchayat.world,https://www.panchayat.world,https://admin.panchayat.world,http://localhost:3000,http://localhost:3100,http://localhost:5173}")
     private String allowedOrigins;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
-                          com.panchayat.backend.security.RateLimitFilter rateLimitFilter) {
+                          com.panchayat.backend.security.RateLimitFilter rateLimitFilter,
+                          com.panchayat.backend.security.MaintenanceFilter maintenanceFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.rateLimitFilter = rateLimitFilter;
+        this.maintenanceFilter = maintenanceFilter;
     }
 
     /* Rate limits run inside the security chain (after the token is read), not a second time as a servlet filter. */
@@ -43,6 +46,15 @@ public class SecurityConfig {
     public FilterRegistrationBean<Filter> rateLimitFilterRegistration() {
         FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>();
         registration.setFilter(rateLimitFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    /* Maintenance mode runs inside the security chain only, not a second time as a servlet filter. */
+    @Bean
+    public FilterRegistrationBean<Filter> maintenanceFilterRegistration() {
+        FilterRegistrationBean<Filter> registration = new FilterRegistrationBean<>();
+        registration.setFilter(maintenanceFilter);
         registration.setEnabled(false);
         return registration;
     }
@@ -100,6 +112,12 @@ public class SecurityConfig {
                         .requestMatchers(
                                 HttpMethod.GET,
                                 "/api/v1/health"
+                        ).permitAll()
+
+                        // Public maintenance-mode status, polled by the website.
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/status"
                         ).permitAll()
 
                         // Public VIP cosmetics.
@@ -215,6 +233,10 @@ public class SecurityConfig {
 
                         // Everything else requires authentication.
                         .anyRequest().authenticated()
+                )
+                .addFilterBefore(
+                        maintenanceFilter,
+                        UsernamePasswordAuthenticationFilter.class
                 )
                 .addFilterBefore(
                         jwtAuthenticationFilter,
