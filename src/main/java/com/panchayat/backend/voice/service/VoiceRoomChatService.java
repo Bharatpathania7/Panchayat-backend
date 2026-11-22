@@ -179,6 +179,12 @@ public class VoiceRoomChatService {
 
         verifyJoinedParticipant(roomId, user.getId());
 
+        // A silent observer is listen-only: never sends anything, so the room is never aware it's
+        // being reviewed for safety.
+        if (participantRepository.findByRoomIdAndUserIdAndStatus(roomId, user.getId(), "JOINED").map(p -> p.isInvisible()).orElse(false)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "This account can only view this room.");
+        }
+
         // "Ban Text Chatting": only the owner and admins can type
         if (com.panchayat.backend.rooms.service.RoomSettingsJson.flag(room.getSettings(), "banText")
                 && !room.getOwnerId().equals(user.getId())) {
@@ -194,9 +200,9 @@ public class VoiceRoomChatService {
             }
         }
 
-        moderation.check(user.getId(), "ROOM_CHAT", roomId, normalizedMessage);
+        String maskedMessage = moderation.checkAndMask(user.getId(), roomId, normalizedMessage);
         ChatEncryptionService.EncryptedPayload encrypted =
-                encryptionService.encrypt(normalizedMessage);
+                encryptionService.encrypt(maskedMessage);
 
         VoiceRoomChatMessage message = new VoiceRoomChatMessage();
         message.setRoomId(roomId);

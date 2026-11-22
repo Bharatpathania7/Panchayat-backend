@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -49,5 +50,32 @@ public class ModerationService {
                 break;
             }
         }
+    }
+
+    /**
+     * Room chat only: everyone in the room can see the message, so a banned word is replaced with
+     * *** in what's actually stored and shown (logged for review the same way check() does, with the
+     * real word in the snippet). Private chat stays as check() above: flagged, never altered.
+     */
+    public String checkAndMask(Long userId, Long roomId, String text) {
+        if (text == null || text.isBlank()) return text;
+        Set<String> w = words();
+        if (w.isEmpty()) return text;
+        String result = text;
+        String firstMatch = null;
+        for (String word : w) {
+            if (word.isBlank()) continue;
+            Matcher m = Pattern.compile("\\b" + Pattern.quote(word) + "\\b", Pattern.CASE_INSENSITIVE).matcher(result);
+            if (m.find()) {
+                if (firstMatch == null) firstMatch = word;
+                result = m.replaceAll(Matcher.quoteReplacement("***"));
+            }
+        }
+        if (firstMatch != null) {
+            String snippet = text.length() > 300 ? text.substring(0, 300) : text;
+            jdbc.update("insert into moderation_violations (user_id, source, room_id, matched_word, snippet) values (?, ?, ?, ?, ?)",
+                    userId, "ROOM_CHAT", roomId, firstMatch, snippet);
+        }
+        return result;
     }
 }
