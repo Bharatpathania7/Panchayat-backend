@@ -248,7 +248,11 @@ public class VoiceRoomService {
         }
 
         List<VoiceRoomParticipant> present = participantRepository
-                .findByRoomIdAndStatusOrderByJoinedAtAsc(roomId, "JOINED");
+                .findByRoomIdAndStatusOrderByJoinedAtAsc(roomId, "JOINED")
+                .stream()
+                // A silent observer isn't in anyone else's list (including each other's) — only their own.
+                .filter(p -> !p.isInvisible() || p.getUserId().equals(currentUser.getId()))
+                .toList();
         List<Long> presentIds = present.stream().map(VoiceRoomParticipant::getUserId).toList();
         java.util.Map<Long, java.util.Map<String, java.util.Map<String, Object>>> worn =
                 rewardBag.effectsFor(presentIds);
@@ -416,10 +420,14 @@ public class VoiceRoomService {
                 .findFirst()
                 .orElse(null);
 
+        // A silent-observer staff account, arriving with no password: let in invisibly for safety
+        // review (see User.silentObserver), logged below. Never for a normal password attempt.
+        boolean silentJoin = participant == null && user.isSilentObserver() && (password == null || password.isBlank());
+
         // Password rooms (the owner and admins don't need it). 423 = locked, so apps
         // can tell it apart from a kick or ban (403). Someone still in the room is
         // reconnecting: they were let in already (a refresh forgets the password).
-        if (participant == null
+        if (participant == null && !silentJoin
                 && !roomSettingsService.passwordAccepted(room, user.getId(), password)) {
             throw new ResponseStatusException(
                     HttpStatus.LOCKED,
@@ -465,6 +473,7 @@ public class VoiceRoomService {
                 }
 
                 participant.setMuted(false);
+                participant.setInvisible(silentJoin);
 
             } else {
 
@@ -481,16 +490,21 @@ public class VoiceRoomService {
                 participant.setMuted(false);
                 participant.setJoinedAt(Instant.now());
                 participant.setLeftAt(null);
+                participant.setInvisible(silentJoin);
             }
 
             participantRepository.save(participant);
+            if (silentJoin) {
+                parivarJdbc.update("insert into silent_observer_audit (user_id, room_id) values (?, ?)", user.getId(), roomId);
+            }
         }
 
         String liveKitRoomName = "panchayat-room-" + room.getId();
         String participantIdentity = "user-" + user.getId();
 
-        // Listeners join without mic permission; taking a seat grants it.
-        boolean canPublish = roomStateService.canPublishOnJoin(room, user.getId());
+        // Listeners join without mic permission; taking a seat grants it. A silent observer never
+        // publishes audio/video — listen only, so the room is never aware it's being reviewed.
+        boolean canPublish = !participant.isInvisible() && roomStateService.canPublishOnJoin(room, user.getId());
 
         String token = liveKitTokenService.generateJoinToken(
                 liveKitRoomName,
@@ -502,13 +516,16 @@ public class VoiceRoomService {
         // Asking for a token again (reconnecting) restarts the grace period and,
         // unless they were away long enough to have left, tells nobody:
         // everyone in the room reloads the participant list on JOINED.
-        presence.touch(roomId, user.getId());
-        Long joinedUserId = user.getId();
-        if (arriving || room.getOwnerId().equals(joinedUserId)) {
-            afterCommit(() -> roomStateService.onJoined(roomId, joinedUserId));
+        // A silent observer updates no one's presence and triggers no join broadcast: invisible end to end.
+        if (!participant.isInvisible()) {
+            presence.touch(roomId, user.getId());
+            Long joinedUserId = user.getId();
+            if (arriving || room.getOwnerId().equals(joinedUserId)) {
+                afterCommit(() -> roomStateService.onJoined(roomId, joinedUserId));
+            }
+            if (arriving && room.isNewbie()) newbieService.onJoin(roomId, joinedUserId);
+            if (arriving && familyId != null) familyRoomLine(familyId, joinedUserId, "\uD83D\uDC4B Welcome %s to the family room!");
         }
-        if (arriving && room.isNewbie()) newbieService.onJoin(roomId, joinedUserId);
-        if (arriving && familyId != null) familyRoomLine(familyId, joinedUserId, "\uD83D\uDC4B Welcome %s to the family room!");
 
         return new JoinVoiceRoomResponse(
                 liveKitUrl,

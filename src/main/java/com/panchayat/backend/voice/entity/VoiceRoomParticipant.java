@@ -26,6 +26,11 @@ public class VoiceRoomParticipant {
     @Column(name = "is_muted", nullable = false)
     private boolean muted = false;
 
+    /** A silent-observer staff account that joined a password room without the password: hidden
+     *  from everyone else in the room (not in the participant list, no join/leave broadcast). */
+    @Column(name = "invisible", nullable = false)
+    private boolean invisible = false;
+
     @Column(name = "joined_at", nullable = false)
     private Instant joinedAt;
 
@@ -81,6 +86,14 @@ public class VoiceRoomParticipant {
 
     public void setMuted(boolean muted) {
         this.muted = muted;
+    }
+
+    public boolean isInvisible() {
+        return invisible;
+    }
+
+    public void setInvisible(boolean invisible) {
+        this.invisible = invisible;
     }
 
     public Instant getJoinedAt() {

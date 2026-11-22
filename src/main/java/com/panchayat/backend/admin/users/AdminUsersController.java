@@ -212,6 +212,19 @@ public class AdminUsersController {
         return m;
     }
 
+    public record SilentObserverRequest(boolean enabled) {
+    }
+
+    /** Lets this account join any password room without the password, invisibly, for safety review
+     *  (see VoiceRoomService.joinRoom). Every use is written to silent_observer_audit. Super Admin only. */
+    @PostMapping("/{id:[0-9]+}/silent-observer")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public Map<String, Object> setSilentObserver(@PathVariable Long id, @RequestBody SilentObserverRequest body) {
+        int n = jdbc.update("update users set silent_observer = ? where id = ?", body != null && body.enabled(), id);
+        if (n == 0) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "User not found");
+        return Map.of("silentObserver", body != null && body.enabled());
+    }
+
     /** banDevice: also ban the person's phone(s) for good (only with a permanent ban). */
     public record BanRequest(Integer days, String reason, Boolean banDevice) {
     }

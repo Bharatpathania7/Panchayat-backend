@@ -53,6 +53,11 @@ public class User {
     @Column(name = "profile_completed", nullable = false)
     private boolean profileCompleted = false;
 
+    /** A staff account trusted to join any password room without the password, invisibly (see
+     *  VoiceRoomService.joinRoom), for safety review. Set only by a Super Admin, from Staff. */
+    @Column(name = "silent_observer", nullable = false)
+    private boolean silentObserver = false;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -204,6 +209,14 @@ public class User {
 
     public void setEmailVerified(boolean emailVerified) {
         this.emailVerified = emailVerified;
+    }
+
+    public boolean isSilentObserver() {
+        return silentObserver;
+    }
+
+    public void setSilentObserver(boolean silentObserver) {
+        this.silentObserver = silentObserver;
     }
 
     public boolean isProfileCompleted() {

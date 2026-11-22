@@ -276,6 +276,9 @@ public class RoomStateService {
     public RoomStateResponse takeSeat(Long roomId, Long actor, int index) {
         Ctx ctx = load(roomId);
         requireInRoom(ctx, actor);
+        if (participantRepository.findByRoomIdAndUserIdAndStatus(roomId, actor, "JOINED").map(VoiceRoomParticipant::isInvisible).orElse(false)) {
+            throw conflict("This account can only view this room.");
+        }
         Live live = live(ctx);
         synchronized (live) {
             reconcile(ctx, live);
