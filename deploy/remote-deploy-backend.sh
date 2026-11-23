@@ -69,7 +69,7 @@ say "Waiting for the backend on port $BACKEND_PORT"
 UP=0
 for _ in $(seq 1 45); do
   sleep 3
-  if [ "$(curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${BACKEND_PORT}/api/v1/voice-rooms/public")" = 200 ]; then UP=1; break; fi
+  if [ "$(curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${BACKEND_PORT}/api/v1/health")" = 200 ]; then UP=1; break; fi
 done
 
 if [ "$UP" != 1 ]; then
