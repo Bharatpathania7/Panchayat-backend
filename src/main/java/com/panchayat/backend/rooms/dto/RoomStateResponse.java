@@ -15,6 +15,8 @@ public record RoomStateResponse(
         long version,
         String ownerId,
         List<String> admins,
+        /* Same authority as the owner everywhere except the fixed owner seat (voice-rooms level 5+). */
+        List<String> coOwners,
         List<String> seats,
         List<Integer> closedSeats,
         List<Integer> mutedSeats,

@@ -26,6 +26,12 @@ public interface VoiceRoomRepository
             Long ownerId
     );
 
+    /** This owner's existing permanent room, if any — only one is allowed at a time. */
+    Optional<VoiceRoom> findFirstByOwnerIdAndTemporaryFalseAndStatus(
+            Long ownerId,
+            String status
+    );
+
     // Locks the room row while checking participant capacity.
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT r FROM VoiceRoom r WHERE r.id = :id")

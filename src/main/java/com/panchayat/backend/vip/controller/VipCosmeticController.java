@@ -26,7 +26,7 @@ public class VipCosmeticController {
             @RequestParam(required = false) VipCosmetic.CosmeticType type,
             @RequestParam(required = false) VipCosmetic.CosmeticFormat format
     ) {
-        if (level != null && (level < 1 || level > 7)) {
+        if (level != null && (level < 1 || level > 11)) {
             return ResponseEntity.badRequest().build();
         }
 

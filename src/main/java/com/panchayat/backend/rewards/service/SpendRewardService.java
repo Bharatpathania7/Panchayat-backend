@@ -205,7 +205,7 @@ public class SpendRewardService {
         List<Long> ids = userIds == null ? List.of() : userIds.stream().filter(Objects::nonNull).distinct().toList();
         if (ids.isEmpty()) return out;
         String in = String.join(",", Collections.nCopies(ids.size(), "?"));
-        jdbc.query("select r.user_id, r.slot, r.item_name, r.media_url, r.media_format, r.sound_url, r.name_frame_id, u.full_name, r.entry_avatar,"
+        jdbc.query("select r.user_id, r.slot, r.item_name, r.media_url, r.media_format, r.sound_url, r.name_frame_id, u.full_name, r.entry_avatar, r.layout_level,"
                         + " f.frame_scale, f.frame_y, f.plate_x, f.plate_y, f.plate_w, f.plate_h, f.text_color, f.stroke_color"
                         + " from user_rewards r join users u on u.id = r.user_id left join name_frames f on f.id = r.name_frame_id"
                         + " where r.equipped and r.slot is not null and r.media_url is not null"
@@ -231,6 +231,7 @@ public class SpendRewardService {
                     if (rs.getString("entry_avatar") != null) fx.put("avatar", rs.getString("entry_avatar"));
                     fx.put("soundUrl", MediaUrls.link(rs.getString("sound_url")));
                     fx.put("name", rs.getString("item_name"));
+                    fx.put("layoutLevel", rs.getInt("layout_level"));
                     out.computeIfAbsent(rs.getLong("user_id"), k -> new LinkedHashMap<>()).put(rs.getString("slot"), fx);
                 }, ids.toArray());
         return out;
@@ -291,13 +292,23 @@ public class SpendRewardService {
         grantShopWearable(userId, name, slot, mediaUrl, mediaFormat, days, null);
     }
 
-    /** entryAvatar: for an entry, how the wearer's picture shows (the product's setting). */
+    /** entryAvatar: for an entry, how the wearer's picture shows (the product's setting). Buying the same
+     *  item again while it's still owned adds the days on top, instead of a second, separate copy. */
     public void grantShopWearable(Long userId, String name, String slot, String mediaUrl, String mediaFormat, int days, String entryAvatar) {
         Instant now = Instant.now();
-        jdbc.update("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, granted_at, expires_at, entry_avatar)"
-                        + " values (?, null, null, 'SHOP', 'Shop', ?, ?, null, 1, null, ?, ?, ?, ?, ?, ?)",
-                userId, name.length() > 80 ? name.substring(0, 80) : name, slot, slot, mediaUrl, mediaFormat, Timestamp.from(now), days > 0 ? Timestamp.from(now.plus(Duration.ofDays(days))) : null,
-                "ENTRY".equals(slot) ? entryAvatar : null);
+        String itemName = name.length() > 80 ? name.substring(0, 80) : name;
+        Object avatar = "ENTRY".equals(slot) ? entryAvatar : null;
+        int updated = jdbc.update(
+                "update user_rewards set media_url = ?, media_format = ?, entry_avatar = ?,"
+                        + " expires_at = case when ? > 0 then greatest(coalesce(expires_at, now()), now()) + (? * interval '1 day') else null end"
+                        + " where id = (select id from user_rewards where user_id = ? and rule_kind = 'SHOP' and item_name = ? and slot = ?"
+                        + "   and (expires_at is null or expires_at > now()) order by granted_at desc limit 1)",
+                mediaUrl, mediaFormat, avatar, days, days, userId, itemName, slot);
+        if (updated == 0) {
+            jdbc.update("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, granted_at, expires_at, entry_avatar)"
+                            + " values (?, null, null, 'SHOP', 'Shop', ?, ?, null, 1, null, ?, ?, ?, ?, ?, ?)",
+                    userId, itemName, slot, slot, mediaUrl, mediaFormat, Timestamp.from(now), days > 0 ? Timestamp.from(now.plus(Duration.ofDays(days))) : null, avatar);
+        }
     }
 
     /** A gift bought in the PK Shop: into the Package tab of "Send a gift" (free to send), the same
@@ -315,16 +326,16 @@ public class SpendRewardService {
     /** A frame, chat bubble or entry animation won in Parivar Gacha, from the Spend rewards items, for `days` days (0 = the item's own length). Shows the "You won" popup. */
     @Transactional
     public String grantGachaItem(Long userId, long ruleItemId, int days) {
-        List<Map<String, Object>> it = jdbc.queryForList("select name, item_type, duration_days, media_url, media_format, sound_url from reward_rule_items where id = ?", ruleItemId);
+        List<Map<String, Object>> it = jdbc.queryForList("select name, item_type, duration_days, media_url, media_format, sound_url, layout_level from reward_rule_items where id = ?", ruleItemId);
         if (it.isEmpty()) throw new IllegalStateException("The Gacha item " + ruleItemId + " doesn't exist");
         Map<String, Object> i = it.get(0);
         int len = days > 0 ? days : (i.get("duration_days") == null ? 0 : ((Number) i.get("duration_days")).intValue());
         Instant now = Instant.now();
         String type = (String) i.get("item_type");
-        Long id = jdbc.queryForObject("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, sound_url, granted_at, expires_at)"
-                        + " values (?, null, ?, 'GACHA', 'Parivar Gacha', ?, ?, null, 1, null, ?, ?, ?, ?, ?, ?) returning id",
+        Long id = jdbc.queryForObject("insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id, quantity, remaining, slot, media_url, media_format, sound_url, granted_at, expires_at, layout_level)"
+                        + " values (?, null, ?, 'GACHA', 'Parivar Gacha', ?, ?, null, 1, null, ?, ?, ?, ?, ?, ?, ?) returning id",
                 Long.class, userId, ruleItemId, i.get("name"), type, slotOf(type), i.get("media_url"), i.get("media_format"), i.get("sound_url"), Timestamp.from(now),
-                len > 0 ? Timestamp.from(now.plus(Duration.ofDays(len))) : null);
+                len > 0 ? Timestamp.from(now.plus(Duration.ofDays(len))) : null, ((Number) i.get("layout_level")).intValue());
         notifyWon(userId, id);
         return (String) i.get("name");
     }
@@ -335,12 +346,12 @@ public class SpendRewardService {
         boolean gift = "GIFT".equals(i.getItemType());
         Long id = jdbc.queryForObject(
                 "insert into user_rewards (user_id, rule_id, rule_item_id, rule_kind, rule_name, item_name, item_type, gift_id,"
-                        + " quantity, remaining, slot, media_url, media_format, sound_url, granted_at, expires_at)"
-                        + " values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
+                        + " quantity, remaining, slot, media_url, media_format, sound_url, granted_at, expires_at, layout_level)"
+                        + " values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id",
                 Long.class,
                 userId, r.getId(), i.getId(), r.getKind().name(), r.getName(), i.getName(), i.getItemType(), i.getGiftId(),
                 i.getQuantity(), gift ? i.getQuantity() : null, slotOf(i.getItemType()), i.getMediaUrl(), i.getMediaFormat(), i.getSoundUrl(),
-                Timestamp.from(now), expires == null ? null : Timestamp.from(expires));
+                Timestamp.from(now), expires == null ? null : Timestamp.from(expires), i.getLayoutLevel());
         return own(userId, id);
     }
 

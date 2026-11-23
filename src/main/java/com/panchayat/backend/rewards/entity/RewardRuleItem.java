@@ -54,6 +54,11 @@ public class RewardRuleItem {
     @Column(name = "sound_public_id", length = 200)
     private String soundPublicId;
 
+    /** Which VIP level's frame/bubble/entry/badge fit (size and position) this effect's file is drawn into,
+     *  since the file itself carries no layout. 1 (the old default) to 11. */
+    @Column(name = "layout_level", nullable = false)
+    private int layoutLevel = 1;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -89,5 +94,7 @@ public class RewardRuleItem {
     public void setSoundUrl(String soundUrl) { this.soundUrl = soundUrl; }
     public String getSoundPublicId() { return soundPublicId; }
     public void setSoundPublicId(String soundPublicId) { this.soundPublicId = soundPublicId; }
+    public int getLayoutLevel() { return layoutLevel; }
+    public void setLayoutLevel(int layoutLevel) { this.layoutLevel = layoutLevel < 1 || layoutLevel > 11 ? 1 : layoutLevel; }
     public Instant getCreatedAt() { return createdAt; }
 }

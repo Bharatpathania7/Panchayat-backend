@@ -117,6 +117,15 @@ public class VoiceRoomService {
             );
         }
 
+        boolean temporary = Boolean.TRUE.equals(request.temporary());
+
+        if (!temporary && voiceRoomRepository.findFirstByOwnerIdAndTemporaryFalseAndStatus(user.getId(), "ACTIVE").isPresent()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Aapka ek permanent room pehle se chal raha hai. Usse band karo ya ek temp room banao."
+            );
+        }
+
         VoiceRoom room = new VoiceRoom();
 
         room.setOwnerId(user.getId());
@@ -124,6 +133,7 @@ public class VoiceRoomService {
         room.setDescription(normalizeDescription(request.description()));
         room.setRoomType(request.roomType());
         room.setPrivate(request.isPrivate());
+        room.setTemporary(temporary);
 
         int capacity = request.maxParticipants() == 0
                 ? 8
@@ -613,6 +623,12 @@ public class VoiceRoomService {
         participantRepository.save(participant);
 
         Long leftUserId = user.getId();
+        boolean ownerLeftTempRoom = room.isTemporary() && room.getOwnerId().equals(leftUserId);
+        if (ownerLeftTempRoom) {
+            voiceRoomRepository.delete(room);
+            afterCommit(() -> roomStateService.onRoomClosed(roomId));
+            return;
+        }
         afterCommit(() -> roomStateService.onLeft(roomId, leftUserId));
         Long leftFamily = parivarJdbc.query("select parivar_id from voice_rooms where id = ?", rs -> rs.next() ? (Long) rs.getObject(1) : null, roomId);
         if (leftFamily != null) familyRoomLine(leftFamily, leftUserId, "\uD83D\uDEAA %s left the family room.");
@@ -665,6 +681,12 @@ public class VoiceRoomService {
                     HttpStatus.CONFLICT,
                     "A Newbie Welcome Room stays open. You can leave it; it is closed only from the admin panel."
             );
+        }
+
+        if (room.isTemporary()) {
+            voiceRoomRepository.delete(room);
+            afterCommit(() -> roomStateService.onRoomClosed(roomId));
+            return;
         }
 
         room.setStatus("CLOSED");

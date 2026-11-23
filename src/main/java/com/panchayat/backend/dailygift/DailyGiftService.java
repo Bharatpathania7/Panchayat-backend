@@ -19,10 +19,10 @@ import java.util.Map;
 /**
  * Two rewards for everyone, both switched on and set from the admin panel (Daily rewards):
  *  1. A daily red packet: every day each person gets N coins from Sarpanch (a message in the Sarpanch chat with "Open red packet").
- *  2. A locked prize: it opens after a number of days (7) on which the person was in the app for a number of minutes (120).
- *     Until then Sarpanch reminds them, each day, how many days are done and how many are left.
+ *  2. A locked prize: unlocked the moment someone is first seen in the app, same as the welcome gift — no days or active
+ *     time required any more (bonus_days / bonus_active_minutes stay in the settings only for the admin's own records).
  *
- * The app pings once a minute while it is open; those pings are the "active time". A day counts once its active time reaches the target.
+ * The app pings once a minute while it is open; those pings are the "active time" (still tracked for the admin's numbers).
  */
 @Service
 public class DailyGiftService {
@@ -104,6 +104,7 @@ public class DailyGiftService {
     public Map<String, Object> ping(Long userId) {
         Settings s = settings();
         if (!s.enabled() && !s.bonusEnabled()) return state(userId);
+        if (s.bonusEnabled()) grantBonusOnEntry(userId, s);
         LocalDate day = today();
         // a new day: the first ping creates the row (and tells Sarpanch to send the day's messages)
         int created = jdbc.update("insert into daily_activity (user_id, day, seconds, last_ping) values (?, ?, 0, now()) on conflict do nothing", userId, day);
@@ -124,22 +125,16 @@ public class DailyGiftService {
                     "Namaste! Panchayat ki taraf se aaj ke " + n(s.dailyCoins()) + " coins aapka intezaar kar rahe hain. Red packet kholo aur coins le lo.",
                     null, "Open red packet", "/daily-gift", "RED_PACKET"), "daily-gift:" + day + ":" + userId);
         }
-        if (s.bonusEnabled()) {
-            Map<String, Object> p = jdbc.queryForList("select days_done, unlocked_at is not null as unlocked from locked_prize where user_id = ?", userId).stream().findFirst().orElse(null);
-            int done = p == null ? 0 : ((Number) p.get("days_done")).intValue();
-            boolean unlocked = p != null && Boolean.TRUE.equals(p.get("unlocked"));
-            if (!unlocked) {
-                int left = Math.max(0, s.bonusDays() - done);
-                String body = done == 0
-                        ? "Aapke liye ek LOCKED PRIZE rakha hai: " + n(s.bonusCoins()) + " coins! Isse kholne ke liye " + s.bonusDays() + " din roz " + hours(s.bonusActiveMinutes()) + " Panchayat me active raho. Aaj se shuru karo!"
-                        : "Aapka locked prize abhi band hai 🔒 " + done + " din ho gaye, " + left + " din aur bache hain. Aaj bhi " + hours(s.bonusActiveMinutes()) + " active raho, inaam bahut paas hai!";
-                sarpanch.sendSafely(userId, new SarpanchService.Message("Task pending: locked prize 🔒", body, null, "Dekho", "/daily-gift", "REWARD"), "locked-pending:" + day + ":" + userId);
-            }
-        }
     }
 
-    private static String hours(int minutes) {
-        return minutes % 60 == 0 ? (minutes / 60) + " ghante" : minutes + " minute";
+    /** The locked prize unlocks the moment someone is first seen (no days or active-time grind any more). Runs once per person. */
+    private void grantBonusOnEntry(Long userId, Settings s) {
+        int inserted = jdbc.update("insert into locked_prize (user_id, days_done, coins, unlocked_at) values (?, ?, ?, now()) on conflict (user_id) do nothing", userId, s.bonusDays(), s.bonusCoins());
+        if (inserted == 1) {
+            sarpanch.sendSafely(userId, new SarpanchService.Message("Locked prize khul gaya! 🎉🔓",
+                    "Namaste! Panchayat ki taraf se aapka " + n(s.bonusCoins()) + " coins ka locked prize abhi khula hai. Abhi le lo!",
+                    null, "Open prize", "/daily-gift", "RED_PACKET"), "locked-open:" + userId);
+        }
     }
 
     /** Has today's active time reached the target? Then today counts, once. */

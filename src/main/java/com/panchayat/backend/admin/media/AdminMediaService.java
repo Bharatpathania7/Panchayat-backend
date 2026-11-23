@@ -37,8 +37,8 @@ public class AdminMediaService {
 
     public static final Set<String> PICTURES = Set.of("PNG", "JPG", "JPEG");
     public static final Set<String> ANIMATIONS = Set.of("SVGA", "MP4");
-    public static final Set<String> SOUNDS = Set.of("MP3");
-    public static final Set<String> ANY = Set.of("PNG", "JPG", "JPEG", "GIF", "WEBP", "SVGA", "MP4", "MP3");
+    public static final Set<String> SOUNDS = Set.of("MP3", "M4A");
+    public static final Set<String> ANY = Set.of("PNG", "JPG", "JPEG", "GIF", "WEBP", "SVGA", "MP4", "MP3", "M4A");
     /** Everything that can be shown (pictures and animations, no sound). */
     public static final Set<String> VISUALS = Set.of("PNG", "JPG", "JPEG", "GIF", "WEBP", "SVGA", "MP4");
 
@@ -169,6 +169,8 @@ public class AdminMediaService {
             case "MP4" -> n >= 8 && b[4] == 'f' && b[5] == 't' && b[6] == 'y' && b[7] == 'p';
             // ID3 tag, or an MPEG audio frame sync
             case "MP3" -> n >= 3 && ((b[0] == 'I' && b[1] == 'D' && b[2] == '3') || ((b[0] & 0xff) == 0xFF && (b[1] & 0xE0) == 0xE0));
+            // M4A is an ISO media (MP4) container too: "ftyp" at byte 4
+            case "M4A" -> n >= 8 && b[4] == 'f' && b[5] == 't' && b[6] == 'y' && b[7] == 'p';
             default -> false;
         };
     }
@@ -176,7 +178,7 @@ public class AdminMediaService {
     private static long maxBytes(String format) {
         return switch (format) {
             case "MP4", "SVGA" -> 100 * MB;
-            case "MP3" -> 20 * MB;
+            case "MP3", "M4A" -> 20 * MB;
             default -> 10 * MB;
         };
     }

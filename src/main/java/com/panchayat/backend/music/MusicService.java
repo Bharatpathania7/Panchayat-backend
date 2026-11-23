@@ -84,14 +84,14 @@ public class MusicService {
     /** A person uploads a song (MP3). It is live for everyone straight away. */
     public Map<String, Object> upload(Long me, MultipartFile file, String title, String artist, Integer duration, boolean rights) {
         if (!rights) throw bad("Please confirm you made this song or have the right to share it.");
-        if (file == null || file.isEmpty()) throw bad("Choose an MP3 file.");
+        if (file == null || file.isEmpty()) throw bad("Choose an MP3 or M4A file.");
         if (file.getSize() > MAX_BYTES) throw bad("Songs can be up to " + (MAX_BYTES / 1024 / 1024) + " MB.");
         Long today = jdbc.queryForObject("select count(*) from music_songs where uploader_id = ? and created_at > now() - interval '1 day'", Long.class, me);
         if (today != null && today >= MAX_PER_DAY) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "You can upload up to " + MAX_PER_DAY + " songs a day.");
         String name = clean(title, 80, "");
         if (name.isEmpty()) throw bad("Give the song a title.");
         int secs = duration == null ? 0 : Math.max(0, Math.min(duration, 60 * 60));
-        AdminMediaService.Uploaded up = media.upload(file, "music", Set.of("MP3"));
+        AdminMediaService.Uploaded up = media.upload(file, "music", AdminMediaService.SOUNDS);
         Long id = jdbc.queryForObject("insert into music_songs (title, artist, duration, file_url, size_bytes, uploader_id) values (?, ?, ?, ?, ?, ?) returning id",
                 Long.class, name, clean(artist, 80, "Unknown artist"), secs, up.url(), file.getSize(), me);
         Map<String, Object> r = jdbc.queryForMap("select s.id, s.title, s.artist, s.duration, s.file_url, s.uploader_id, s.created_at, u.full_name as uploader_name from music_songs s left join users u on u.id = s.uploader_id where s.id = ?", id);

@@ -6,7 +6,9 @@ import com.panchayat.backend.rooms.dto.RoomStateResponse.RoomEvent;
 import com.panchayat.backend.rooms.dto.RoomStateResponse.SeatInvite;
 import com.panchayat.backend.rooms.entity.RoomAdmin;
 import com.panchayat.backend.rooms.entity.RoomBan;
+import com.panchayat.backend.rooms.entity.RoomCoOwner;
 import com.panchayat.backend.rooms.repository.RoomAdminRepository;
+import com.panchayat.backend.rooms.repository.RoomCoOwnerRepository;
 import com.panchayat.backend.rooms.repository.RoomBanRepository;
 import com.panchayat.backend.rooms.repository.RoomFollowerRepository;
 import com.panchayat.backend.rooms.repository.RoomMemberRepository;
@@ -57,6 +59,7 @@ public class RoomStateService {
     private final VoiceRoomRepository roomRepository;
     private final VoiceRoomParticipantRepository participantRepository;
     private final RoomAdminRepository adminRepository;
+    private final RoomCoOwnerRepository coOwnerRepository;
     private final RoomBanRepository banRepository;
     private final RoomMemberRepository memberRepository;
     private final RoomFollowerRepository followerRepository;
@@ -84,15 +87,20 @@ public class RoomStateService {
     }
 
     /** What the database says about the room right now, loaded per action. */
-    private record Ctx(VoiceRoom room, Set<Long> joined, Set<Long> admins) {
+    private record Ctx(VoiceRoom room, Set<Long> joined, Set<Long> admins, Set<Long> coOwners) {
         Long ownerId() { return room.getOwnerId(); }
+        /** The real, database owner only — the fixed owner seat and appointing/removing a co-owner use this. */
         boolean isOwner(Long id) { return Objects.equals(room.getOwnerId(), id); }
+        boolean isCoOwner(Long id) { return coOwners.contains(id); }
+        /** The owner, or a co-owner: same authority everywhere except the fixed owner seat. */
+        boolean hasOwnerPower(Long id) { return isOwner(id) || isCoOwner(id); }
         boolean isAdmin(Long id) { return admins.contains(id); }
-        boolean isMod(Long id) { return isOwner(id) || isAdmin(id); }
+        boolean isMod(Long id) { return hasOwnerPower(id) || isAdmin(id); }
         boolean open() {
             // An official room is always open: the Sarpanch holds the owner seat without being in the call
             return room.isOfficial()
                     || joined.contains(room.getOwnerId())
+                    || coOwners.stream().anyMatch(joined::contains)
                     || admins.stream().anyMatch(joined::contains);
         }
     }
@@ -101,6 +109,7 @@ public class RoomStateService {
             VoiceRoomRepository roomRepository,
             VoiceRoomParticipantRepository participantRepository,
             RoomAdminRepository adminRepository,
+            RoomCoOwnerRepository coOwnerRepository,
             RoomBanRepository banRepository,
             RoomMemberRepository memberRepository,
             RoomFollowerRepository followerRepository,
@@ -112,6 +121,7 @@ public class RoomStateService {
         this.roomRepository = roomRepository;
         this.participantRepository = participantRepository;
         this.adminRepository = adminRepository;
+        this.coOwnerRepository = coOwnerRepository;
         this.banRepository = banRepository;
         this.memberRepository = memberRepository;
         this.followerRepository = followerRepository;
@@ -422,7 +432,7 @@ public class RoomStateService {
     public RoomStateResponse setUserMuted(Long roomId, Long actor, Long target, boolean muted) {
         Ctx ctx = load(roomId);
         requireMod(ctx, actor);
-        if (ctx.isOwner(target) || !canManage(ctx, actor, target)) {
+        if (ctx.hasOwnerPower(target) || !canManage(ctx, actor, target)) {
             throw forbidden("You can't mute this person");
         }
         if (!ctx.joined().contains(target) && muted) throw conflict("They are not in the room");
@@ -526,7 +536,7 @@ public class RoomStateService {
     public RoomStateResponse removeFromMic(Long roomId, Long actor, Long target) {
         Ctx ctx = load(roomId);
         requireMod(ctx, actor);
-        if (ctx.isOwner(target) || !canManage(ctx, actor, target)) {
+        if (ctx.hasOwnerPower(target) || !canManage(ctx, actor, target)) {
             throw forbidden("You can't remove this person from the mic");
         }
         Live live = live(ctx);
@@ -541,8 +551,8 @@ public class RoomStateService {
 
     public RoomStateResponse setAdmin(Long roomId, Long actor, Long target, boolean admin) {
         Ctx ctx = load(roomId);
-        if (!ctx.isOwner(actor)) throw forbidden("Only the room owner can choose admins");
-        if (ctx.isOwner(target)) throw conflict("The owner is already in charge of the room");
+        if (!ctx.hasOwnerPower(actor)) throw forbidden("Only the room owner or a co-owner can choose admins");
+        if (ctx.hasOwnerPower(target)) throw conflict("They're already in charge of the room");
         if (admin && !(memberRepository.existsByRoomIdAndUserId(roomId, target)
                 && followerRepository.existsByRoomIdAndUserId(roomId, target))) {
             throw conflict("They have to join and follow the room before becoming an admin");
@@ -569,6 +579,46 @@ public class RoomStateService {
         synchronized (live) {
             reconcile(fresh, live);
             return publish(fresh, live, event(admin ? "ADMIN_ADDED" : "ADMIN_REMOVED", actor, target, null, admin));
+        }
+    }
+
+    /**
+     * The real owner promotes someone to co-owner, or removes one — only once the room is level 5 or higher (how
+     * many co-owners it can have grows with the level, see RoomLevels.CO_OWNERS). A co-owner has the owner's own
+     * authority everywhere except the fixed owner seat and this action itself: they can moderate, choose admins,
+     * and everything an admin can, but can't appoint or remove another co-owner.
+     */
+    @Transactional
+    public RoomStateResponse setCoOwner(Long roomId, Long actor, Long target, boolean on) {
+        Ctx ctx = load(roomId);
+        if (!ctx.isOwner(actor)) throw forbidden("Only the room owner can choose a co-owner");
+        if (ctx.isOwner(target)) throw conflict("The owner is already in charge of the room");
+        if (Objects.equals(actor, target)) throw conflict("You're already the owner");
+
+        if (on && !ctx.isCoOwner(target)) {
+            if (!(memberRepository.existsByRoomIdAndUserId(roomId, target) && followerRepository.existsByRoomIdAndUserId(roomId, target))) {
+                throw conflict("They have to join and follow the room before becoming a co-owner");
+            }
+            int cap = RoomLevels.coOwnerLimit(ctx.room().getExp());
+            if (cap <= 0) throw conflict("This room needs to reach level 5 to have a co-owner.");
+            if (coOwnerRepository.findByRoomId(roomId).size() >= cap) {
+                throw conflict("This room can have up to " + cap + " co-owner" + (cap == 1 ? "" : "s") + " at its level. Level the room up for more.");
+            }
+            coOwnerRepository.save(new RoomCoOwner(roomId, target, actor));
+        } else if (!on) {
+            coOwnerRepository.deleteByRoomIdAndUserId(roomId, target);
+        }
+        participantRepository.findByRoomIdAndUserIdAndStatus(roomId, target, "JOINED")
+                .ifPresent(p -> {
+                    p.setRole(on ? "CO_OWNER" : "MEMBER");
+                    participantRepository.save(p);
+                });
+
+        Ctx fresh = load(roomId);
+        Live live = live(fresh);
+        synchronized (live) {
+            reconcile(fresh, live);
+            return publish(fresh, live, event(on ? "CO_OWNER_ADDED" : "CO_OWNER_REMOVED", actor, target, null, on));
         }
     }
 
@@ -654,7 +704,7 @@ public class RoomStateService {
         Ctx ctx = load(roomId);
         requireMod(ctx, actor);
         if (Objects.equals(actor, target)) throw conflict("You can't remove yourself");
-        if (ctx.isOwner(target) || !canManage(ctx, actor, target)) {
+        if (ctx.hasOwnerPower(target) || !canManage(ctx, actor, target)) {
             throw forbidden("Admins can't remove the owner or another admin");
         }
 
@@ -708,7 +758,10 @@ public class RoomStateService {
         Set<Long> admins = adminRepository.findByRoomId(roomId).stream()
                 .map(RoomAdmin::getUserId)
                 .collect(Collectors.toCollection(HashSet::new));
-        return new Ctx(room, joined, admins);
+        Set<Long> coOwners = coOwnerRepository.findByRoomId(roomId).stream()
+                .map(RoomCoOwner::getUserId)
+                .collect(Collectors.toCollection(HashSet::new));
+        return new Ctx(room, joined, admins, coOwners);
     }
 
     private Live live(Ctx ctx) {
@@ -875,11 +928,11 @@ public class RoomStateService {
         }
     }
 
-    /** The owner can act on anyone else; admins only on people who are neither owner nor admin. */
+    /** The owner or a co-owner can act on anyone else; admins only on people who are neither owner, co-owner nor admin. */
     private static boolean canManage(Ctx ctx, Long actor, Long target) {
         if (Objects.equals(actor, target)) return false;
-        if (ctx.isOwner(actor)) return true;
-        return ctx.isAdmin(actor) && !ctx.isOwner(target) && !ctx.isAdmin(target);
+        if (ctx.hasOwnerPower(actor)) return true;
+        return ctx.isAdmin(actor) && !ctx.hasOwnerPower(target) && !ctx.isAdmin(target);
     }
 
     private static void requireInRoom(Ctx ctx, Long actor) {

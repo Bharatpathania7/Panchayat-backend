@@ -80,7 +80,7 @@ public class ParivarMiscService {
         if (!Boolean.TRUE.equals(info.get("unlocked"))) throw new ResponseStatusException(HttpStatus.CONFLICT, "Your Parivar needs level " + info.get("minLevel") + " to open a voice room.");
         core.require(parivarId, userId, "MANAGE_VOICE");
         String name = (String) core.activeParivar(parivarId).get("name");
-        var room = voice.createRoom(new CreateVoiceRoomRequest(name + " Parivar", "Only for members of " + name, VoiceRoomType.VOICE, false, 20));
+        var room = voice.createRoom(new CreateVoiceRoomRequest(name + " Parivar", "Only for members of " + name, VoiceRoomType.VOICE, false, 20, false));
         jdbc.update("update voice_rooms set parivar_id = ? where id = ?", parivarId, room.id());
         core.system(parivarId, "🎙️ The Parivar voice room is open. Come and talk!");
         return voiceInfo(userId, parivarId);

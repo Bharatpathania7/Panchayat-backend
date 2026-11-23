@@ -23,6 +23,10 @@ public record CreateVoiceRoomRequest(
 
         @Min(value = 2, message = "Minimum capacity is 2")
         @Max(value = 50, message = "Maximum capacity is 50")
-        int maxParticipants
+        int maxParticipants,
+
+        /** A temp room: anyone can make any number of these, and it (and all its data) is deleted the
+         *  moment the owner leaves. false/null: a permanent room — only one per owner at a time. */
+        Boolean temporary
 
 ) {}

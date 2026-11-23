@@ -122,6 +122,11 @@ public class RoomStateController {
         return state.setAdmin(roomId, me(auth), userId, body.required());
     }
 
+    @PutMapping("/co-owners/{userId:[0-9]+}")
+    public RoomStateResponse setCoOwner(@PathVariable Long roomId, @PathVariable Long userId, @RequestBody OnOff body, Authentication auth) {
+        return state.setCoOwner(roomId, me(auth), userId, body.required());
+    }
+
     @PostMapping("/kick")
     public RoomStateResponse kick(@PathVariable Long roomId, @RequestBody Target body, Authentication auth) {
         return state.kick(roomId, me(auth), body.requiredUser());

@@ -46,7 +46,9 @@ public record VoiceRoomResponse(
         boolean official,
         /* An Official PK room (admin panel) and its event title. */
         boolean officialPk,
-        String officialPkTitle
+        String officialPkTitle,
+        /* A temp room: deleted with all its data the moment the owner leaves. */
+        boolean temporary
 ) {
     public static VoiceRoomResponse from(VoiceRoom room) {
         return new VoiceRoomResponse(
@@ -78,7 +80,8 @@ public record VoiceRoomResponse(
                 room.isNewbie() ? com.panchayat.backend.admin.media.MediaUrls.link(room.getNewbieBackground()) : null,
                 room.isOfficial(),
                 room.isOfficialPk(),
-                room.isOfficialPk() ? room.getOfficialPkTitle() : null
+                room.isOfficialPk() ? room.getOfficialPkTitle() : null,
+                room.isTemporary()
         );
     }
 }

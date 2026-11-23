@@ -62,6 +62,19 @@ public class VoiceRoom {
     @Column(nullable = false)
     private boolean official = false;
 
+    /** A temp room: deleted (with all its data) the moment the owner leaves. Anyone can make any
+     *  number of these; a permanent room (this false) is limited to one per owner. */
+    @Column(nullable = false)
+    private boolean temporary = false;
+
+    public boolean isTemporary() {
+        return temporary;
+    }
+
+    public void setTemporary(boolean temporary) {
+        this.temporary = temporary;
+    }
+
     public boolean isOfficial() {
         return official;
     }

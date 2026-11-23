@@ -47,7 +47,7 @@ public class RewardAdminService {
     }
 
     public record ItemInput(String name, String itemType, String giftId, Integer quantity, Integer priority,
-                            Boolean enabled, Integer durationDays, Boolean forever) {
+                            Boolean enabled, Integer durationDays, Boolean forever, Integer layoutLevel) {
     }
 
     /* ---------------- reading ---------------- */
@@ -251,6 +251,10 @@ public class RewardAdminService {
             if (in.durationDays() < 1 || in.durationDays() > 3650) throw bad("Validity must be between 1 and 3,650 days.");
             i.setDurationDays(in.durationDays());
         }
+        if (in.layoutLevel() != null) {
+            if (in.layoutLevel() < 1 || in.layoutLevel() > 11) throw bad("Fits like must be a VIP level between 1 and 11.");
+            i.setLayoutLevel(in.layoutLevel());
+        }
     }
 
     private void deleteFiles(RewardRuleItem i) {
@@ -276,6 +280,7 @@ public class RewardAdminService {
             m.put("priority", i.getPriority());
             m.put("enabled", i.isEnabled());
             m.put("durationDays", i.getDurationDays());
+            m.put("layoutLevel", i.getLayoutLevel());
             m.put("mediaUrl", MediaUrls.link(i.getMediaUrl()));
             m.put("mediaFormat", i.getMediaFormat());
             m.put("soundUrl", MediaUrls.link(i.getSoundUrl()));

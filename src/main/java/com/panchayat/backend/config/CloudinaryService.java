@@ -81,9 +81,9 @@ public class CloudinaryService {
             throw new IllegalArgumentException("Please select a file.");
         }
 
-        if (vipLevel < 1 || vipLevel > 7) {
+        if (vipLevel < 1 || vipLevel > 11) {
             throw new IllegalArgumentException(
-                    "VIP level must be between 1 and 7."
+                    "VIP level must be between 1 and 11."
             );
         }
 

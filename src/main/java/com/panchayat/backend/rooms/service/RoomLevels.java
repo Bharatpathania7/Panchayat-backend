@@ -41,4 +41,8 @@ public final class RoomLevels {
     public static int adminLimit(long exp) {
         return ADMINS[level(exp) - 1];
     }
+
+    public static int coOwnerLimit(long exp) {
+        return CO_OWNERS[level(exp) - 1];
+    }
 }

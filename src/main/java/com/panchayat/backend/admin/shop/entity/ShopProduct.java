@@ -75,7 +75,7 @@ public class ShopProduct {
     }
 
     public void setGiftId(String giftId) {
-        this.giftId = giftId;
+        this.giftId = giftId == null || giftId.isBlank() ? null : giftId;
     }
 
     @Column(name = "display_order", nullable = false)
