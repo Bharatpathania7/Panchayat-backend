@@ -862,6 +862,7 @@ public class RoomStateService {
                 live.version,
                 String.valueOf(ctx.ownerId()),
                 ctx.admins().stream().sorted().map(String::valueOf).toList(),
+                ctx.coOwners().stream().sorted().map(String::valueOf).toList(),
                 seats,
                 List.copyOf(closedSeats(ctx)),
                 List.copyOf(live.mutedSeats),

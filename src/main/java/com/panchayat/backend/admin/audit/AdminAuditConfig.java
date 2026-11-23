@@ -1,5 +1,6 @@
 package com.panchayat.backend.admin.audit;
 
+import com.panchayat.backend.common.ClientIp;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
@@ -56,9 +57,7 @@ public class AdminAuditConfig implements WebMvcConfigurer {
     }
 
     private static String ip(HttpServletRequest req) {
-        String fwd = req.getHeader("X-Forwarded-For");
-        if (fwd != null && !fwd.isBlank()) return fwd.split(",")[0].trim();
-        return req.getRemoteAddr();
+        return ClientIp.of(req);
     }
 
     private static String cut(String s, int max) {

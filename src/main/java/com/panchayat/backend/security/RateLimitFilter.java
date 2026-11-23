@@ -6,6 +6,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import com.panchayat.backend.admin.media.MediaUrls;
+import com.panchayat.backend.common.ClientIp;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -138,7 +139,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         // Only matching authentication endpoints consume rate-limit tokens.
         long wait = 0;
         String limitedBy = null;
-        String ipAddr = req.getRemoteAddr();
+        String ipAddr = ClientIp.of(req);
 
         for (Rule rule : RULES) {
             if ((rule.method() == null || rule.method().equals(method))

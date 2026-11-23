@@ -1,5 +1,6 @@
 package com.panchayat.backend.rewards;
 
+import com.panchayat.backend.common.ClientIp;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -44,7 +45,7 @@ public class NetworkGuard {
     public String currentNetwork() {
         if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs)) return null;
         HttpServletRequest req = attrs.getRequest();
-        return networkOf(req.getRemoteAddr());
+        return networkOf(ClientIp.of(req));
     }
 
     public static String networkOf(String ip) {
