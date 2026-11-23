@@ -122,7 +122,8 @@ public class ShopProduct {
     public enum AssetType {
         IMAGE,
         SVG,
-        SVGA
+        SVGA,
+        MP4
     }
 
     @PrePersist

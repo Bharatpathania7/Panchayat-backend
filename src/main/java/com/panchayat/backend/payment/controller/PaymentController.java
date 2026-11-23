@@ -6,8 +6,11 @@ import com.panchayat.backend.payment.dto.PaymentInitiationRequest;
 import com.panchayat.backend.payment.dto.PaymentInitiationResponse;
 import com.panchayat.backend.payment.entity.PaymentTransaction;
 import com.panchayat.backend.payment.repository.PaymentTransactionRepository;
+import com.panchayat.backend.payment.service.PaymentFulfillmentService;
 import com.panchayat.backend.payment.service.PaymentInitiationService;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
@@ -22,18 +25,23 @@ import java.util.Objects;
 @RequestMapping("/api/v1/payments")
 public class PaymentController {
 
+    private static final Logger log = LoggerFactory.getLogger(PaymentController.class);
+
     private final PaymentInitiationService paymentInitiationService;
     private final UserRepository userRepository;
     private final PaymentTransactionRepository paymentTransactionRepository;
+    private final PaymentFulfillmentService paymentFulfillmentService;
 
     public PaymentController(
             PaymentInitiationService paymentInitiationService,
             UserRepository userRepository,
-            PaymentTransactionRepository paymentTransactionRepository
+            PaymentTransactionRepository paymentTransactionRepository,
+            PaymentFulfillmentService paymentFulfillmentService
     ) {
         this.paymentInitiationService = paymentInitiationService;
         this.userRepository = userRepository;
         this.paymentTransactionRepository = paymentTransactionRepository;
+        this.paymentFulfillmentService = paymentFulfillmentService;
     }
 
     @PostMapping("/initiate")
@@ -72,6 +80,18 @@ public class PaymentController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
                     Map.of("status", "NOT_FOUND")
             );
+        }
+
+        // The browser doesn't always make it back to PayU's redirect (the app backgrounded, a dropped
+        // connection, PayU's own page closed early): re-check with PayU directly here instead of trusting
+        // a stale PENDING row, so checking status is itself enough to clear a payment that really went through.
+        if (payment.getStatus() == PaymentTransaction.Status.PENDING) {
+            try {
+                paymentFulfillmentService.fulfillVerifiedPayment(txnId);
+                payment = paymentTransactionRepository.findByTxnId(txnId).orElse(payment);
+            } catch (Exception reconcileFailed) {
+                log.info("Status check couldn't confirm pending payment yet. txnId={}, reason={}", txnId, reconcileFailed.getMessage());
+            }
         }
 
         Map<String, Object> body = new LinkedHashMap<>();

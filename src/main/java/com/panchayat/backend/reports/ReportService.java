@@ -1,5 +1,8 @@
 package com.panchayat.backend.reports;
 
+import com.panchayat.backend.sarpanch.SarpanchService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -13,6 +16,7 @@ import java.util.Set;
 /**
  * Reports from people about a user, a chat message or a room. Anyone signed in can report; an admin reviews them
  * (Admin > Reports), acts on the person (mute / ban, in the users page) and resolves or dismisses the report.
+ * The reporter hears back from Daroga ji once it's resolved or dismissed.
  */
 @Service
 public class ReportService {
@@ -22,6 +26,8 @@ public class ReportService {
     private static final int DAILY_LIMIT = 30;
 
     private final JdbcTemplate jdbc;
+
+    @Autowired @Lazy private SarpanchService sarpanch;
 
     public ReportService(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
@@ -85,6 +91,10 @@ public class ReportService {
                 ? jdbc.update("update user_reports set status = 'OPEN', handled_by = null, handled_at = null where id = ?", id)
                 : jdbc.update("update user_reports set status = ?, handled_by = ?, handled_at = now() where id = ?", st, admin, id);
         if (n == 0) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Report not found");
+        if ("RESOLVED".equals(st) || "DISMISSED".equals(st)) {
+            Long reporterId = jdbc.query("select reporter_id from user_reports where id = ?", rs -> rs.next() ? rs.getLong(1) : null, id);
+            if (reporterId != null) sarpanch.notifySafely(reporterId, "RESOLVED".equals(st) ? "REPORT_RESOLVED" : "REPORT_DISMISSED", Map.of(), "report:" + id + ":" + st);
+        }
         return Map.of("id", id, "status", st);
     }
 }

@@ -1,6 +1,7 @@
 package com.panchayat.backend.gifts.service;
 
 import com.panchayat.backend.admin.media.MediaUrls;
+import com.panchayat.backend.moderation.ModerationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -26,12 +27,14 @@ public class GiftNewsService {
 
     private final JdbcTemplate jdbc;
     private final SimpMessagingTemplate messaging;
+    private final ModerationService moderation;
     /** Gifts already announced (a retried send isn't announced twice). */
     private final Set<String> announced = ConcurrentHashMap.newKeySet();
 
-    public GiftNewsService(JdbcTemplate jdbc, SimpMessagingTemplate messaging) {
+    public GiftNewsService(JdbcTemplate jdbc, SimpMessagingTemplate messaging, ModerationService moderation) {
         this.jdbc = jdbc;
         this.messaging = messaging;
+        this.moderation = moderation;
     }
 
     public void announce(RoomGiftService.GiftSent g, String message) {
@@ -58,7 +61,9 @@ public class GiftNewsService {
             n.put("coins", g.coins());
             n.put("roomId", g.roomId());
             n.put("roomName", roomName);
-            n.put("message", clean(message));
+            String cleaned = clean(message);
+            Long roomId = parseLong(g.roomId());
+            n.put("message", moderation.checkAndMask(Long.valueOf(g.fromUserId()), "SERVER_NOTIFICATION", roomId, cleaned));
             n.put("at", System.currentTimeMillis());
             messaging.convertAndSend("/topic/gift-news", (Object) n);
         } catch (Exception e) {
@@ -80,5 +85,13 @@ public class GiftNewsService {
         if (s == null) return "";
         String t = s.replaceAll("[\\p{Cntrl}]", " ").replaceAll("\\s+", " ").strip();
         return t.length() > MESSAGE_MAX ? t.substring(0, MESSAGE_MAX) : t;
+    }
+
+    private static Long parseLong(String s) {
+        try {
+            return s == null ? null : Long.valueOf(s);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

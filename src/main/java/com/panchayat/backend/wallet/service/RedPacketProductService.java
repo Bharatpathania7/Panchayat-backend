@@ -102,7 +102,7 @@ public class RedPacketProductService {
     ) {
         RedPacketProduct product = findProduct(id);
 
-        // Upload the new image to Cloudinary.
+        // Kept on this server (it used to go to Cloudinary).
         Map<String, String> uploaded =
                 imageStorageService.uploadRedPacketImage(file);
 
@@ -121,7 +121,7 @@ public class RedPacketProductService {
 
             throw new ResponseStatusException(
                     HttpStatus.BAD_GATEWAY,
-                    "Cloudinary did not return valid image details"
+                    "The server did not return valid image details"
             );
         }
 

@@ -112,6 +112,9 @@ public class RoomGiftService {
     @org.springframework.beans.factory.annotation.Autowired
     private com.panchayat.backend.parivar.ParivarService parivarService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.admin.settings.AppSettingsService appSettings;
+
     public record GiftSent(String eventId, String roomId, String fromUserId, String toUserId, String giftId,
                            int count, long coins, long earned, long roomPoints, String requestId,
                            Instant at, long senderBalance, boolean fromBag, long bonus, long charm) {
@@ -133,6 +136,7 @@ public class RoomGiftService {
     /** fromBag: the gift comes out of the sender's Bag (won as a reward): no coins, and the receiver earns none. */
     @Transactional
     public GiftSent send(Long roomId, Long senderId, String giftId, Long receiverId, int count, String requestId, boolean fromBag) {
+        if (!appSettings.settings().giftingEnabled()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Gifting is briefly switched off. Try again in a bit.");
         if (requestId == null || !REQUEST_ID.matcher(requestId).matches()) throw bad("A request id is required");
         if (receiverId == null || receiverId <= 0) throw bad("Choose who gets the gift");
         if (count < 1 || count > MAX_COUNT) throw bad("Send between 1 and " + MAX_COUNT + " at a time");

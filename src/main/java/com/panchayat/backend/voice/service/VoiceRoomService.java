@@ -42,6 +42,9 @@ public class VoiceRoomService {
     @org.springframework.beans.factory.annotation.Autowired
     private com.panchayat.backend.rewards.service.SpendRewardService rewardBag;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.admin.settings.AppSettingsService appSettings;
+
 
     private final VoiceRoomRepository voiceRoomRepository;
     private final VipCosmeticRepository vipCosmeticRepository;
@@ -109,6 +112,14 @@ public class VoiceRoomService {
     public VoiceRoomResponse createRoom(CreateVoiceRoomRequest request) {
 
         User user = getAuthenticatedUser();
+
+        com.panchayat.backend.admin.settings.AppSettingsService.Settings settings = appSettings.settings();
+        if (!settings.roomCreationEnabled()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Creating rooms is briefly switched off.");
+        }
+        if (settings.roomCreateMinLevel() > 0 && (user.getVipLevel() == null || user.getVipLevel() < settings.roomCreateMinLevel())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You need VIP level " + settings.roomCreateMinLevel() + " or higher to create a room.");
+        }
 
         if (request.name() == null || request.name().isBlank()) {
             throw new ResponseStatusException(

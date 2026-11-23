@@ -61,6 +61,8 @@ public class ShopAssetController {
 
         String assetType = "svga".equals(extension)
                 ? "SVGA"
+                : "mp4".equals(extension)
+                ? "MP4"
                 : "IMAGE";
 
         return ResponseEntity.ok(Map.of(

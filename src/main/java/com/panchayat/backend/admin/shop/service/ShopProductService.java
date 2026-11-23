@@ -247,6 +247,10 @@ public class ShopProductService {
             return AssetType.SVGA;
         }
 
+        if (normalizedUrl.endsWith(".mp4")) {
+            return AssetType.MP4;
+        }
+
         if (normalizedUrl.endsWith(".svg")) {
             return AssetType.SVG;
         }

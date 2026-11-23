@@ -23,9 +23,10 @@ public class ShopAssetService {
             LoggerFactory.getLogger(ShopAssetService.class);
 
     private static final long MAX_FILE_SIZE = 5L * 1024 * 1024;
+    private static final long MAX_VIDEO_SIZE = 20L * 1024 * 1024;
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
-            "png", "jpg", "jpeg", "webp", "svg", "svga"
+            "png", "jpg", "jpeg", "webp", "svg", "svga", "mp4"
     );
 
     private final PublicImageStorage store;
@@ -43,13 +44,6 @@ public class ShopAssetService {
             );
         }
 
-        if (file.getSize() > MAX_FILE_SIZE) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Maximum file size is 5 MB"
-            );
-        }
-
         String originalFilename = StringUtils.cleanPath(
                 file.getOriginalFilename() == null
                         ? ""
@@ -61,7 +55,15 @@ public class ShopAssetService {
         if (!ALLOWED_EXTENSIONS.contains(extension)) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "Only PNG, JPG, JPEG, WEBP, SVG and SVGA files are allowed"
+                    "Only PNG, JPG, JPEG, WEBP, SVG, SVGA and MP4 files are allowed"
+            );
+        }
+
+        long maxSize = "mp4".equals(extension) ? MAX_VIDEO_SIZE : MAX_FILE_SIZE;
+        if (file.getSize() > maxSize) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "Maximum file size is " + (maxSize / 1024 / 1024) + " MB"
             );
         }
 
@@ -129,6 +131,8 @@ public class ShopAssetService {
                     "application/vnd.svga",
                     "video/x-svga"
             );
+
+            case "mp4" -> Set.of("video/mp4");
 
             default -> Set.of();
         };

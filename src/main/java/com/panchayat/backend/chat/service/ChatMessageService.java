@@ -38,6 +38,9 @@ public class ChatMessageService {
     private com.panchayat.backend.moderation.ModerationService moderation;
 
     @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.admin.users.UserRestrictionService restrictions;
+
+    @org.springframework.beans.factory.annotation.Autowired
     private org.springframework.jdbc.core.JdbcTemplate jdbc;
 
 
@@ -89,6 +92,10 @@ public class ChatMessageService {
         verifyParticipant(conversationId, authenticatedUserId);
         // Blocked either way: no direct messages
         chatSocial.checkCanSend(conversationId, authenticatedUserId);
+
+        if (restrictions.isRestricted(authenticatedUserId, "CHAT_BAN")) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "You can't send chat messages right now.");
+        }
 
         moderation.check(authenticatedUserId, "PRIVATE_CHAT", null, messageText);
         ChatEncryptionService.EncryptedPayload encrypted =

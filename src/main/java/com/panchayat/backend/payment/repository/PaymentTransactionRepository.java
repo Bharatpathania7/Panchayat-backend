@@ -9,12 +9,17 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import jakarta.persistence.LockModeType;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 public interface PaymentTransactionRepository
         extends JpaRepository<PaymentTransaction, Long> {
 
     Optional<PaymentTransaction> findByTxnId(String txnId);
+
+    /** Stuck payments to re-check with PayU: still pending a while after checkout, but not so old PayU won't have them any more. */
+    List<PaymentTransaction> findByStatusAndCreatedAtBetween(Status status, Instant from, Instant to);
 
     boolean existsByTxnId(String txnId);
 

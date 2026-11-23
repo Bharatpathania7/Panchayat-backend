@@ -10,13 +10,14 @@ import org.springframework.web.bind.annotation.RestController;
  * request that MaintenanceFilter would otherwise block, and the home-screen announcement banner
  * text (Settings page). Always answers, maintenance or not.
  *
- *   GET /api/v1/status   { maintenance, message, until, announcement }
+ *   GET /api/v1/status   { maintenance, message, until, announcement, apkBannerEnabled, apkBannerText, apkBannerSoon }
  */
 @RestController
 @RequestMapping("/api/v1/status")
 public class StatusController {
 
-    public record Status(boolean maintenance, String message, Long until, String announcement) {}
+    public record Status(boolean maintenance, String message, Long until, String announcement,
+                          boolean apkBannerEnabled, String apkBannerText, String apkBannerSoon) {}
 
     private final AppSettingsService settings;
 
@@ -27,6 +28,7 @@ public class StatusController {
     @GetMapping
     public Status status() {
         AppSettingsService.Settings s = settings.settings();
-        return new Status(s.maintenance(), s.maintenanceMessage(), s.maintenanceUntil(), s.announcement());
+        return new Status(s.maintenance(), s.maintenanceMessage(), s.maintenanceUntil(), s.announcement(),
+                s.apkBannerEnabled(), s.apkBannerText(), s.apkBannerSoon());
     }
 }

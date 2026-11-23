@@ -69,6 +69,9 @@ public class VoiceRoomChatService {
     @org.springframework.beans.factory.annotation.Autowired
     private com.panchayat.backend.moderation.ModerationService moderation;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.admin.users.UserRestrictionService restrictions;
+
     public VoiceRoomChatService(
             VoiceRoomChatMessageRepository messageRepository,
             VoiceRoomRepository roomRepository,
@@ -185,6 +188,10 @@ public class VoiceRoomChatService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "This account can only view this room.");
         }
 
+        if (restrictions.isRestricted(user.getId(), "CHAT_BAN")) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You can't send chat messages right now.");
+        }
+
         // "Ban Text Chatting": only the owner and admins can type
         if (com.panchayat.backend.rooms.service.RoomSettingsJson.flag(room.getSettings(), "banText")
                 && !room.getOwnerId().equals(user.getId())) {
@@ -200,7 +207,7 @@ public class VoiceRoomChatService {
             }
         }
 
-        String maskedMessage = moderation.checkAndMask(user.getId(), roomId, normalizedMessage);
+        String maskedMessage = moderation.checkAndMask(user.getId(), "ROOM_CHAT", roomId, normalizedMessage);
         ChatEncryptionService.EncryptedPayload encrypted =
                 encryptionService.encrypt(maskedMessage);
 

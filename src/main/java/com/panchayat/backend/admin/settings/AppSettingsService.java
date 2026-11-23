@@ -28,7 +28,8 @@ public class AppSettingsService {
      *  It does not turn maintenance off by itself — staff still do that by hand once the fix is confirmed done. */
     public record Settings(boolean maintenance, String maintenanceMessage, Long maintenanceUntil, String announcement,
                             int signupBonusCoins, int dailyCheckinCoins, boolean giftingEnabled, boolean roomCreationEnabled,
-                            int roomCreateMinLevel, String minAppVersion, long updatedAt, String updatedBy) {}
+                            int roomCreateMinLevel, String minAppVersion, boolean apkBannerEnabled, String apkBannerText,
+                            String apkBannerSoon, long updatedAt, String updatedBy) {}
 
     public Settings settings() {
         Settings s = cache.get();
@@ -37,13 +38,16 @@ public class AppSettingsService {
 
     private Settings reload() {
         Settings s = jdbc.query("select maintenance, maintenance_message, maintenance_until, announcement, signup_bonus_coins,"
-                + " daily_checkin_coins, gifting_enabled, room_creation_enabled, room_create_min_level, min_app_version, updated_at, updated_by"
+                + " daily_checkin_coins, gifting_enabled, room_creation_enabled, room_create_min_level, min_app_version,"
+                + " apk_banner_enabled, apk_banner_text, apk_banner_soon, updated_at, updated_by"
                 + " from app_settings where id = 1", rs -> rs.next() ? new Settings(
                         rs.getBoolean(1), rs.getString(2),
                         rs.getTimestamp(3) == null ? null : rs.getTimestamp(3).toInstant().toEpochMilli(),
                         rs.getString(4), rs.getInt(5), rs.getInt(6), rs.getBoolean(7), rs.getBoolean(8), rs.getInt(9), rs.getString(10),
-                        rs.getTimestamp(11).toInstant().toEpochMilli(), rs.getString(12))
-                : new Settings(false, "Panchayat is getting an upgrade. We'll be back in a few minutes.", null, "", 500, 50, true, true, 0, "1.0.0", 0L, null));
+                        rs.getBoolean(11), rs.getString(12), rs.getString(13),
+                        rs.getTimestamp(14).toInstant().toEpochMilli(), rs.getString(15))
+                : new Settings(false, "Panchayat is getting an upgrade. We'll be back in a few minutes.", null, "", 500, 50, true, true, 0, "1.0.0",
+                        true, "📲 Install the Panchayat app (APK) from panchayat.world/download", "Coming soon on Google Play", 0L, null));
         cache.set(s);
         return s;
     }
@@ -71,12 +75,14 @@ public class AppSettingsService {
         if (s.minAppVersion() == null || s.minAppVersion().isBlank()) throw bad("Enter the oldest app version allowed.");
         jdbc.update("update app_settings set maintenance = ?, maintenance_message = ?, maintenance_until = ?, announcement = ?,"
                         + " signup_bonus_coins = ?, daily_checkin_coins = ?, gifting_enabled = ?, room_creation_enabled = ?,"
-                        + " room_create_min_level = ?, min_app_version = ?, updated_at = now(), updated_by = ? where id = 1",
+                        + " room_create_min_level = ?, min_app_version = ?, apk_banner_enabled = ?, apk_banner_text = ?, apk_banner_soon = ?,"
+                        + " updated_at = now(), updated_by = ? where id = 1",
                 s.maintenance(), s.maintenanceMessage() == null ? "" : s.maintenanceMessage(),
                 s.maintenanceUntil() == null ? null : new Timestamp(s.maintenanceUntil()),
                 s.announcement() == null ? "" : s.announcement(),
                 s.signupBonusCoins(), s.dailyCheckinCoins(), s.giftingEnabled(), s.roomCreationEnabled(), s.roomCreateMinLevel(),
-                s.minAppVersion(), adminName);
+                s.minAppVersion(), s.apkBannerEnabled(), s.apkBannerText() == null ? "" : s.apkBannerText(),
+                s.apkBannerSoon() == null ? "" : s.apkBannerSoon(), adminName);
         return reload();
     }
 

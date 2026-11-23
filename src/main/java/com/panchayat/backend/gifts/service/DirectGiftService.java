@@ -81,8 +81,12 @@ public class DirectGiftService {
     @org.springframework.beans.factory.annotation.Autowired
     private com.panchayat.backend.parivar.ParivarService parivarService;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.admin.settings.AppSettingsService appSettings;
+
     @Transactional
     public Map<String, Object> send(Long senderId, Long receiverId, String giftId, int count, String requestId, String context) {
+        if (!appSettings.settings().giftingEnabled()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Gifting is briefly switched off. Try again in a bit.");
         if (requestId == null || !REQUEST_ID.matcher(requestId).matches()) throw bad("A request id is required");
         if (receiverId == null || receiverId <= 0) throw bad("Choose who gets the gift");
         // Self-gifting is allowed (it doesn't count toward guard, tags or CP)

@@ -8,9 +8,13 @@ import com.panchayat.backend.payment.repository.PaymentTransactionRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 
 @Service
 public class PaymentFulfillmentService {
@@ -173,5 +177,27 @@ public class PaymentFulfillmentService {
             }
         }
         return null;
+    }
+
+    /**
+     * Catches payments PayU actually completed but whose browser never made it back to our callback (the app
+     * backgrounded mid-redirect, a dropped connection, the PayU page closed early): every 5 minutes, re-checks
+     * with PayU any payment that's been PENDING for at least 2 minutes (so it never races the normal callback)
+     * and at most 3 days old (PayU's own verification stops being useful well before then).
+     */
+    @Scheduled(fixedDelay = 5 * 60_000, initialDelay = 5 * 60_000)
+    public void reconcilePendingPayments() {
+        Instant now = Instant.now();
+        List<PaymentTransaction> stuck = paymentRepository.findByStatusAndCreatedAtBetween(
+                Status.PENDING, now.minus(Duration.ofDays(3)), now.minus(Duration.ofMinutes(2)));
+        if (stuck.isEmpty()) return;
+        log.info("Reconciling {} pending payment(s) with PayU", stuck.size());
+        for (PaymentTransaction payment : stuck) {
+            try {
+                fulfillVerifiedPayment(payment.getTxnId());
+            } catch (Exception notYetConfirmed) {
+                log.info("Pending payment still not confirmed. txnId={}, reason={}", payment.getTxnId(), notYetConfirmed.getMessage());
+            }
+        }
     }
 }

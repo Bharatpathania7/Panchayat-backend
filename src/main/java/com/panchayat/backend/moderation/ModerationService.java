@@ -53,11 +53,12 @@ public class ModerationService {
     }
 
     /**
-     * Room chat only: everyone in the room can see the message, so a banned word is replaced with
-     * *** in what's actually stored and shown (logged for review the same way check() does, with the
-     * real word in the snippet). Private chat stays as check() above: flagged, never altered.
+     * Anything everyone can see (room chat, a server-wide gift notification): a banned word is
+     * replaced with *** in what's actually stored and shown (logged for review the same way
+     * check() does, with the real word in the snippet). Private chat stays as check() above:
+     * flagged, never altered.
      */
-    public String checkAndMask(Long userId, Long roomId, String text) {
+    public String checkAndMask(Long userId, String source, Long roomId, String text) {
         if (text == null || text.isBlank()) return text;
         Set<String> w = words();
         if (w.isEmpty()) return text;
@@ -74,7 +75,7 @@ public class ModerationService {
         if (firstMatch != null) {
             String snippet = text.length() > 300 ? text.substring(0, 300) : text;
             jdbc.update("insert into moderation_violations (user_id, source, room_id, matched_word, snippet) values (?, ?, ?, ?, ?)",
-                    userId, "ROOM_CHAT", roomId, firstMatch, snippet);
+                    userId, source, roomId, firstMatch, snippet);
         }
         return result;
     }

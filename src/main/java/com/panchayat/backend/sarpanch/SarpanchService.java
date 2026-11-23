@@ -34,7 +34,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Sarpanch: Panchayat's official account (a real user row with official = true).
+ * Sarpanch: Panchayat's official account (a real user row with official = true). Munshi ji (payments) and
+ * Daroga ji (safety) are two more official accounts, each with their own read-only chat; send() routes a
+ * message to whichever one the category belongs to.
  *
  *  - Messages live in the normal chat tables, in one pinned, read-only
  *    "system" conversation per user (made on the first message), with type
@@ -69,6 +71,7 @@ public class SarpanchService {
     });
     private volatile Long sarpanchId;
     private volatile Long munshiId;
+    private volatile Long darogaId;
 
     public SarpanchService(JdbcTemplate jdbc, ChatEncryptionService encryption, SimpMessagingTemplate messaging, PlatformTransactionManager txm) {
         this.jdbc = jdbc;
@@ -120,14 +123,31 @@ public class SarpanchService {
         return userId != null && m != null && userId.equals(m);
     }
 
-    /** Sarpanch or Munshi ji. */
-    public boolean isOfficialAccount(Long userId) {
-        return isSarpanch(userId) || isMunshi(userId);
+    /** Daroga ji: the safety desk, a third official account (its own read-only chat). null when the account is missing. */
+    public Long darogaId() {
+        Long id = darogaId;
+        if (id == null) {
+            List<Long> l = jdbc.queryForList("select id from users where official_role = 'DAROGA' order by id limit 1", Long.class);
+            if (l.isEmpty()) return null;
+            id = l.get(0);
+            darogaId = id;
+        }
+        return id;
     }
 
-    /** "SARPANCH", "MUNSHI", or null for anybody else. */
+    public boolean isDaroga(Long userId) {
+        Long d = darogaId();
+        return userId != null && d != null && userId.equals(d);
+    }
+
+    /** Sarpanch, Munshi ji or Daroga ji. */
+    public boolean isOfficialAccount(Long userId) {
+        return isSarpanch(userId) || isMunshi(userId) || isDaroga(userId);
+    }
+
+    /** "SARPANCH", "MUNSHI", "DAROGA", or null for anybody else. */
     public String officialKind(Long userId) {
-        return isSarpanch(userId) ? "SARPANCH" : isMunshi(userId) ? "MUNSHI" : null;
+        return isSarpanch(userId) ? "SARPANCH" : isMunshi(userId) ? "MUNSHI" : isDaroga(userId) ? "DAROGA" : null;
     }
 
     public boolean isSystemConversation(Long conversationId) {
@@ -178,8 +198,10 @@ public class SarpanchService {
         if (body.isEmpty()) throw bad("The message is empty.");
         if (body.length() > 1000) throw bad("Message is too long.");
         String category = m.category() != null && CATEGORIES.contains(m.category()) ? m.category() : "OTHER";
-        // Everything about payments comes from Munshi ji (its own chat); the rest from Sarpanch
-        Long from = "PAYMENT".equals(category) && munshiId() != null ? munshiId() : sarpanchId();
+        // Everything about payments comes from Munshi ji, everything about safety from Daroga ji (each its own chat); the rest from Sarpanch
+        Long from = "PAYMENT".equals(category) && munshiId() != null ? munshiId()
+                : "SAFETY".equals(category) && darogaId() != null ? darogaId()
+                : sarpanchId();
         if (eventKey != null) {
             Integer seen = jdbc.queryForObject("select count(*) from chat_messages where event_key = ?", Integer.class, eventKey);
             if (seen != null && seen > 0) return false;
