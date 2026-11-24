@@ -98,6 +98,57 @@ public class RankingController {
         return out;
     }
 
+    /**
+     * Celebrity: for each finished day of a month (India time), the person who received the most Charm that day.
+     * GET /api/v1/rankings/celebrity?month=2026-11 (default: this month). Newest day first.
+     */
+    @GetMapping("/api/v1/rankings/celebrity")
+    public Map<String, Object> celebrity(@RequestParam(required = false) String month) {
+        LocalDate today = LocalDate.now(IST);
+        java.time.YearMonth ym;
+        try {
+            ym = month == null || month.isBlank() ? java.time.YearMonth.from(today) : java.time.YearMonth.parse(month.strip());
+        } catch (java.time.format.DateTimeParseException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "month looks like 2026-11");
+        }
+        if (ym.isAfter(java.time.YearMonth.from(today))) ym = java.time.YearMonth.from(today);
+        Instant from = ym.atDay(1).atStartOfDay(IST).toInstant();
+        // Only finished days: today's celebrity is decided at midnight
+        LocalDate lastDay = ym.equals(java.time.YearMonth.from(today)) ? today : ym.plusMonths(1).atDay(1);
+        Instant to = lastDay.atStartOfDay(IST).toInstant();
+        String key = ym.toString();
+        List<Map<String, Object>> days = cache.load("rankings", "celebrity|" + key + "|" + today, java.time.Duration.ofSeconds(60),
+                new tools.jackson.core.type.TypeReference<List<Map<String, Object>>>() {
+                },
+                () -> jdbc.query(
+                        "select t.d, t.uid, t.v, u.full_name, u.avatar_url, u.vip_active, u.vip_level, u.vip_expires_at, u.name_font from ("
+                                + " select (e.created_at at time zone 'Asia/Kolkata')::date as d, e.receiver_id as uid, sum(" + CHARM + ") as v,"
+                                + " row_number() over (partition by (e.created_at at time zone 'Asia/Kolkata')::date order by sum(" + CHARM + ") desc, e.receiver_id) as rn"
+                                + " from room_gift_events e"
+                                + " where e.created_at >= greatest(?, (select reset_at from ranking_settings where id = 1)) and e.created_at < ?"
+                                + " group by 1, 2 having sum(" + CHARM + ") > 0) t join users u on u.id = t.uid where t.rn = 1 order by t.d desc",
+                        (rs, i) -> {
+                            Map<String, Object> m = new LinkedHashMap<>();
+                            long uid = rs.getLong("uid");
+                            Timestamp vipEnd = rs.getTimestamp("vip_expires_at");
+                            boolean vip = rs.getBoolean("vip_active") && (vipEnd == null || vipEnd.toInstant().isAfter(Instant.now()));
+                            m.put("day", rs.getDate("d").toString());
+                            m.put("userId", uid);
+                            m.put("publicId", PublicIds.user(uid));
+                            m.put("name", rs.getString("full_name"));
+                            m.put("avatarUrl", com.panchayat.backend.admin.media.MediaUrls.protectedLink(rs.getString("avatar_url")));
+                            m.put("vipLevel", vip ? rs.getObject("vip_level") : null);
+                            m.put("nameFont", rs.getString("name_font"));
+                            m.put("value", rs.getLong("v"));
+                            return m;
+                        }, ts(from), ts(to)));
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("month", key);
+        out.put("hasNext", ym.isBefore(java.time.YearMonth.from(today)));
+        out.put("days", days);
+        return out;
+    }
+
     private List<Map<String, Object>> people(String who, String value, String extra, Instant[] range) {
         List<Map<String, Object>> rows = jdbc.query(
                 "select " + who + " as uid, " + value + " as v, u.full_name, u.avatar_url, u.vip_active, u.vip_level, u.vip_expires_at"

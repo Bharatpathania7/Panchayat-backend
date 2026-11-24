@@ -335,6 +335,45 @@ public class RoomSettingsService {
         return room;
     }
 
+    /** Backgrounds can be big animations: pictures, GIF / WEBP or an MP4 video, up to 100 MB. */
+    public static final long MAX_BACKGROUND = 100L * 1024 * 1024;
+    /** From this level on, a room's owner or admin may set its background. Official PK hosts may at any level. */
+    public static final int BACKGROUND_MIN_LEVEL = 5;
+
+    /**
+     * A room's own background (picture, GIF, WEBP or MP4, up to 100 MB), shown behind the seats for everyone.
+     * actor null = the admin panel (no checks). Otherwise the owner or an admin of the room, at level 5 or more
+     * (an Official PK room's host may at any level).
+     */
+    public VoiceRoomResponse uploadBackground(Long roomId, Long actor, MultipartFile file) {
+        VoiceRoom room = activeRoom(roomId);
+        if (actor != null) {
+            requireMod(room, actor);
+            if (!room.isOfficialPk()) {
+                Integer level = silentJdbc.query("select level from users where id = ?", rs -> rs.next() ? rs.getInt(1) : 0, actor);
+                if (level == null || level < BACKGROUND_MIN_LEVEL) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Room backgrounds unlock at level " + BACKGROUND_MIN_LEVEL + ".");
+            }
+        }
+        if (file == null || file.isEmpty()) throw bad("Pick a picture or a video");
+        if (file.getSize() > MAX_BACKGROUND) throw bad("The background can be at most 100 MB");
+        Map<String, Object> uploaded = store.uploadAsset(file, "rooms/backgrounds", MAX_BACKGROUND);
+        Object url = uploaded.get("secure_url");
+        if (!(url instanceof String u)) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Couldn't upload the background. Try again.");
+        room.setNewbieBackground(u);
+        silentJdbc.update("update voice_rooms set newbie_bg_custom = true where id = ?", roomId);
+        return broadcast(roomRepository.save(room), "SETTINGS_CHANGED", actor, List.of("background"));
+    }
+
+    /** Back to the usual look (a Newbie room goes back to the admin's default picture). */
+    public VoiceRoomResponse clearBackground(Long roomId, Long actor) {
+        VoiceRoom room = activeRoom(roomId);
+        if (actor != null) requireMod(room, actor);
+        String def = room.isNewbie() ? silentJdbc.query("select background_url from newbie_room_config where id = 1", rs -> rs.next() ? rs.getString(1) : null) : null;
+        room.setNewbieBackground(def);
+        silentJdbc.update("update voice_rooms set newbie_bg_custom = false where id = ?", roomId);
+        return broadcast(roomRepository.save(room), "SETTINGS_CHANGED", actor, List.of("background"));
+    }
+
     private void requireMod(VoiceRoom room, Long actor) {
         if (!Objects.equals(room.getOwnerId(), actor) && !roomState.isAdmin(room.getId(), actor)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the owner or an admin can change room settings");
