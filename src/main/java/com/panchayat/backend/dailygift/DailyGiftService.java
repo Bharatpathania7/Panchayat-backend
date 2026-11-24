@@ -142,8 +142,10 @@ public class DailyGiftService {
         int counted = jdbc.update("update daily_activity set counted = true where user_id = ? and day = ? and not counted and seconds >= ?", userId, day, s.bonusActiveMinutes() * 60);
         if (counted == 0) return;
         jdbc.update("insert into locked_prize (user_id, days_done) values (?, 0) on conflict do nothing", userId);
-        Map<String, Object> p = jdbc.queryForMap("update locked_prize set days_done = days_done + 1 where user_id = ? and unlocked_at is null returning days_done, 1 as ok", userId);
-        int done = ((Number) p.get("days_done")).intValue();
+        // Already unlocked (or no row): nothing to count. queryForMap threw EmptyResultDataAccessException here (500)
+        var rows = jdbc.queryForList("update locked_prize set days_done = days_done + 1 where user_id = ? and unlocked_at is null returning days_done", userId);
+        if (rows.isEmpty()) return;
+        int done = ((Number) rows.get(0).get("days_done")).intValue();
         if (done >= s.bonusDays()) {
             jdbc.update("update locked_prize set unlocked_at = now(), coins = ? where user_id = ? and unlocked_at is null", s.bonusCoins(), userId);
             sarpanch.sendSafely(userId, new SarpanchService.Message("Locked prize khul gaya! 🎉🔓",
