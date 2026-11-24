@@ -50,7 +50,7 @@ Do these when you deploy. Nothing here has been run.
    ```bash
    grep -E "^(DB_POOL_SIZE|DB_CONNECTION_TIMEOUT_MS|VIRTUAL_THREADS|TOMCAT_MAX_THREADS)=" /opt/panchayat-deploy/backend/.env
    ```
-   Set `DB_CONNECTION_TIMEOUT_MS=5000` (production logged 85.6 s waits), keep `DB_POOL_SIZE=50`, and do **not** set `VIRTUAL_THREADS=true` while on Java 21.
+   Checked on 24 Nov: only `DB_POOL_SIZE=50` is set, so the timeout is already the 3 s default. **No change needed.** The 85.6 s waits came from frozen threads, not from this setting. Do **not** set `VIRTUAL_THREADS=true` while on Java 21.
 3. **Deploy the code** (push to `main` when you decide).
 4. **Install the new watchdog** (from your PC, then on the server):
    ```bash
