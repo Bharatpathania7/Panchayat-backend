@@ -260,7 +260,9 @@ public class RoomSettingsService {
             memberRepository.deleteByRoomIdAndUserId(roomId, userId);
             roomState.dropAdminRole(roomId, userId);
         }
-        room.setMemberCount((int) memberRepository.countByRoomId(roomId));
+        // A silent observer is never counted as a member
+        Integer visible = silentJdbc.queryForObject("select count(*) from voice_room_members m join users u on u.id = m.user_id where m.room_id = ? and not coalesce(u.silent_observer, false)", Integer.class, roomId);
+        room.setMemberCount(visible == null ? 0 : visible);
         return broadcast(roomRepository.save(room), on ? "MEMBER_JOINED" : "MEMBER_LEFT", userId, List.of("memberCount"));
     }
 
