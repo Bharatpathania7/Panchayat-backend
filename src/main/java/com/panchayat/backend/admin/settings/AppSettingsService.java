@@ -72,7 +72,13 @@ public class AppSettingsService {
         if (s.signupBonusCoins() < 0) throw bad("Sign-up bonus must be 0 or more.");
         if (s.dailyCheckinCoins() < 0) throw bad("Daily check-in reward must be 0 or more.");
         if (s.roomCreateMinLevel() < 0) throw bad("Room creation level must be 0 or more.");
-        if (s.minAppVersion() == null || s.minAppVersion().isBlank()) throw bad("Enter the oldest app version allowed.");
+        // An empty "oldest app version" keeps the one already saved instead of refusing the whole save
+        if (s.minAppVersion() == null || s.minAppVersion().isBlank()) {
+            String keep = settings().minAppVersion();
+            s = new Settings(s.maintenance(), s.maintenanceMessage(), s.maintenanceUntil(), s.announcement(), s.signupBonusCoins(), s.dailyCheckinCoins(),
+                    s.giftingEnabled(), s.roomCreationEnabled(), s.roomCreateMinLevel(), keep == null || keep.isBlank() ? "1.0.0" : keep,
+                    s.apkBannerEnabled(), s.apkBannerText(), s.apkBannerSoon(), s.updatedAt(), s.updatedBy());
+        }
         jdbc.update("update app_settings set maintenance = ?, maintenance_message = ?, maintenance_until = ?, announcement = ?,"
                         + " signup_bonus_coins = ?, daily_checkin_coins = ?, gifting_enabled = ?, room_creation_enabled = ?,"
                         + " room_create_min_level = ?, min_app_version = ?, apk_banner_enabled = ?, apk_banner_text = ?, apk_banner_soon = ?,"

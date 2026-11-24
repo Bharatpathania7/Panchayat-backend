@@ -25,6 +25,25 @@ import java.util.Set;
 @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN','MODERATOR')")
 public class AdminSettingsController {
 
+    /** The reason a save was refused, readable in the admin panel (the app hides error messages by default). */
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public org.springframework.http.ResponseEntity<java.util.Map<String, String>> refused(org.springframework.web.server.ResponseStatusException e) {
+        return org.springframework.http.ResponseEntity.status(e.getStatusCode())
+                .body(java.util.Map.of("message", e.getReason() == null ? "The settings couldn't be saved." : e.getReason()));
+    }
+
+    /** A field with a value the server can't read (text in a number box, an empty number): say which one. */
+    @ExceptionHandler(org.springframework.http.converter.HttpMessageNotReadableException.class)
+    public org.springframework.http.ResponseEntity<java.util.Map<String, String>> unreadable(org.springframework.http.converter.HttpMessageNotReadableException e) {
+        String m = e.getMostSpecificCause() == null ? "" : String.valueOf(e.getMostSpecificCause().getMessage());
+        // The JSON path at the end of the message names the field: ...Settings["dailyCheckinCoins"]
+        java.util.regex.Matcher f = java.util.regex.Pattern.compile("\\[\"(\\w+)\"\\]").matcher(m);
+        String field = null;
+        while (f.find()) field = f.group(1);
+        return org.springframework.http.ResponseEntity.badRequest()
+                .body(java.util.Map.of("message", field == null ? "One of the settings has a value the server can't read. Reload the page and try again." : "The setting \"" + field + "\" has a value the server can't read. Fix it and save again."));
+    }
+
     private static final Logger log = LoggerFactory.getLogger(AdminSettingsController.class);
 
     private final AppSettingsService settings;
