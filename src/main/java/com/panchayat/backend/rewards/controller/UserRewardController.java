@@ -40,6 +40,22 @@ public class UserRewardController {
         return rewards.takeOff(me(auth), id);
     }
 
+    public record PlateBody(String plateName, String font) {
+    }
+
+    /** Your name frame (one that came with a chosen name, like the Royal frame): change the name on it and its font. */
+    @PutMapping("/{id:[0-9]+}/plate")
+    public Map<String, Object> plate(@PathVariable Long id, @RequestBody PlateBody body, Authentication auth) {
+        if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Write the name for your frame.");
+        return rewards.customizePlate(me(auth), id, body.plateName(), body.font());
+    }
+
+    /** The reason, readable in the app (error messages are hidden by default). */
+    @ExceptionHandler(ResponseStatusException.class)
+    public org.springframework.http.ResponseEntity<Map<String, String>> refused(ResponseStatusException e) {
+        return org.springframework.http.ResponseEntity.status(e.getStatusCode()).body(Map.of("message", e.getReason() == null ? "That didn't work." : e.getReason()));
+    }
+
     private Long me(Authentication auth) {
         if (auth == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first");
         return users.findByEmail(auth.getName())

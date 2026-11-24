@@ -126,6 +126,7 @@ public class ManualTopupService {
         m.put("status", r.get("status"));
         m.put("kind", r.get("kind"));
         m.put("plateName", r.get("plate_name"));
+        m.put("plateFont", r.get("plate_font"));
         m.put("royalTitle", r.get("royal_title"));
         m.put("packName", r.get("pack_name"));
         m.put("amountInr", ((Number) r.get("amount_inr")).doubleValue());
@@ -181,6 +182,12 @@ public class ManualTopupService {
      */
     @Transactional
     public Map<String, Object> requestRoyal(Long userId, String plateName, String title) {
+        return requestRoyal(userId, plateName, title, null);
+    }
+
+    @Transactional
+    public Map<String, Object> requestRoyal(Long userId, String plateName, String title, String plateFont) {
+        String font = com.panchayat.backend.titles.NameFrameService.cleanPlateFont(plateFont);
         Map<String, Object> info = publicInfo();
         if (!Boolean.TRUE.equals(info.get("enabled"))) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Manual UPI top-up isn't available right now.");
         Map<String, Object> pack = royal.publicInfo(userId, true);
@@ -191,7 +198,7 @@ public class ManualTopupService {
         List<Map<String, Object>> same = jdbc.queryForList("select * from manual_topups where user_id = ? and kind = 'ROYAL' and status = 'REQUESTED' order by id desc limit 1", userId);
         if (!same.isEmpty()) {
             long sid = ((Number) same.get(0).get("id")).longValue();
-            jdbc.update("update manual_topups set plate_name = ?, royal_title = ? where id = ?", plate, which, sid);
+            jdbc.update("update manual_topups set plate_name = ?, royal_title = ?, plate_font = ? where id = ?", plate, which, font, sid);
             return view(jdbc.queryForMap("select * from manual_topups where id = ?", sid), info);
         }
         Long open = jdbc.queryForObject("select count(*) from manual_topups where user_id = ? and status in ('REQUESTED', 'SUBMITTED')", Long.class, userId);
@@ -199,8 +206,8 @@ public class ManualTopupService {
         String ref = newReference();
         long coins = ((Number) pack.get("coins")).longValue();
         BigDecimal price = new BigDecimal(String.valueOf(pack.get("priceInr")));
-        Long id = jdbc.queryForObject("insert into manual_topups (user_id, pack_id, pack_name, coins, bonus_coins, amount_inr, reference, kind, plate_name, royal_title) values (?, 0, ?, ?, 0, ?, ?, 'ROYAL', ?, ?) returning id",
-                Long.class, userId, pack.get("name"), coins, price, ref, plate, which);
+        Long id = jdbc.queryForObject("insert into manual_topups (user_id, pack_id, pack_name, coins, bonus_coins, amount_inr, reference, kind, plate_name, royal_title, plate_font) values (?, 0, ?, ?, 0, ?, ?, 'ROYAL', ?, ?, ?) returning id",
+                Long.class, userId, pack.get("name"), coins, price, ref, plate, which, font);
         String amountText = price.stripTrailingZeros().toPlainString();
         sarpanch.sendSafely(userId, new SarpanchService.Message("Your " + pack.get("name") + " request",
                 "Namaste! 👑 Request " + ref + ": " + pack.get("name") + " for ₹" + amountText + "." + "\n"
@@ -336,7 +343,7 @@ public class ManualTopupService {
         boolean isRoyal = "ROYAL".equals(t.get("kind"));
         if (coins > 0) wallet.credit(userId, coins, "PAYMENT_PURCHASE", "manual-topup:" + id, "MANUAL-TOPUP:" + id, "Manual UPI top-up: " + t.get("pack_name"));
         jdbc.update("update manual_topups set status = 'APPROVED', reviewed_by = ?, reviewed_at = now() where id = ?", admin, id);
-        RoyalPackService.Delivery royalGot = isRoyal ? royal.deliver(userId, String.valueOf(t.get("plate_name")), (String) t.get("royal_title")) : null;
+        RoyalPackService.Delivery royalGot = isRoyal ? royal.deliver(userId, String.valueOf(t.get("plate_name")), (String) t.get("royal_title"), (String) t.get("plate_font")) : null;
         titleRules.onTopup(userId, isRoyal ? null : ((Number) t.get("pack_id")).longValue());
         Runnable after = () -> {
             try {

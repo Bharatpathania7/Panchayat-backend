@@ -43,7 +43,9 @@ public class SpendRewardService {
     /** Most wins one spend can give per rule (a huge spend on a small threshold). */
     private static final int MAX_WINS_PER_SPEND = 20;
     private static final String COLUMNS = "id, rule_name, rule_kind, item_name, item_type, gift_id, quantity, remaining, slot, equipped,"
-            + " media_url, media_format, sound_url, granted_at, expires_at";
+            + " media_url, media_format, sound_url, granted_at, expires_at, name_frame_id, plate_name, plate_font,"
+            // A name frame's fit, so the Bag can preview it with the owner's own name and font
+            + " (select json_build_object('scale', f.frame_scale, 'y', f.frame_y, 'size', f.display_size, 'plateX', f.plate_x, 'plateY', f.plate_y, 'plateW', f.plate_w, 'plateH', f.plate_h, 'color', f.text_color, 'stroke', f.stroke_color)::text from name_frames f where f.id = name_frame_id) as nf_fit";
 
     private final RewardRuleRepository rules;
     private final JdbcTemplate jdbc;
@@ -163,6 +165,18 @@ public class SpendRewardService {
         return own(userId, rewardId);
     }
 
+    /** The owner renames their name frame and picks its font. Only frames that came with a chosen name (the Royal frame). */
+    @Transactional
+    public Map<String, Object> customizePlate(Long userId, Long rewardId, String plateName, String font) {
+        own(userId, rewardId);
+        Map<String, Object> r = jdbc.queryForMap("select name_frame_id, plate_name from user_rewards where id = ? and user_id = ?", rewardId, userId);
+        if (r.get("name_frame_id") == null || r.get("plate_name") == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "This frame's name can't be changed.");
+        String name = com.panchayat.backend.titles.NameFrameService.cleanPlateName(plateName);
+        String f = com.panchayat.backend.titles.NameFrameService.cleanPlateFont(font);
+        jdbc.update("update user_rewards set plate_name = ?, plate_font = ? where id = ? and user_id = ?", name, f, rewardId, userId);
+        return own(userId, rewardId);
+    }
+
     @Transactional
     public Map<String, Object> takeOff(Long userId, Long rewardId) {
         own(userId, rewardId);
@@ -205,7 +219,7 @@ public class SpendRewardService {
         List<Long> ids = userIds == null ? List.of() : userIds.stream().filter(Objects::nonNull).distinct().toList();
         if (ids.isEmpty()) return out;
         String in = String.join(",", Collections.nCopies(ids.size(), "?"));
-        jdbc.query("select r.user_id, r.slot, r.item_name, r.media_url, r.media_format, r.sound_url, r.name_frame_id, coalesce(r.plate_name, u.full_name) as full_name, r.entry_avatar, r.layout_level,"
+        jdbc.query("select r.user_id, r.slot, r.item_name, r.media_url, r.media_format, r.sound_url, r.name_frame_id, coalesce(r.plate_name, u.full_name) as full_name, r.entry_avatar, r.layout_level, r.plate_font,"
                         + " f.display_size, f.frame_scale, f.frame_y, f.plate_x, f.plate_y, f.plate_w, f.plate_h, f.text_color, f.stroke_color"
                         + " from user_rewards r join users u on u.id = r.user_id left join name_frames f on f.id = r.name_frame_id"
                         + " where r.equipped and r.slot is not null and r.media_url is not null"
@@ -226,6 +240,7 @@ public class SpendRewardService {
                         nf.put("plateH", rs.getDouble("plate_h"));
                         nf.put("color", rs.getString("text_color"));
                         nf.put("stroke", rs.getString("stroke_color"));
+                        if (rs.getString("plate_font") != null) nf.put("font", rs.getString("plate_font"));
                         fx.put("nameFrame", nf);
                     }
                     fx.put("format", rs.getString("media_format"));
@@ -356,6 +371,19 @@ public class SpendRewardService {
         return own(userId, id);
     }
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /** A name frame's fit (scale, plate position, colours) from the JSON the query builds; null if missing. */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> fit(String json) {
+        if (json == null) return null;
+        try {
+            return JSON.readValue(json, Map.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static final RowMapper<Map<String, Object>> ROW = (rs, n) -> {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", rs.getLong("id"));
@@ -373,6 +401,13 @@ public class SpendRewardService {
         m.put("soundUrl", MediaUrls.link(rs.getString("sound_url")));
         m.put("grantedAt", ts(rs.getTimestamp("granted_at")));
         m.put("expiresAt", ts(rs.getTimestamp("expires_at")));
+        if (rs.getObject("name_frame_id") != null) {
+            m.put("plateName", rs.getString("plate_name"));
+            m.put("plateFont", rs.getString("plate_font"));
+            // Only a frame bought / given with a chosen name can be renamed by its owner
+            m.put("customizable", rs.getString("plate_name") != null);
+            m.put("nameFrame", fit(rs.getString("nf_fit")));
+        }
         return m;
     };
 

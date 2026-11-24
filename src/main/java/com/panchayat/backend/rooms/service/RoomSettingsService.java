@@ -52,6 +52,10 @@ public class RoomSettingsService {
     private static final int MAX_WRONG = 8;
     private static final Duration WRONG_WINDOW = Duration.ofMinutes(10);
 
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private org.springframework.jdbc.core.JdbcTemplate silentJdbc;
+
     private final VoiceRoomRepository roomRepository;
     private final RoomMemberRepository memberRepository;
     private final RoomFollowerRepository followerRepository;
@@ -241,6 +245,10 @@ public class RoomSettingsService {
     public VoiceRoomResponse setMember(Long roomId, Long userId, boolean on) {
         VoiceRoom room = activeRoom(roomId);
         if (on) {
+            // A silent observer never becomes a visible member of a room
+            if (Boolean.TRUE.equals(silentJdbc.query("select silent_observer from users where id = ?", rs -> rs.next() ? rs.getBoolean(1) : false, userId))) {
+                return VoiceRoomResponse.from(room);
+            }
             if (!memberRepository.existsByRoomIdAndUserId(roomId, userId)) {
                 try {
                     memberRepository.save(new RoomMember(roomId, userId));

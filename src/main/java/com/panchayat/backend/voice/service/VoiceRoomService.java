@@ -441,9 +441,15 @@ public class VoiceRoomService {
                 .findFirst()
                 .orElse(null);
 
-        // A silent-observer staff account, arriving with no password: let in invisibly for safety
-        // review (see User.silentObserver), logged below. Never for a normal password attempt.
-        boolean silentJoin = participant == null && user.isSilentObserver() && (password == null || password.isBlank());
+        // A silent-observer staff account is ALWAYS invisible, in every room (public, private or password):
+        // nobody sees it in the room, its lists, counts, chat or gifting. Password rooms let it in without the
+        // password. Every entry is logged below (see User.silentObserver).
+        boolean silentJoin = participant == null && user.isSilentObserver();
+        if (participant != null && user.isSilentObserver() && !participant.isInvisible()) {
+            // Turned into an observer while already inside: hide it from now on
+            participant.setInvisible(true);
+            participantRepository.save(participant);
+        }
 
         // Password rooms (the owner and admins don't need it). 423 = locked, so apps
         // can tell it apart from a kick or ban (403). Someone still in the room is
@@ -471,7 +477,7 @@ public class VoiceRoomService {
             // Room Levels page); the capacity chosen at creation is only a floor under that.
             int levelCap = RoomLevels.MEMBERS[RoomLevels.level(room.getExp()) - 1];
             int cap = Math.max(room.getMaxParticipants(), levelCap);
-            if (activeCount >= cap) {
+            if (activeCount >= cap && !silentJoin) {
                 throw new ResponseStatusException(
                         HttpStatus.CONFLICT,
                         "Voice room is full"

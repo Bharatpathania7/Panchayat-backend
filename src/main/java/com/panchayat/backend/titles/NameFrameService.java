@@ -62,10 +62,27 @@ public class NameFrameService {
      */
     @Transactional
     public Long grant(Long userId, Long frameId, int days, String plateName) {
+        return grant(userId, frameId, days, plateName, null);
+    }
+
+    /** Like grant(.., plateName), with the font for the plate (one of PLATE_FONTS; null keeps what they had). */
+    @Transactional
+    public Long grant(Long userId, Long frameId, int days, String plateName, String plateFont) {
         grantOnly(userId, frameId, days);
         Long rid = jdbc.queryForObject("select id from user_rewards where user_id = ? and name_frame_id = ? order by id limit 1", Long.class, userId, frameId);
         if (plateName != null && !plateName.isBlank()) jdbc.update("update user_rewards set plate_name = ? where id = ?", plateName, rid);
+        if (plateFont != null && !plateFont.isBlank()) jdbc.update("update user_rewards set plate_font = ? where id = ?", plateFont, rid);
         return rid;
+    }
+
+    /** The fonts a frame's plate can use: the same as the profile's "Name font". */
+    public static final Set<String> PLATE_FONTS = Set.of("default", "pacifico", "dancing", "cinzel", "yatra", "righteous");
+
+    /** A font id from PLATE_FONTS; empty = "default". */
+    public static String cleanPlateFont(String raw) {
+        String f = raw == null || raw.isBlank() ? "default" : raw.strip().toLowerCase(java.util.Locale.ROOT);
+        if (!PLATE_FONTS.contains(f)) throw bad("Choose one of the fonts.");
+        return f;
     }
 
     /** A name for a frame's plate: trimmed, 1 to 14 letters (emoji count as one), no control characters. */
