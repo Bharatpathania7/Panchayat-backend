@@ -49,6 +49,12 @@ public class AdminPkController {
         this.jdbc = jdbc;
     }
 
+    /** The reason a request was refused, readable in the admin panel (error messages are hidden by default). */
+    @org.springframework.web.bind.annotation.ExceptionHandler(ResponseStatusException.class)
+    public org.springframework.http.ResponseEntity<Map<String, String>> refused(ResponseStatusException e) {
+        return org.springframework.http.ResponseEntity.status(e.getStatusCode()).body(Map.of("message", e.getReason() == null ? "That didn't work." : e.getReason()));
+    }
+
     public record AdjustRequest(String user, Long amount, String reason) {}
 
     public record RoomRequest(String room, String title, String hostUser) {}
@@ -140,8 +146,75 @@ public class AdminPkController {
         String title = body == null || body.title() == null || body.title().isBlank() ? null : body.title().strip();
         if (title != null && title.length() > 80) title = title.substring(0, 80);
         jdbc.update("update voice_rooms set official_pk = true, official_pk_title = ? where id = ?", title, id);
-        if (body != null && body.hostUser() != null && !body.hostUser().isBlank()) roomState.setAdminByStaff(id, userId(body.hostUser()));
+        if (body != null && body.hostUser() != null && !body.hostUser().isBlank()) {
+            Long host = userId(body.hostUser());
+            // The room's owner already runs it: nothing to add (this used to refuse the whole request with 409)
+            Long owner = jdbc.queryForObject("select owner_id from voice_rooms where id = ?", Long.class, id);
+            if (!host.equals(owner)) roomState.setAdminByStaff(id, host);
+        }
         return Map.of("roomId", String.valueOf(id), "officialPk", true);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.voice.repository.VoiceRoomRepository voiceRooms;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.rooms.service.RoomSettingsService roomSettings;
+
+    public record CreateRoomRequest(String name, String title, String hostUser) {}
+
+    /**
+     * A brand-new Official PK room, made by the system (its 7-digit room ID comes from the server): owned by the
+     * official Panchayat account, with the host as its room admin, so the host runs everything from the app.
+     */
+    @PostMapping("/rooms/create")
+    @Transactional
+    public Map<String, Object> createRoom(@RequestBody CreateRoomRequest body) {
+        List<Long> official = jdbc.queryForList("select id from users where official and official_role = 'SARPANCH' order by id limit 1", Long.class);
+        if (official.isEmpty()) official = jdbc.queryForList("select id from users where official order by id limit 1", Long.class);
+        if (official.isEmpty()) throw bad("The official Panchayat account is missing.");
+        String title = body == null || body.title() == null || body.title().isBlank() ? null : body.title().strip();
+        if (title != null && title.length() > 80) title = title.substring(0, 80);
+        String name = body == null || body.name() == null || body.name().isBlank() ? (title == null ? "Official PK" : title) : body.name().strip();
+        if (name.length() > 60) name = name.substring(0, 60);
+        com.panchayat.backend.voice.entity.VoiceRoom room = new com.panchayat.backend.voice.entity.VoiceRoom();
+        room.setOwnerId(official.get(0));
+        room.setName(name);
+        room.setDescription(title == null ? "Official PK room of Panchayat" : title);
+        room.setRoomType(com.panchayat.backend.voice.entity.VoiceRoomType.VOICE);
+        room.setPrivate(false);
+        room.setMaxParticipants(50);
+        room.setCategory("PK");
+        room.setOfficial(true);
+        room.setOfficialPk(true);
+        room.setOfficialPkTitle(title);
+        room.setExtraSeats(true);
+        Long id = voiceRooms.saveAndFlush(room).getId();
+        if (body != null && body.hostUser() != null && !body.hostUser().isBlank()) {
+            Long host = userId(body.hostUser());
+            if (!host.equals(official.get(0))) roomState.setAdminByStaff(id, host);
+        }
+        Long code = jdbc.queryForObject("select room_code from voice_rooms where id = ?", Long.class, id);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("roomId", String.valueOf(id));
+        m.put("roomCode", code);
+        m.put("officialPk", true);
+        return m;
+    }
+
+    /** The room's background, from the admin panel: picture, GIF, WEBP or MP4 up to 100 MB. */
+    @PostMapping(value = "/rooms/{roomId:[0-9]+}/background", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Object roomBackground(@PathVariable Long roomId, @org.springframework.web.bind.annotation.RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        requireOfficial(roomId);
+        return roomSettings.uploadBackground(roomId, null, file);
+    }
+
+    @DeleteMapping("/rooms/{roomId:[0-9]+}/background")
+    public Object clearRoomBackground(@PathVariable Long roomId) {
+        requireOfficial(roomId);
+        return roomSettings.clearBackground(roomId, null);
     }
 
     /** Adds another host admin to an Official PK room already made (owner, or run from here again). */

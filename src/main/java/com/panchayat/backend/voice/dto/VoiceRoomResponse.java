@@ -77,7 +77,8 @@ public record VoiceRoomResponse(
                 com.panchayat.backend.common.PublicIds.user(room.getOwnerId()),
                 room.isNewbie(),
                 room.isExtraSeats(),
-                room.isNewbie() ? com.panchayat.backend.admin.media.MediaUrls.link(room.getNewbieBackground()) : null,
+                // Every room may have its own background now (Newbie rooms have the admin's default)
+                com.panchayat.backend.admin.media.MediaUrls.link(room.getNewbieBackground()),
                 room.isOfficial(),
                 room.isOfficialPk(),
                 room.isOfficialPk() ? room.getOfficialPkTitle() : null,

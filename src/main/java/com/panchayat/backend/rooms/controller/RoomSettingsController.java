@@ -56,6 +56,17 @@ public class RoomSettingsController {
     }
 
     /** 200 { ok: true } when right; 423 when wrong; 429 after too many wrong tries. */
+    /** The room's background (picture, GIF, WEBP or MP4, up to 100 MB): owner or admin at level 5+, or an Official PK host. */
+    @PostMapping(value = "/{roomId:[0-9]+}/background", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public VoiceRoomResponse uploadBackground(@PathVariable Long roomId, @RequestParam("file") MultipartFile file, Authentication auth) {
+        return settings.uploadBackground(roomId, me(auth), file);
+    }
+
+    @DeleteMapping("/{roomId:[0-9]+}/background")
+    public VoiceRoomResponse clearBackground(@PathVariable Long roomId, Authentication auth) {
+        return settings.clearBackground(roomId, me(auth));
+    }
+
     @PostMapping("/{roomId:[0-9]+}/password-check")
     public ResponseEntity<Map<String, Object>> checkPassword(@PathVariable Long roomId, @RequestBody PasswordBody body, Authentication auth) {
         boolean ok = settings.checkPassword(roomId, me(auth), body == null ? null : body.password());

@@ -260,6 +260,15 @@ public class AdminUsersController {
     public Map<String, Object> setSilentObserver(@PathVariable Long id, @RequestBody SilentObserverRequest body) {
         int n = jdbc.update("update users set silent_observer = ? where id = ?", body != null && body.enabled(), id);
         if (n == 0) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "User not found");
+        if (body != null && body.enabled()) {
+            // Becoming an observer: out of every room's member list (and admin list), counts fixed, so nobody can see it anywhere
+            List<Long> rooms = jdbc.queryForList("select room_id from voice_room_members where user_id = ?", Long.class, id);
+            jdbc.update("delete from voice_room_members where user_id = ?", id);
+            for (Long r : rooms) {
+                jdbc.update("update voice_rooms set member_count = (select count(*) from voice_room_members m join users u on u.id = m.user_id where m.room_id = ? and not coalesce(u.silent_observer, false)) where id = ?", r, r);
+            }
+            jdbc.update("update voice_room_participants set invisible = true where user_id = ? and status = 'JOINED'", id);
+        }
         return Map.of("silentObserver", body != null && body.enabled());
     }
 

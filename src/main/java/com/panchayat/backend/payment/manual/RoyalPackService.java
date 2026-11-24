@@ -208,6 +208,12 @@ public class RoyalPackService {
      */
     @Transactional
     public Delivery deliver(long userId, String plateName, String royalTitle) {
+        return deliver(userId, plateName, royalTitle, null);
+    }
+
+    /** Like deliver, with the font chosen for the frame's plate (null = the frame's usual font). */
+    @Transactional
+    public Delivery deliver(long userId, String plateName, String royalTitle, String plateFont) {
         Map<String, Object> s = row();
         List<String> lines = new ArrayList<>();
         int frameDays = ((Number) s.get("frame_days")).intValue();
@@ -215,7 +221,7 @@ public class RoyalPackService {
         String frameUrl = null;
         if (s.get("frame_id") != null) {
             long frameId = ((Number) s.get("frame_id")).longValue();
-            Long rid = nameFrames.grant(userId, frameId, frameDays, plateName);
+            Long rid = nameFrames.grant(userId, frameId, frameDays, plateName, plateFont);
             // Put it on now (it replaces whatever frame they wore)
             jdbc.update("update user_rewards set equipped = false where user_id = ? and slot = 'FRAME' and equipped and id <> ?", userId, rid);
             jdbc.update("update user_rewards set equipped = true where id = ?", rid);
@@ -269,6 +275,12 @@ public class RoyalPackService {
      */
     @Transactional
     public Map<String, Object> grantTo(Long userId, String plateName, String title, boolean includeCoins, String admin) {
+        return grantTo(userId, plateName, title, includeCoins, admin, null);
+    }
+
+    @Transactional
+    public Map<String, Object> grantTo(Long userId, String plateName, String title, boolean includeCoins, String admin, String plateFont) {
+        String font = NameFrameService.cleanPlateFont(plateFont);
         List<Map<String, Object>> u = jdbc.queryForList("select email, full_name from users where id = ?", userId);
         if (u.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
         if (String.valueOf(u.get(0).get("email")).endsWith("@deleted.invalid")) throw bad("This account is deleted.");
@@ -286,7 +298,7 @@ public class RoyalPackService {
         long coins = includeCoins ? ((Number) s.get("coins")).longValue() : 0;
         String key = "royal-grant:" + java.util.UUID.randomUUID();
         if (coins > 0) wallet.credit(userId, coins, "ROYAL_PACK_GIFT", key, key, "Royal Pack given by " + (admin == null ? "admin" : admin));
-        Delivery d = deliver(userId, plate, which);
+        Delivery d = deliver(userId, plate, which, font);
         StringBuilder body = new StringBuilder("Mubarak ho! 👑 Panchayat ne aapko " + s.get("name") + " diya hai.\n\nAap ko mila:\n");
         if (coins > 0) body.append("💰 ").append(String.format(Locale.ROOT, "%,d", coins)).append(" coins in your wallet\n");
         for (String line : d.lines()) body.append(line).append("\n");

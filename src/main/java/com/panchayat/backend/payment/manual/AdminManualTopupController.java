@@ -43,7 +43,7 @@ public class AdminManualTopupController {
     }
 
     /** user: account id or 7-digit public ID. title: KING | QUEEN | AUTO (by gender). includeCoins: also add the pack's coins. */
-    public record RoyalGrantBody(String user, String plateName, String title, Boolean includeCoins) {
+    public record RoyalGrantBody(String user, String plateName, String title, Boolean includeCoins, String font) {
     }
 
     /** Give the Royal Pack to one person without a payment (frame with their name, titles, optionally the coins). */
@@ -52,7 +52,7 @@ public class AdminManualTopupController {
     public Map<String, Object> grantRoyal(@org.springframework.web.bind.annotation.RequestBody RoyalGrantBody b, Authentication auth) {
         if (b == null || b.user() == null || b.user().isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose who gets it.");
         Long id = royal.findUser(b.user().strip());
-        return royal.grantTo(id, b.plateName(), b.title(), Boolean.TRUE.equals(b.includeCoins()), auth == null ? null : auth.getName());
+        return royal.grantTo(id, b.plateName(), b.title(), Boolean.TRUE.equals(b.includeCoins()), auth == null ? null : auth.getName(), b.font());
     }
 
     @PutMapping("/royal")

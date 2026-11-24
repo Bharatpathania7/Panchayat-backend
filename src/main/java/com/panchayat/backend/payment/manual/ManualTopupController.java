@@ -52,7 +52,7 @@ public class ManualTopupController {
         return service.request(uid(auth), packId);
     }
 
-    public record RoyalAsk(String plateName, String title) {
+    public record RoyalAsk(String plateName, String title, String font) {
     }
 
     /** The Royal Pack (sold only through Munshi ji): what it gives, its price, and the title (KING / QUEEN) this person would get. */
@@ -64,7 +64,7 @@ public class ManualTopupController {
     /** Ask for the Royal Pack: { plateName (up to 14 letters), title: KING | QUEEN (only used when gender isn't set) }. */
     @PostMapping("/royal")
     public Map<String, Object> requestRoyal(@org.springframework.web.bind.annotation.RequestBody RoyalAsk body, Authentication auth) {
-        return service.requestRoyal(uid(auth), body == null ? null : body.plateName(), body == null ? null : body.title());
+        return service.requestRoyal(uid(auth), body == null ? null : body.plateName(), body == null ? null : body.title(), body == null ? null : body.font());
     }
 
     @PostMapping(value = "/requests/{id:[0-9]+}/submit", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)

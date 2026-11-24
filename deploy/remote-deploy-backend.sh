@@ -67,7 +67,9 @@ as_root systemctl restart "$SERVICE"
 
 say "Waiting for the backend on port $BACKEND_PORT"
 UP=0
-for _ in $(seq 1 45); do
+# The old process can take up to ~90 s to stop (systemd's stop timeout) before the new one even starts, and a start
+# with database migrations takes a minute or two more: wait up to ~8 minutes before calling it failed.
+for _ in $(seq 1 160); do
   sleep 3
   if [ "$(curl -s -m 3 -o /dev/null -w '%{http_code}' "http://127.0.0.1:${BACKEND_PORT}/api/v1/health")" = 200 ]; then UP=1; break; fi
 done
