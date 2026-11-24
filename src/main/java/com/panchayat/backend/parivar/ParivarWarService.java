@@ -257,9 +257,8 @@ public class ParivarWarService {
         m.put("attemptsLeft", Math.max(0, daily - usedToday) + extraAttempts);
         m.put("extraAttempts", extraAttempts);
         m.put("dailyAttempts", daily);
-        Timestamp last = jdbc.query("select max(created_at) from parivar_steal_log where thief_parivar = ?", rs -> rs.next() ? rs.getTimestamp(1) : null, parivarId);
-        long cd = ((Number) s.get("steal_cooldown_minutes")).longValue() * 60;
-        m.put("cooldownLeftSeconds", last == null ? 0 : Math.max(0, cd - Duration.between(last.toInstant(), Instant.now()).getSeconds()));
+        // No timer between Chori attempts: a Parivar can use every attempt it has, one after another
+        m.put("cooldownLeftSeconds", 0);
         m.put("successPercent", s.get("steal_success_percent"));
         m.put("takePercent", s.get("steal_take_percent"));
         m.put("maxTake", l(s.get("steal_max_take")));

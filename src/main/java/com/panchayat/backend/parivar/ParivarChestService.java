@@ -112,6 +112,8 @@ public class ParivarChestService {
         res.put("sent", sent);
         // The Mukhiya (and anyone the Mukhiya allows to manage chests) opens the chests for the family
         res.put("canSend", core.can(parivarId, userId, "MANAGE_CHESTS"));
+        // Chests already in the treasury (Gacha wins, shop): only the Mukhiya sends them to the family
+        res.put("canSendOwned", "LEADER".equals(core.roleOf(parivarId, userId)));
         res.put("funds", l(p.get("funds")));
         return res;
     }
@@ -120,12 +122,18 @@ public class ParivarChestService {
     public Map<String, Object> send(Long userId, Long parivarId, Long typeId, String key) {
         if (key == null || key.isBlank() || key.length() > 60) throw ParivarService.bad("A request key is required.");
         Map<String, Object> p = core.activeParivar(parivarId);
-        core.require(parivarId, userId, "MANAGE_CHESTS");
         List<Map<String, Object>> tl = jdbc.queryForList("select * from parivar_chest_types where id = ?", typeId);
         if (tl.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That chest isn't available.");
         Map<String, Object> t = tl.get(0);
         // A chest the Parivar already owns (bought in the shop or won in Gacha) can always be opened, even if its type is switched off or needs a higher level now
         boolean owned = l(jdbc.queryForObject("select coalesce(sum(qty), 0) from parivar_inventory where parivar_id = ? and kind = 'CHEST' and ref = ?", Long.class, parivarId, typeId)) > 0;
+        // A chest in the Parivar's treasury (won in Gacha, bought in the shop) is the Mukhiya's to hand out: only the
+        // Mukhiya decides if and when the family gets it. Buying a new one with treasury funds needs MANAGE_CHESTS.
+        if (owned) {
+            if (!"LEADER".equals(core.roleOf(parivarId, userId))) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the Mukhiya can send the treasury's chests to the family.");
+        } else {
+            core.require(parivarId, userId, "MANAGE_CHESTS");
+        }
         if (!owned && !Boolean.TRUE.equals(t.get("active"))) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That chest isn't available.");
         if (!owned && ((Number) p.get("level")).intValue() < ((Number) t.get("min_level")).intValue()) throw new ResponseStatusException(HttpStatus.CONFLICT, "Your Parivar needs level " + t.get("min_level") + " for this chest.");
         String ref = "chestsend:" + parivarId + ":" + userId + ":" + key.strip();

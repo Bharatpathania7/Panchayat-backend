@@ -109,11 +109,18 @@ public class CpService {
 
     /** Ring products from the admin panel (Shop categories named like "ring") join the CP catalogue as "shop-<id>". */
     public static final String SHOP_PREFIX = "shop-";
+    /**
+     * Which Shop products are CP rings (SQL, aliases p = shop_products, c = shop_categories). The admin's type Ring;
+     * or, type left automatic: a category named like "ring", or a PK-Coins product whose NAME has the word "ring"
+     * (the PK category mixes every kind of item). Also used by the Bag (ShopPurchaseService.mine) for "Add to CP".
+     */
+    public static final String IS_SHOP_RING = "(p.wear_slot = 'RING' or (p.wear_slot is null and (c.name ilike '%ring%'"
+            + " or (c.currency = 'PK_COINS' and p.name ~* '\\mring\\M'))))";
+
     private static final String SHOP_RINGS =
-            // A ring is a product whose type is Ring, or (type left automatic) one in a category named like "ring".
             // Rings bought with PK Coins are never sold for coins in CP (on_sale false), but ones people own still propose.
             "select p.id, p.name, p.price, p.rarity, p.asset_url, p.display_order, p.active and c.currency <> 'PK_COINS' as on_sale from shop_products p"
-                    + " join shop_categories c on c.id = p.category_id where (p.wear_slot = 'RING' or (p.wear_slot is null and c.name ilike '%ring%')) and p.price >= 1";
+                    + " join shop_categories c on c.id = p.category_id where " + IS_SHOP_RING + " and p.price >= 1";
     private volatile long shopSyncedAt = 0;
 
     /**
@@ -175,7 +182,8 @@ public class CpService {
                     out.put(rs.getString(1), rs.getInt(2));
                 }, me);
         // Rings bought in the Shop (admin's ring products) are in the same Bag
-        jdbc.query("select 'shop-' || i.product_id, i.quantity from user_shop_items i join cp_rings r on r.id = 'shop-' || i.product_id where i.user_id = ? and i.quantity > 0 order by r.sort_order",
+        // Not past its days (PK items last a set number of days), same as the Bag shows
+        jdbc.query("select 'shop-' || i.product_id, i.quantity from user_shop_items i join cp_rings r on r.id = 'shop-' || i.product_id where i.user_id = ? and i.quantity > 0 and (i.expires_at is null or i.expires_at > now()) order by r.sort_order",
                 rs -> {
                     out.merge(rs.getString(1), rs.getInt(2), Integer::sum);
                 }, me);
@@ -745,7 +753,7 @@ public class CpService {
 
     private void takeFromBag(long userId, String ringId) {
         if (isShopRing(ringId)) {
-            if (jdbc.update("update user_shop_items set quantity = quantity - 1 where user_id = ? and product_id = ? and quantity > 0", userId, shopId(ringId)) == 0)
+            if (jdbc.update("update user_shop_items set quantity = quantity - 1 where user_id = ? and product_id = ? and quantity > 0 and (expires_at is null or expires_at > now())", userId, shopId(ringId)) == 0)
                 throw conflict("Buy a ring first");
             return;
         }

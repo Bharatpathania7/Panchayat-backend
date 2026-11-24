@@ -171,7 +171,8 @@ public class ShopPurchaseService {
     public List<Map<String, Object>> mine(Long userId) {
         return jdbc.query(
                 "select i.product_id, i.quantity, i.first_bought_at, i.last_bought_at, i.expires_at,"
-                        + " p.name, p.description, p.price, p.rarity, p.asset_url, p.asset_type, p.active, c.id as category_id, c.name as category_name"
+                        + " p.name, p.description, p.price, p.rarity, p.asset_url, p.asset_type, p.active, c.id as category_id, c.name as category_name,"
+                        + " p.wear_slot, " + com.panchayat.backend.cp.CpService.IS_SHOP_RING + " as is_ring"
                         + " from user_shop_items i join shop_products p on p.id = i.product_id"
                         + " left join shop_categories c on c.id = p.category_id"
                         + " where i.user_id = ? and i.quantity > 0 and (i.expires_at is null or i.expires_at > now()) order by i.last_bought_at desc",
@@ -182,6 +183,9 @@ public class ShopPurchaseService {
                     m.put("description", rs.getString("description"));
                     m.put("categoryId", rs.getObject("category_id"));
                     m.put("categoryName", rs.getString("category_name"));
+                    m.put("wearSlot", rs.getString("wear_slot"));
+                    // A CP ring (Ring type, a ring category, or a PK ring): the Bag shows "Add to CP" / "Propose"
+                    m.put("ring", rs.getBoolean("is_ring"));
                     m.put("rarity", rs.getString("rarity"));
                     m.put("assetUrl", rs.getString("asset_url"));
                     m.put("assetType", rs.getString("asset_type"));
