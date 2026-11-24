@@ -38,7 +38,11 @@ public class AdminUsersController {
 
     private final com.panchayat.backend.auth.service.DeviceGuard devices;
 
-    public AdminUsersController(JdbcTemplate jdbc, SimpUserRegistry online, AccountBanService bans, com.panchayat.backend.auth.service.DeviceGuard devices) {
+    private final com.panchayat.backend.user.service.AccountDeletionService deletion;
+
+    public AdminUsersController(JdbcTemplate jdbc, SimpUserRegistry online, AccountBanService bans, com.panchayat.backend.auth.service.DeviceGuard devices,
+                                com.panchayat.backend.user.service.AccountDeletionService deletion) {
+        this.deletion = deletion;
         this.bans = bans;
         this.devices = devices;
         this.jdbc = jdbc;
@@ -210,6 +214,20 @@ public class AdminUsersController {
         m.put("removed", amount);
         m.put("charm", Math.max(0, before - amount));
         return m;
+    }
+
+    public record DeleteAccountRequest(String confirm, String reason) {
+    }
+
+    /**
+     * Delete someone's account for good (the same as deleting it themselves: name, email and picture removed, signed out,
+     * the account can never be used again). Needs { confirm: "DELETE" }. Super Admin only.
+     */
+    @PostMapping("/{id:[0-9]+}/delete-account")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public Map<String, Object> deleteAccount(@PathVariable Long id, @RequestBody DeleteAccountRequest body, org.springframework.security.core.Authentication auth) {
+        if (body == null || !"DELETE".equals(body.confirm())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Type DELETE to confirm.");
+        return deletion.delete(id, auth == null ? "admin" : auth.getName(), body.reason());
     }
 
     public record SilentObserverRequest(boolean enabled) {
