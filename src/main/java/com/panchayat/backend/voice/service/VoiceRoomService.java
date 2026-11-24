@@ -530,7 +530,8 @@ public class VoiceRoomService {
         String token = liveKitTokenService.generateJoinToken(
                 liveKitRoomName,
                 participantIdentity,
-                canPublish
+                canPublish,
+                participant.isInvisible()
         );
         liveKitPermissionService.rememberTokenGrant(roomId, user.getId(), canPublish);
 
@@ -798,7 +799,7 @@ public class VoiceRoomService {
             );
         }
 
-        return participantRepository.countByRoomIdAndStatus(
+        return participantRepository.countByRoomIdAndStatusAndInvisibleFalse(
                 roomId,
                 "JOINED"
         );

@@ -170,7 +170,7 @@ public class RoomRedPacketService {
         // Everyone in the room gets a fair chance: one person can take at most about twice
         // an equal share of the pot, so a fast tapper can't drain the whole rain alone
         long amount = ((Number) jdbc.queryForObject("select amount from room_red_packets where id = ?", Long.class, packetId)).longValue();
-        Integer inRoom = jdbc.queryForObject("select count(*) from voice_room_participants where room_id = ? and status = 'JOINED'", Integer.class, roomId);
+        Integer inRoom = jdbc.queryForObject("select count(*) from voice_room_participants where room_id = ? and status = 'JOINED' and not invisible", Integer.class, roomId);
         long people = Math.max(2, inRoom == null ? 2 : inRoom);
         long myCap = Math.max(1, (2 * amount + people - 1) / people);
         if (mine >= myCap) return result(packetId, 0, mine, myGrabs, left);

@@ -2,6 +2,8 @@ package com.panchayat.backend.voice.service;
 
 import io.livekit.server.AccessToken;
 import io.livekit.server.CanPublish;
+import io.livekit.server.CanPublishData;
+import io.livekit.server.Hidden;
 import io.livekit.server.CanSubscribe;
 import io.livekit.server.RoomJoin;
 import io.livekit.server.RoomName;
@@ -49,6 +51,18 @@ public class LiveKitTokenService {
             String roomName,
             String userIdentity,
             boolean canPublish) {
+        return generateJoinToken(roomName, userIdentity, canPublish, false);
+    }
+
+    /**
+     * hidden: a silent observer. LiveKit leaves them out of every other participant's list (no "someone joined",
+     * no extra listener in the count); they can only listen.
+     */
+    public String generateJoinToken(
+            String roomName,
+            String userIdentity,
+            boolean canPublish,
+            boolean hidden) {
 
         if (roomName == null || roomName.isBlank()
                 || userIdentity == null || userIdentity.isBlank()) {
@@ -65,9 +79,13 @@ public class LiveKitTokenService {
         token.addGrants(
                 new RoomJoin(true),
                 new RoomName(roomName),
-                new CanPublish(canPublish),
+                new CanPublish(canPublish && !hidden),
                 new CanSubscribe(true)
         );
+        if (hidden) {
+            // Invisible to everyone else in the room, and can't send data messages either
+            token.addGrants(new Hidden(true), new CanPublishData(false));
+        }
 
         return token.toJwt();
     }

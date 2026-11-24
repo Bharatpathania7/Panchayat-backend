@@ -187,7 +187,7 @@ public class FriendService {
     private Map<String, Object> roomOf(Long userId) {
         List<Map<String, Object>> r = jdbc.queryForList(
                 "select v.id, v.name, v.room_code, v.room_type, v.category, v.cover_image_url from voice_room_participants p join voice_rooms v on v.id = p.room_id"
-                        + " where p.user_id = ? and p.status = 'JOINED' and v.status = 'ACTIVE' and not coalesce(v.is_private, false)"
+                        + " where p.user_id = ? and p.status = 'JOINED' and not p.invisible and v.status = 'ACTIVE' and not coalesce(v.is_private, false)"
                         + " and coalesce(v.password, '') = '' order by p.joined_at desc limit 1", userId);
         if (r.isEmpty()) return null;
         Map<String, Object> v = r.get(0);
@@ -251,7 +251,7 @@ public class FriendService {
                         + " union all"
                         + " select 'ROOM', p.user_id, v.id::text, v.name, p.joined_at from voice_room_participants p join voice_rooms v on v.id = p.room_id"
                         + "   join users u on u.id = p.user_id"
-                        + "   where p.status = 'JOINED' and v.status = 'ACTIVE' and not coalesce(v.is_private, false) and coalesce(v.password, '') = ''"
+                        + "   where p.status = 'JOINED' and not p.invisible and v.status = 'ACTIVE' and not coalesce(v.is_private, false) and coalesce(v.password, '') = ''"
                         + "   and not u.hide_online and p.user_id in (" + friends + ")"
                         + ") a order by at desc limit ?",
                 me, me, me, me, lim);

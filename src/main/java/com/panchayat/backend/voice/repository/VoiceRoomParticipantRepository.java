@@ -38,6 +38,12 @@ public interface VoiceRoomParticipantRepository
             """)
     List<Long> findActiveRoomIdsWithParticipants();
 
+    /** People others can see (a silent observer isn't counted). */
+    long countByRoomIdAndStatusAndInvisibleFalse(
+            Long roomId,
+            String status
+    );
+
     long countByRoomIdAndStatus(
             Long roomId,
             String status

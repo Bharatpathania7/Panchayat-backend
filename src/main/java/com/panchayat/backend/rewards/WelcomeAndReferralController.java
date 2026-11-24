@@ -174,7 +174,7 @@ public class WelcomeAndReferralController {
         return cache.respond("live-counts", "all", java.time.Duration.ofSeconds(5), () -> {
             Map<String, Long> out = new LinkedHashMap<>();
             jdbc.query("select p.room_id, count(*) from voice_room_participants p join voice_rooms v on v.id = p.room_id"
-                            + " where p.status = 'JOINED' and v.status = 'ACTIVE' group by p.room_id",
+                            + " where p.status = 'JOINED' and not p.invisible and v.status = 'ACTIVE' group by p.room_id",
                     rs -> {
                         out.put(String.valueOf(rs.getLong(1)), rs.getLong(2));
                     });

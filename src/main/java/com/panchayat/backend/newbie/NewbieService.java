@@ -232,9 +232,9 @@ public class NewbieService {
     private Long bestRoom() {
         List<Long> l = jdbc.queryForList("select nr.room_id from newbie_rooms nr join voice_rooms vr on vr.id = nr.room_id"
                 + " where nr.status = 'ACTIVE' and vr.status = 'ACTIVE' and (nr.expires_at is null or nr.expires_at > now())"
-                + " and (select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED') < vr.max_participants"
+                + " and (select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED' and not p.invisible) < vr.max_participants"
                 + " order by exists (select 1 from voice_room_participants p where p.room_id = nr.room_id and p.user_id = nr.host_id and p.status = 'JOINED') desc,"
-                + " nr.priority, (select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED') limit 1", Long.class);
+                + " nr.priority, (select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED' and not p.invisible) limit 1", Long.class);
         return l.isEmpty() ? null : l.get(0);
     }
 
@@ -396,8 +396,8 @@ public class NewbieService {
     private static final String ROOM_SELECT = "select nr.id, nr.room_id, nr.room_number, nr.name, nr.status, nr.priority, nr.expires_at, nr.created_at, nr.created_by, nr.host_id, nr.host_absent_since,"
             + " vr.max_participants, vr.extra_seats, vr.status as room_status,"
             + " u.full_name as host_name, u.avatar_url as host_avatar, u.public_id as host_public_id,"
-            + " (select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED') as joined,"
-            + " (select count(*) from voice_room_participants p join users x on x.id = p.user_id where p.room_id = nr.room_id and p.status = 'JOINED' and x.created_at > now() - make_interval(days => ?)) as newbies_in,"
+            + " (select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED' and not p.invisible) as joined,"
+            + " (select count(*) from voice_room_participants p join users x on x.id = p.user_id where p.room_id = nr.room_id and p.status = 'JOINED' and not p.invisible and x.created_at > now() - make_interval(days => ?)) as newbies_in,"
             + " (exists (select 1 from voice_room_participants p where p.room_id = nr.room_id and p.user_id = nr.host_id and p.status = 'JOINED') or exists (select 1 from voice_rooms v where v.id = nr.room_id and v.official)) as host_present,"
             + " (select count(*) from newbie_room_participants q where q.room_id = nr.room_id) as visitors,"
             + " (select count(*) from newbie_welcome_gifts g where g.room_id = nr.room_id) as gifts,"
@@ -455,7 +455,7 @@ public class NewbieService {
         if (memo != null && at instanceof Long t && System.currentTimeMillis() - t < 3_000) return (List<Map<String, Object>>) memo;
         List<Map<String, Object>> l = jdbc.query(ROOM_SELECT
                         + " where nr.status = 'ACTIVE' and vr.status = 'ACTIVE' and (nr.expires_at is null or nr.expires_at > now())"
-                        + " order by host_present desc, ((select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED') < vr.max_participants) desc,"
+                        + " order by host_present desc, ((select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED' and not p.invisible) < vr.max_participants) desc,"
                         + " nr.priority, joined desc, nr.room_number limit 20",
                 (rs, i) -> row(rs), config().eligibilityDays());
         discoveryMemo.put("rooms", l);
@@ -827,7 +827,7 @@ public class NewbieService {
         }
         List<Map<String, Object>> live = jdbc.queryForList("select nr.room_id, nr.host_id, nr.host_absent_since,"
                 + " (exists (select 1 from voice_room_participants p where p.room_id = nr.room_id and p.user_id = nr.host_id and p.status = 'JOINED') or exists (select 1 from voice_rooms v where v.id = nr.room_id and v.official)) as present,"
-                + " (select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED') as joined"
+                + " (select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED' and not p.invisible) as joined"
                 + " from newbie_rooms nr where nr.status = 'ACTIVE'");
         for (Map<String, Object> r : live) {
             Long roomId = ((Number) r.get("room_id")).longValue();
