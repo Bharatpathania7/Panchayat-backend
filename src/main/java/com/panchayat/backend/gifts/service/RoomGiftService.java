@@ -180,7 +180,10 @@ public class RoomGiftService {
             throw bad("That's too many at once");
         }
         // The receiver gets their share in coins for every gift, a Bag (package) gift too, and the gift card in the room shows it
-        long earned = coins * GiftCatalog.RECEIVER_SHARE_PERCENT / 100;
+        // A Package gift with the admin's coin range (min / max) pays a random amount in that range per gift;
+        // otherwise the receiver gets the usual share of the value
+        Long ranged = fromBag ? luck.bagCoins(giftId, count) : null;
+        long earned = ranged != null ? ranged : coins * GiftCatalog.RECEIVER_SHARE_PERCENT / 100;
         String ref = "room:" + roomId;
 
         if (fromBag) {

@@ -207,10 +207,25 @@ public class GiftLuckService {
         return v == null ? 5 : v;
     }
 
-    public long charm(String giftId, int count, long coins, int weekendFactor) {
-        long rate = coinsPerCharm();
-        if (rate > 0) return (coins / rate) * weekendFactor;
+    /**
+     * A Package (Bag) gift with a coin range set (the admin's min / max): the coins its receiver gets, a random amount
+     * in that range for each gift. Null when the gift has no range (then the usual share of its value is paid).
+     */
+    public Long bagCoins(String giftId, int count) {
         Triggers t = triggers(giftId);
+        if (t.coinMin() == null || t.coinMax() == null) return null;
+        long sum = 0;
+        for (int i = 0; i < Math.max(1, count); i++) sum = Math.addExact(sum, between(t.coinMin(), t.coinMax()));
+        return sum;
+    }
+
+    public long charm(String giftId, int count, long coins, int weekendFactor) {
+        Triggers t = triggers(giftId);
+        // A gift's own Charm range (set on the Gifts page or a Shop gift item) wins over the global "coins per Charm" rate
+        if (t.charmMin() == null || t.charmMax() == null) {
+            long rate = coinsPerCharm();
+            if (rate > 0) return (coins / rate) * weekendFactor;
+        }
         long base;
         if (t.charmMin() != null && t.charmMax() != null) {
             base = 0;
