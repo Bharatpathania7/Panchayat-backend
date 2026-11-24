@@ -79,9 +79,15 @@ public class AdminMediaService {
     /** Same as uploadPublic for bytes already in hand (copying a file over from another host). */
     public Uploaded savePublic(byte[] bytes, String folder, String format) {
         String f = format == null ? "" : format.toUpperCase(Locale.ROOT);
+        return savePublic(bytes, folder, f, maxBytes(f));
+    }
+
+    /** Like savePublic, with the caller's own size limit (the admin's Shop items allow bigger files). */
+    public Uploaded savePublic(byte[] bytes, String folder, String format, long max) {
+        String f = format == null ? "" : format.toUpperCase(Locale.ROOT);
         if (!ANY.contains(f)) throw bad("This file type isn't allowed here.");
         if (bytes == null || bytes.length == 0) throw bad("The file is empty.");
-        if (bytes.length > maxBytes(f)) throw bad(f + " files can be up to " + (maxBytes(f) / MB) + " MB.");
+        if (bytes.length > max) throw bad(f + " files can be up to " + (max / MB) + " MB.");
         if (!looksLike(f, bytes, Math.min(bytes.length, 12))) throw bad("This isn't a real " + f + " file.");
         if (!FOLDER.matcher(folder).matches()) throw new IllegalArgumentException("Bad media folder");
         String name = UUID.randomUUID().toString().replace("-", "") + "." + f.toLowerCase(Locale.ROOT);

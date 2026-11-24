@@ -25,10 +25,12 @@ public class ManualTopupController {
 
     private final ManualTopupService service;
     private final UserRepository users;
+    private final RoyalPackService royal;
 
-    public ManualTopupController(ManualTopupService service, UserRepository users) {
+    public ManualTopupController(ManualTopupService service, UserRepository users, RoyalPackService royal) {
         this.service = service;
         this.users = users;
+        this.royal = royal;
     }
 
     public record Ask(String packId) {
@@ -48,6 +50,21 @@ public class ManualTopupController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose a pack.");
         }
         return service.request(uid(auth), packId);
+    }
+
+    public record RoyalAsk(String plateName, String title) {
+    }
+
+    /** The Royal Pack (sold only through Munshi ji): what it gives, its price, and the title (KING / QUEEN) this person would get. */
+    @GetMapping("/royal")
+    public Map<String, Object> royal(Authentication auth) {
+        return royal.publicInfo(auth == null ? null : uid(auth), Boolean.TRUE.equals(service.publicInfo().get("enabled")));
+    }
+
+    /** Ask for the Royal Pack: { plateName (up to 14 letters), title: KING | QUEEN (only used when gender isn't set) }. */
+    @PostMapping("/royal")
+    public Map<String, Object> requestRoyal(@org.springframework.web.bind.annotation.RequestBody RoyalAsk body, Authentication auth) {
+        return service.requestRoyal(uid(auth), body == null ? null : body.plateName(), body == null ? null : body.title());
     }
 
     @PostMapping(value = "/requests/{id:[0-9]+}/submit", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
