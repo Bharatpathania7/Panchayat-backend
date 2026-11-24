@@ -1,64 +1,45 @@
 package com.panchayat.backend.auth.service;
 
-import jakarta.mail.internet.InternetAddress;
-import jakarta.mail.internet.MimeMessage;
+import com.panchayat.backend.email.EmailDispatcher;
+import com.panchayat.backend.email.EmailMessage;
+import com.panchayat.backend.email.EmailProviderType;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import org.springframework.web.util.HtmlUtils;
 
-import java.nio.charset.StandardCharsets;
-
+/**
+ * The emails Panchayat sends (their subjects and templates). Which provider delivers them (Brevo SMTP or Amazon SES,
+ * with an optional fallback) is decided by EmailDispatcher from EMAIL_PRIMARY_PROVIDER / EMAIL_FALLBACK_PROVIDER.
+ * A failure still throws (EmailSendException), exactly as before, so the OTP isn't saved when its email couldn't go out.
+ */
 @Service
 public class EmailService {
 
-    private final JavaMailSender mailSender;
-    private final String fromAddress;
-    private final String fromName;
+    private final EmailDispatcher dispatcher;
     private final String siteUrl;
 
     public EmailService(
-            JavaMailSender mailSender,
-            @Value("${spring.mail.username}") String username,
-            @Value("${app.mail.from:}") String from,
-            @Value("${app.mail.from-name:Panchayat}") String fromName,
+            EmailDispatcher dispatcher,
             @Value("${app.frontend-url:https://panchayat.world}") String siteUrl
     ) {
-        this.mailSender = mailSender;
-        // A domain sender (MAIL_FROM) when set, else the login address (Gmail). Shown as "Panchayat <no-reply@...>".
-        this.fromAddress = from == null || from.isBlank() ? username : from.strip();
-        this.fromName = fromName == null || fromName.isBlank() ? "Panchayat" : fromName.strip();
+        this.dispatcher = dispatcher;
         this.siteUrl = siteUrl == null || siteUrl.isBlank() ? "https://panchayat.world" : siteUrl.strip().replaceAll("/+$", "");
     }
 
     public void sendOtp(String recipientEmail, String otp) {
-        try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, StandardCharsets.UTF_8.name());
-            helper.setFrom(new InternetAddress(fromAddress, fromName, StandardCharsets.UTF_8.name()));
-            helper.setTo(recipientEmail);
-            helper.setSubject("Your Panchayat verification code");
-            // Plain text first, HTML second: mail apps show the last part they understand
-            helper.setText(plainText(otp), otpHtml(otp));
-            mailSender.send(message);
-        } catch (jakarta.mail.MessagingException | java.io.UnsupportedEncodingException e) {
-            throw new IllegalStateException("Could not build the verification email", e);
-        }
+        dispatcher.send(new EmailMessage(recipientEmail, "Your Panchayat verification code", plainText(otp), otpHtml(otp), "OTP"));
     }
 
     public void sendMaintenanceNotice(String recipientEmail, String message) {
-        try {
-            MimeMessage mime = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(mime, true, StandardCharsets.UTF_8.name());
-            helper.setFrom(new InternetAddress(fromAddress, fromName, StandardCharsets.UTF_8.name()));
-            helper.setTo(recipientEmail);
-            helper.setSubject("Panchayat is briefly closing for maintenance");
-            helper.setText(maintenancePlainText(message), maintenanceHtml(message));
-            mailSender.send(mime);
-        } catch (jakarta.mail.MessagingException | java.io.UnsupportedEncodingException e) {
-            throw new IllegalStateException("Could not build the maintenance email", e);
-        }
+        dispatcher.send(new EmailMessage(recipientEmail, "Panchayat is briefly closing for maintenance", maintenancePlainText(message), maintenanceHtml(message), "MAINTENANCE"));
+    }
+
+    /** A short test email (admin panel), through one named provider only, no fallback. Returns "PROVIDER:messageId". */
+    public String sendTest(String recipientEmail, EmailProviderType provider) {
+        String text = "Hello,\n\nThis is a test email from the Panchayat admin panel, sent through " + provider + ".\n\nRegards,\nPanchayat Team";
+        String html = "<!doctype html><html><body style=\"font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#2a1a1a\">"
+                + "<p>Hello,</p><p>This is a test email from the Panchayat admin panel, sent through <b>" + provider + "</b>.</p><p>Regards,<br>Panchayat Team</p></body></html>";
+        return dispatcher.sendVia(provider, new EmailMessage(recipientEmail, "Panchayat test email (" + provider + ")", text, html, "TEST"));
     }
 
     static String maintenancePlainText(String message) {
