@@ -25,9 +25,12 @@ public class GiftCatalogService {
     @EventListener(ApplicationReadyEvent.class)
     public void reload() {
         Map<String, Long> active = new LinkedHashMap<>();
+        java.util.Set<String> shopOnly = new java.util.HashSet<>();
         for (GiftDefinition g : repository.findByActiveTrueOrderBySortOrderAscPriceAsc()) {
             active.put(g.getId(), g.getPrice());
+            if (g.isShopOnly()) shopOnly.add(g.getId());
         }
+        GiftCatalog.replaceShopOnly(shopOnly);
         GiftCatalog.replace(active);
     }
 

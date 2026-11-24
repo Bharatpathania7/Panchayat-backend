@@ -34,7 +34,7 @@ public class AdminGiftService {
         this.catalog = catalog;
     }
 
-    public record GiftInput(String name, Long price, String category, Integer sortOrder, Boolean active) {
+    public record GiftInput(String name, Long price, String category, Integer sortOrder, Boolean active, Boolean shopOnly) {
     }
 
     public List<GiftDefinition> list() {
@@ -52,6 +52,7 @@ public class AdminGiftService {
         g.setCategory(category(in.category() == null ? "Popular" : in.category()));
         g.setSortOrder(in.sortOrder() == null ? nextOrder() : order(in.sortOrder()));
         g.setActive(in.active() == null || in.active());
+        g.setShopOnly(Boolean.TRUE.equals(in.shopOnly()));
         GiftDefinition saved = gifts.save(g);
         catalog.reloadAfterCommit();
         return saved;
@@ -71,6 +72,7 @@ public class AdminGiftService {
             }
             g.setActive(in.active());
         }
+        if (in.shopOnly() != null) g.setShopOnly(in.shopOnly());
         GiftDefinition saved = gifts.save(g);
         catalog.reloadAfterCommit();
         return saved;

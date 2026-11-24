@@ -264,6 +264,7 @@ public class AdminGiftController {
         m.put("category", g.getCategory());
         m.put("sortOrder", g.getSortOrder());
         m.put("active", g.isActive());
+        m.put("shopOnly", g.isShopOnly());
         m.put("imageUrl", MediaUrls.link(g.getImageUrl()));
         m.put("animationUrl", MediaUrls.link(g.getAnimationUrl()));
         m.put("animationFormat", g.getAnimationFormat());

@@ -187,7 +187,8 @@ public class RoomSettingsService {
     public boolean passwordAccepted(VoiceRoom room, Long userId, String password) {
         String required = room.getPassword();
         if (required == null || required.isBlank()) return true;
-        if (Objects.equals(room.getOwnerId(), userId) || roomState.isAdmin(room.getId(), userId)) return true;
+        // A locked room: only its owner (and co-owners) get in without the password. Admins need it too.
+        if (Objects.equals(room.getOwnerId(), userId) || roomState.isCoOwner(room.getId(), userId)) return true;
         // An invite from someone in the room (sent in a chat) lets you in without the password
         if (invites.inviteAccepted(room.getId(), password)) return true;
 

@@ -42,6 +42,17 @@ public final class GiftCatalog {
         return Optional.ofNullable(giftId == null ? null : prices.get(giftId));
     }
 
+    private static volatile java.util.Set<String> shopOnly = java.util.Set.of();
+
+    /** A Shop-only gift: can only be sent from the Package (bought in the Shop), never bought with coins in the gift panel. */
+    public static boolean isShopOnly(String giftId) {
+        return giftId != null && shopOnly.contains(giftId);
+    }
+
+    static void replaceShopOnly(java.util.Set<String> ids) {
+        shopOnly = java.util.Set.copyOf(ids);
+    }
+
     /** Active gifts and their prices, from the database. */
     static void replace(Map<String, Long> active) {
         prices = Map.copyOf(active);

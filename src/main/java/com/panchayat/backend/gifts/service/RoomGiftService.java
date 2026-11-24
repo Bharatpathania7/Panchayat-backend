@@ -141,6 +141,8 @@ public class RoomGiftService {
         if (receiverId == null || receiverId <= 0) throw bad("Choose who gets the gift");
         if (count < 1 || count > MAX_COUNT) throw bad("Send between 1 and " + MAX_COUNT + " at a time");
         long price = GiftCatalog.price(giftId).orElseThrow(() -> bad("That gift isn't on sale"));
+        // A Shop-only gift is never bought here: only sent from the Package after buying it in the Shop
+        if (!fromBag && GiftCatalog.isShopOnly(giftId)) throw bad("This gift comes only from the Shop.");
         // VIP gifts need VIP; CP gifts go only to your CP partner
         categoryRules.check(giftId, senderId, receiverId);
 
@@ -178,7 +180,10 @@ public class RoomGiftService {
             throw bad("That's too many at once");
         }
         // The receiver gets their share in coins for every gift, a Bag (package) gift too, and the gift card in the room shows it
-        long earned = coins * GiftCatalog.RECEIVER_SHARE_PERCENT / 100;
+        // A Package gift with the admin's coin range (min / max) pays a random amount in that range per gift;
+        // otherwise the receiver gets the usual share of the value
+        Long ranged = fromBag ? luck.bagCoins(giftId, count) : null;
+        long earned = ranged != null ? ranged : coins * GiftCatalog.RECEIVER_SHARE_PERCENT / 100;
         String ref = "room:" + roomId;
 
         if (fromBag) {
