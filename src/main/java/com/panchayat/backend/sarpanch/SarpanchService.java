@@ -644,15 +644,7 @@ public class SarpanchService {
     }
 
     private static void afterCommit(Runnable r) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    r.run();
-                }
-            });
-        } else {
-            r.run();
-        }
+        // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(r);
     }
 }

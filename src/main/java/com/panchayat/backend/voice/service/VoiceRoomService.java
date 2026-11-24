@@ -92,16 +92,8 @@ public class VoiceRoomService {
 
     /** Runs after the current transaction commits (or now, outside one). */
     private static void afterCommit(Runnable action) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    action.run();
-                }
-            });
-        } else {
-            action.run();
-        }
+        // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(action);
     }
 
     // --------------------------------------------------
@@ -815,7 +807,22 @@ public class VoiceRoomService {
     // MUTE / UNMUTE PARTICIPANT (OWNER / MODERATOR)
     // --------------------------------------------------
 
-    @Transactional
+    private volatile RoomServiceClient liveKitClient;
+
+    /** One shared LiveKit client (it used to be built, with its own threads and sockets, on every mute). */
+    private RoomServiceClient liveKitClient() {
+        RoomServiceClient c = liveKitClient;
+        if (c == null) {
+            synchronized (this) {
+                c = liveKitClient;
+                if (c == null) liveKitClient = c = RoomServiceClient.create(liveKitUrl, liveKitApiKey, liveKitApiSecret);
+            }
+        }
+        return c;
+    }
+
+    // Not @Transactional: the LiveKit call below must never hold a DB connection or a row lock (it used to lock the
+    // room row, which every gift in the room updates, for the whole network round trip).
     public void setParticipantMuted(
             Long roomId,
             Long targetUserId,
@@ -834,7 +841,7 @@ public class VoiceRoomService {
 
         User currentUser = getAuthenticatedUser();
 
-        VoiceRoom room = voiceRoomRepository.findByIdForUpdate(roomId)
+        VoiceRoom room = voiceRoomRepository.findById(roomId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.NOT_FOUND,
                         "Voice room not found"
@@ -873,13 +880,7 @@ public class VoiceRoomService {
         String targetIdentity = "user-" + targetUserId;
 
         try {
-            RoomServiceClient liveKitClient = RoomServiceClient.create(
-                    liveKitUrl,
-                    liveKitApiKey,
-                    liveKitApiSecret
-            );
-
-            Response<?> response = liveKitClient
+            Response<?> response = liveKitClient()
                     .mutePublishedTrack(
                             liveKitRoomName,
                             targetIdentity,
@@ -895,6 +896,7 @@ public class VoiceRoomService {
                 );
             }
 
+            // A short write of its own, after the network call
             target.setMuted(muted);
             participantRepository.save(target);
 

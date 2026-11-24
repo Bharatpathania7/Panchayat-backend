@@ -57,13 +57,14 @@ public class RoomSongRequestService {
         }
         Map<String, Object> clean = clean(song);
         List<Req> list = lists.computeIfAbsent(roomId, k -> Collections.synchronizedList(new ArrayList<>()));
+        // Read before taking the list's lock: never wait for a DB connection while holding it
+        String name = jdbc.query("select full_name from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, actor);
         synchronized (list) {
             if (list.size() >= MAX_PER_ROOM) throw new ResponseStatusException(HttpStatus.CONFLICT, "The song list is full. Wait for the owner to play some.");
             if (list.stream().anyMatch(r -> r.song().get("id").equals(clean.get("id")))) throw new ResponseStatusException(HttpStatus.CONFLICT, "That song is already on the list.");
             if (list.stream().filter(r -> r.userId().equals(actor)).count() >= MAX_PER_PERSON) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "You can have " + MAX_PER_PERSON + " songs on the list at a time.");
             }
-            String name = jdbc.query("select full_name from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, actor);
             list.add(new Req(UUID.randomUUID().toString().substring(0, 8), actor, name == null || name.isBlank() ? "Someone" : name.strip(), clean, System.currentTimeMillis()));
         }
         return publish(roomId, "ADDED", actor);

@@ -220,25 +220,16 @@ public class TitleRuleService {
 
     /** Runs after the payment / gift has committed, in its own transaction, so a problem here can never undo the payment. */
     private void afterCommitOwnTx(Runnable r) {
+        // After commit, on the after-commit worker (off the request's DB connection), in its own short transaction
         Runnable safe = () -> {
             try {
                 org.springframework.transaction.support.TransactionTemplate own = new org.springframework.transaction.support.TransactionTemplate(tx.getTransactionManager());
-                own.setPropagationBehavior(org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
                 own.executeWithoutResult(st -> r.run());
             } catch (Exception e) {
                 log.warn("Title grant after a payment / gift failed: {}", e.getMessage());
             }
         };
-        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
-            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    safe.run();
-                }
-            });
-        } else {
-            safe.run();
-        }
+        com.panchayat.backend.common.tx.AfterCommit.run(safe);
     }
 
     private void runMoney(Long userId, String kinds, Long packId) {

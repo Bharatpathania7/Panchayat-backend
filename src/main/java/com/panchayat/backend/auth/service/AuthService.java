@@ -95,7 +95,9 @@ public class AuthService {
      * STEP 1: Send a six-digit OTP to the user's email.
      * Existing OTP records are updated instead of duplicated.
      */
-    @Transactional
+    // Not @Transactional on purpose: each repository call commits on its own, so the OTP row is saved and the DB
+    // connection is back in the pool BEFORE the email goes out. A slow mail server (SMTP timeouts are 5 s each,
+    // plus a fallback) must never keep a connection idle inside a transaction (PostgreSQL kills it after 5 s: 25P03).
     public void sendOtp(SendOtpRequest request) {
 
         String email = normalizeEmail(request.email());

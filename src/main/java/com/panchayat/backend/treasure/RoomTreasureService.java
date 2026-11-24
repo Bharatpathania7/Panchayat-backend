@@ -174,16 +174,8 @@ public class RoomTreasureService {
         if (coins > 0) {
             wallet.credit(userId, coins, "ROOM_TREASURE", "treasure:" + day + ":" + boxId, "rt:" + userId + ":" + day + ":" + boxId, "Room treasure box");
             Runnable push = () -> walletPush.pushBalance(userId, "ROOM_TREASURE", coins);
-            if (TransactionSynchronizationManager.isSynchronizationActive()) {
-                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        push.run();
-                    }
-                });
-            } else {
-                push.run();
-            }
+            // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(push);
         }
         Map<String, Object> out = new LinkedHashMap<>(info(userId));
         out.put("got", coins);

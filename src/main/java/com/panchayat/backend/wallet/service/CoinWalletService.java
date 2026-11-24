@@ -7,6 +7,9 @@ import com.panchayat.backend.wallet.entity.CoinWallet;
 import com.panchayat.backend.wallet.repository.CoinTransactionRepository;
 import com.panchayat.backend.wallet.repository.CoinWalletRepository;
 
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -70,6 +73,35 @@ public class CoinWalletService {
         );
     }
 
+    /**
+     * Locks two people's wallets in a fixed order (lower user id first), inside the caller's transaction. Call it
+     * before a debit from one and a credit to the other: two people gifting each other at the same moment then queue
+     * on the same lock instead of each holding one wallet and waiting for the other (a deadlock PostgreSQL breaks by
+     * failing one of the two payments). Later debit / credit calls in the same transaction re-lock instantly.
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void lockInOrder(Long a, Long b) {
+        if (a == null || b == null) return;
+        Long first = Math.min(a, b), second = Math.max(a, b);
+        lockFresh(first);
+        if (!second.equals(first)) lockFresh(second);
+    }
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    /**
+     * The wallet, locked (SELECT ... FOR UPDATE) AND re-read after the lock is held. A plain locking query is not enough
+     * with JPA: when the wallet was already loaded earlier in the same transaction, Hibernate locks the row but hands
+     * back the old object with the OLD balance, so two concurrent payments could both start from the same balance
+     * and one of them would be lost. refresh() with a lock mode always reloads the row's current values.
+     */
+    private CoinWallet lockFresh(Long userId) {
+        CoinWallet wallet = getOrCreateWallet(userId);
+        entityManager.refresh(wallet, LockModeType.PESSIMISTIC_WRITE);
+        return wallet;
+    }
+
     @Transactional
     public CoinTransaction debit(
             Long userId,
@@ -130,13 +162,8 @@ public class CoinWalletService {
 
         validateUserExists(userId);
 
-        // Ensure the wallet exists before locking it.
-        getOrCreateWallet(userId);
-
-        // Serialize balance changes for this user's wallet.
-        CoinWallet wallet = walletRepository.findByUserIdForUpdate(userId)
-                .orElseThrow(() ->
-                        new IllegalStateException("Wallet could not be locked"));
+        // Serialize balance changes for this user's wallet: lock the row and re-read it (never a stale balance)
+        CoinWallet wallet = lockFresh(userId);
 
         // Return the original transaction for an identical retry.
         CoinTransaction existing = transactionRepository

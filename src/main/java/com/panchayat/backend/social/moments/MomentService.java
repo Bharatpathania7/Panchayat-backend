@@ -304,16 +304,8 @@ public class MomentService {
         String email = jdbc.query("select email from users where id = ?", rs -> rs.next() ? rs.getString(1) : null, userId);
         if (email == null) return;
         Runnable send = () -> messaging.convertAndSendToUser(email, "/queue/notify", (Object) body);
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    send.run();
-                }
-            });
-        } else {
-            send.run();
-        }
+        // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(send);
     }
 
     private static ResponseStatusException bad(String m) {

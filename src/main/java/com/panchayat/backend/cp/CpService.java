@@ -407,7 +407,7 @@ public class CpService {
         return out;
     }
 
-    @Transactional
+    // Not @Transactional: the picture is stored with no DB connection held; the single update then commits by itself
     public Map<String, Object> setWallpaper(Long me, MultipartFile file) {
         Long cid = requireCouple(me);
         validateImage(file);
@@ -944,16 +944,8 @@ public class CpService {
     }
 
     private static void afterCommit(Runnable r) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    r.run();
-                }
-            });
-        } else {
-            r.run();
-        }
+        // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(r);
     }
 
     static ResponseStatusException bad(String m) { return new ResponseStatusException(HttpStatus.BAD_REQUEST, m); }

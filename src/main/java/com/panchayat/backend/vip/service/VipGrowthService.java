@@ -86,15 +86,7 @@ public class VipGrowthService {
                 log.debug("VIP level-up notice not sent: {}", e.getMessage());
             }
         };
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    send.run();
-                }
-            });
-        } else {
-            send.run();
-        }
+        // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(send);
     }
 }

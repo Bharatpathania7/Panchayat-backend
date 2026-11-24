@@ -128,16 +128,8 @@ public class HillService {
     }
 
     private static void after(Runnable r) {
-        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
-            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    r.run();
-                }
-            });
-        } else {
-            r.run();
-        }
+        // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(r);
     }
 
     public Map<String, Object> stats() {

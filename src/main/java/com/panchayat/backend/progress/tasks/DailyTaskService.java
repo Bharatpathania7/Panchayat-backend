@@ -69,16 +69,8 @@ public class DailyTaskService {
                 log.debug("Task progress not saved: {}", e.getMessage());
             }
         };
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    r.run();
-                }
-            });
-        } else {
-            r.run();
-        }
+        // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(r);
     }
 
     private void bump(Long userId, String kind, int amount) {
@@ -135,15 +127,13 @@ public class DailyTaskService {
             balance = tx.getBalanceAfter();
         }
         final long pushCoins = coins;
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                try {
-                    if (expAmount > 0) exp.add(userId, "TASK", expAmount);
-                    if (pushCoins > 0) walletPush.pushBalance(userId, "DAILY_TASK", pushCoins);
-                } catch (Exception e) {
-                    log.debug("Task reward follow-up failed: {}", e.getMessage());
-                }
+        // After commit, off this request's DB connection (exp.add opens its own transaction: never two at once)
+        com.panchayat.backend.common.tx.AfterCommit.run(() -> {
+            try {
+                if (expAmount > 0) exp.add(userId, "TASK", expAmount);
+                if (pushCoins > 0) walletPush.pushBalance(userId, "DAILY_TASK", pushCoins);
+            } catch (Exception e) {
+                log.debug("Task reward follow-up failed: {}", e.getMessage());
             }
         });
         Map<String, Object> out = new LinkedHashMap<>();

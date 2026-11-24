@@ -145,17 +145,8 @@ public class PaymentFulfillmentTransactionService {
             final long expCoins = totalCoins;
             final Long expUser = userId;
             Runnable giveExp = () -> exp.add(expUser, "PURCHASE", com.panchayat.backend.progress.service.ExpService.purchaseExp(expCoins));
-            if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
-                org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
-                        new org.springframework.transaction.support.TransactionSynchronization() {
-                            @Override
-                            public void afterCommit() {
-                                giveExp.run();
-                            }
-                        });
-            } else {
-                giveExp.run();
-            }
+            // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(giveExp);
 
         } else if (payment.getPurpose() == Purpose.RED_PACKET) {
 

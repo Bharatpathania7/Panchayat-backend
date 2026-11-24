@@ -74,15 +74,18 @@ public class RoomMediaService {
         } catch (IllegalArgumentException e) {
             throw bad("Mode must be VOICE, WATCH or KHARIDARI");
         }
+        boolean changed;
         synchronized (lock(roomId)) {
-            if (room.getRoomType() != type) {
-                room.setRoomType(type);
-                roomRepository.save(room);
-                // 10 seats in a voice or Kharidari room, 12 in a YouTube room
-                roomState.onModeChanged(roomId);
-            }
-            return publish(room, "MODE_CHANGED", actor);
+            changed = room.getRoomType() != type;
+            if (changed) room.setRoomType(type);
         }
+        // Saved after the room's lock is released: never wait for a DB connection while holding it
+        if (changed) {
+            roomRepository.save(room);
+            // 10 seats in a voice or Kharidari room, 12 in a YouTube room
+            roomState.onModeChanged(roomId);
+        }
+        return publish(room, "MODE_CHANGED", actor);
     }
 
     public Map<String, Object> setVideo(Long roomId, Long actor, String videoId, String title) {

@@ -191,6 +191,8 @@ public class RoomGiftService {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "You don't have that many of this gift in your Bag.");
             }
         } else {
+            // Both wallets locked in a fixed order first (no deadlock when two people gift each other at once)
+            if (earned > 0) wallet.lockInOrder(senderId, receiverId);
             try {
                 wallet.debit(senderId, coins, "GIFT_SENT", ref, "gift:" + requestId + ":send",
                         count + "x " + giftId + " to user " + receiverId);
@@ -291,16 +293,8 @@ public class RoomGiftService {
     }
 
     private static void afterCommit(Runnable r) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    r.run();
-                }
-            });
-        } else {
-            r.run();
-        }
+        // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(r);
     }
 
     private static ResponseStatusException bad(String m) {

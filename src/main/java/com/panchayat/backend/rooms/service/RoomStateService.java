@@ -388,9 +388,10 @@ public class RoomStateService {
         Ctx ctx = load(roomId);
         requireMod(ctx, actor);
         Live live = live(ctx);
+        // Saved before taking the room's lock: never wait for a DB connection while holding it
+        ctx.room().setMicOrder(on);
+        roomRepository.save(ctx.room());
         synchronized (live) {
-            ctx.room().setMicOrder(on);
-            roomRepository.save(ctx.room());
             if (!on) live.queue.clear();
             reconcile(ctx, live);
             return publish(ctx, live, event("MIC_ORDER", actor, null, null, on));
@@ -402,13 +403,16 @@ public class RoomStateService {
         requireMod(ctx, actor);
         Live live = live(ctx);
         synchronized (live) {
-            reconcile(ctx, live);
             requireSeatIndex(live, index);
-            if (index == 0) throw conflict("The owner's seat can't be closed");
-            TreeSet<Integer> set = new TreeSet<>(closedSeats(ctx));
-            if (closed) set.add(index); else set.remove(index);
-            ctx.room().setClosedSeats(set.stream().map(String::valueOf).collect(Collectors.joining(",")));
-            roomRepository.save(ctx.room());
+        }
+        if (index == 0) throw conflict("The owner's seat can't be closed");
+        // Saved before taking the room's lock: never wait for a DB connection while holding it
+        TreeSet<Integer> set = new TreeSet<>(closedSeats(ctx));
+        if (closed) set.add(index); else set.remove(index);
+        ctx.room().setClosedSeats(set.stream().map(String::valueOf).collect(Collectors.joining(",")));
+        roomRepository.save(ctx.room());
+        synchronized (live) {
+            reconcile(ctx, live);
             return publish(ctx, live, event(closed ? "SEAT_CLOSED" : "SEAT_OPENED", actor, null, index, closed));
         }
     }
@@ -486,6 +490,8 @@ public class RoomStateService {
         Ctx ctx = load(roomId);
         requireInRoom(ctx, actor);
         Live live = live(ctx);
+        boolean reopened = false;
+        RoomStateResponse result;
         synchronized (live) {
             reconcile(ctx, live);
             Invite inv = live.invites.remove(actor);
@@ -500,17 +506,19 @@ public class RoomStateService {
                 throw conflict("Someone else took that seat. Ask for another one.");
             }
             boolean moved = seatOf(live, actor) >= 0;
-            // An invite to a closed seat opens it
+            // An invite to a closed seat opens it (saved below, after the room's lock is released)
             Set<Integer> closed = new TreeSet<>(closedSeats(ctx));
             if (closed.remove(at)) {
                 ctx.room().setClosedSeats(closed.stream().map(String::valueOf).collect(Collectors.joining(",")));
-                roomRepository.save(ctx.room());
+                reopened = true;
             }
             unseat(live, actor);
             live.queue.remove(actor);
             live.seats[at] = actor;
-            return publish(ctx, live, event("SEAT_INVITE_ACCEPTED", actor, inv.by(), at, moved));
+            result = publish(ctx, live, event("SEAT_INVITE_ACCEPTED", actor, inv.by(), at, moved));
         }
+        if (reopened) roomRepository.save(ctx.room());
+        return result;
     }
 
     /** No to a seat invite. */

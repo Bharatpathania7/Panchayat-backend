@@ -123,6 +123,7 @@ public class DirectGiftService {
         }
         long earned = coins * GiftCatalog.RECEIVER_SHARE_PERCENT / 100;
         String ref = "gift:" + ctx.toLowerCase(Locale.ROOT);
+        wallet.lockInOrder(senderId, receiverId); // fixed lock order: no deadlock when two people gift each other
         try {
             wallet.debit(senderId, coins, "GIFT_SENT", ref, "gift:" + requestId + ":send", count + "x " + giftId + " to user " + receiverId);
         } catch (IllegalStateException e) {
@@ -217,16 +218,8 @@ public class DirectGiftService {
     }
 
     private static void afterCommit(Runnable r) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    r.run();
-                }
-            });
-        } else {
-            r.run();
-        }
+        // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(r);
     }
 
     private static ResponseStatusException bad(String m) {

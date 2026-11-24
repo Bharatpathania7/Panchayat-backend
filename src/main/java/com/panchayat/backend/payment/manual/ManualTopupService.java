@@ -254,16 +254,8 @@ public class ManualTopupService {
     }
 
     private static void afterCommitRun(Runnable r) {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    r.run();
-                }
-            });
-        } else {
-            r.run();
-        }
+        // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(r);
     }
 
     private String newReference() {
@@ -291,21 +283,28 @@ public class ManualTopupService {
         return Map.of("cancelled", true);
     }
 
-    @Transactional
+    // Not @Transactional: the screenshot is stored with no DB connection or row lock held; the status change is then
+    // one atomic conditional update (only while still REQUESTED), so two submits at once can never both win.
     public Map<String, Object> submit(Long userId, long id, String rawUtr, MultipartFile screenshot) {
         String utr = rawUtr == null ? "" : rawUtr.replaceAll("\\s", "").toUpperCase(Locale.ROOT);
         if (!utr.matches("[A-Z0-9]{10,30}")) throw bad("Enter the transaction ID (UTR) from your payment app. It has 12 numbers for most UPI payments.");
-        List<Map<String, Object>> found = jdbc.queryForList("select * from manual_topups where id = ? and user_id = ? for update", id, userId);
+        List<Map<String, Object>> found = jdbc.queryForList("select * from manual_topups where id = ? and user_id = ?", id, userId);
         if (found.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That top-up wasn't found.");
         if (!"REQUESTED".equals(found.get(0).get("status"))) throw new ResponseStatusException(HttpStatus.CONFLICT, "This top-up was already sent for checking.");
         Long today = jdbc.queryForObject("select count(*) from manual_topups where user_id = ? and submitted_at > now() - interval '1 day'", Long.class, userId);
         if (today != null && today >= 10) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "Too many top-ups today. Try again tomorrow.");
         AdminMediaService.Uploaded up = media.upload(screenshot, "topups", AdminMediaService.PICTURES);
+        int changed;
         try {
-            jdbc.update("update manual_topups set status = 'SUBMITTED', utr = ?, proof_path = ?, submitted_at = now() where id = ?", utr, up.url(), id);
+            changed = jdbc.update("update manual_topups set status = 'SUBMITTED', utr = ?, proof_path = ?, submitted_at = now() where id = ? and user_id = ? and status = 'REQUESTED'", utr, up.url(), id, userId);
         } catch (DuplicateKeyException e) {
             media.delete(up.publicId(), null);
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This transaction ID was already used for another top-up.");
+        }
+        if (changed == 0) {
+            // Sent (or cancelled) by another request meanwhile: keep no orphan file
+            media.delete(up.publicId(), null);
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This top-up was already sent for checking.");
         }
         sarpanch.sendSafely(userId, new SarpanchService.Message("Proof received",
                 "I got your transaction ID " + utr + " and the screenshot (reference " + found.get(0).get("reference") + "). I am checking it in the bank now. Your coins will be added as soon as it is verified, and I will message you here.",
@@ -408,16 +407,8 @@ public class ManualTopupService {
                 // the coins are already in the wallet
             }
         };
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                @Override
-                public void afterCommit() {
-                    after.run();
-                }
-            });
-        } else {
-            after.run();
-        }
+        // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(after);
         if (isVip) {
             String until = vipUntil == null ? "" : java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH).withZone(java.time.ZoneId.of("Asia/Kolkata")).format(vipUntil);
             afterCommitRun(() -> vip.push(userId, "VIP_PURCHASED"));

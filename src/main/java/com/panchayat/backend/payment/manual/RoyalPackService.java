@@ -313,16 +313,8 @@ public class RoyalPackService {
                     // the coins are already in the wallet
                 }
             };
-            if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
-                org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
-                    @Override
-                    public void afterCommit() {
-                        push.run();
-                    }
-                });
-            } else {
-                push.run();
-            }
+            // After commit, off this request's DB connection (see common.tx.AfterCommit)
+        com.panchayat.backend.common.tx.AfterCommit.run(push);
         }
         log.info("Royal Pack given to user {} by {} (coins {}, title {})", userId, admin, coins, which);
         Map<String, Object> out = new LinkedHashMap<>();
