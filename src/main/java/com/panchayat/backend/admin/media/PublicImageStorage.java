@@ -40,6 +40,15 @@ public class PublicImageStorage {
         return result(media.savePublic(bytes, clean(folder), format));
     }
 
+    /** Like uploadAsset, with its own size limit in bytes (admin Shop items: big animations). */
+    public Map<String, Object> uploadAsset(MultipartFile file, String folder, long maxBytes) {
+        byte[] bytes = read(file);
+        String format = AdminMediaService.formatOf(file.getOriginalFilename());
+        if (format == null) format = sniff(bytes);
+        if (format == null) throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "This file type isn't allowed here");
+        return result(media.savePublic(bytes, clean(folder), format, maxBytes));
+    }
+
     /** Bytes copied from another host (the move from Cloudinary). */
     public Map<String, Object> saveBytes(byte[] bytes, String folder, String format) {
         return result(media.savePublic(bytes, clean(folder), format));

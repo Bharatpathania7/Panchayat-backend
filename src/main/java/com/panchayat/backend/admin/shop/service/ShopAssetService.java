@@ -22,8 +22,9 @@ public class ShopAssetService {
     private static final Logger log =
             LoggerFactory.getLogger(ShopAssetService.class);
 
-    private static final long MAX_FILE_SIZE = 5L * 1024 * 1024;
-    private static final long MAX_VIDEO_SIZE = 20L * 1024 * 1024;
+    // Shop items (PK rewards, frames, entries...) can be big animations: 100 MB, within spring.servlet.multipart.max-file-size
+    private static final long MAX_FILE_SIZE = 100L * 1024 * 1024;
+    private static final long MAX_VIDEO_SIZE = 100L * 1024 * 1024;
 
     private static final Set<String> ALLOWED_EXTENSIONS = Set.of(
             "png", "jpg", "jpeg", "webp", "svg", "svga", "mp4"
@@ -78,7 +79,7 @@ public class ShopAssetService {
         }
 
         // Kept on this server (it used to go to Cloudinary)
-        Map<String, Object> saved = store.uploadAsset(file, "shop/products");
+        Map<String, Object> saved = store.uploadAsset(file, "shop/products", maxSize);
         return String.valueOf(saved.get("secure_url"));
     }
 
