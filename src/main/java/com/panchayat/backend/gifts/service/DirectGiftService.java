@@ -94,6 +94,7 @@ public class DirectGiftService {
         String ctx = context == null ? "PROFILE" : context.toUpperCase(Locale.ROOT);
         if (!CONTEXTS.contains(ctx)) ctx = "PROFILE";
         long price = GiftCatalog.price(giftId).orElseThrow(() -> bad("That gift isn't on sale"));
+        if (GiftCatalog.isShopOnly(giftId)) throw bad("This gift comes only from the Shop: send it from your Package in a room.");
         categoryRules.check(giftId, senderId, receiverId);
 
         // A retry of a send that already went through: same answer, no new charge

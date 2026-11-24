@@ -80,6 +80,8 @@ public class GiftCatalogController {
         m.put("animationFormat", g.getAnimationFormat());
         m.put("animationRatio", g.getAnimationRatio());
         m.put("soundUrl", MediaUrls.link(g.getSoundUrl()));
+        // A Shop-only gift: the app knows it (Package, room animation) but never lists it in the gift panel
+        if (g.isShopOnly()) m.put("offSale", true);
         return m;
     }
 }

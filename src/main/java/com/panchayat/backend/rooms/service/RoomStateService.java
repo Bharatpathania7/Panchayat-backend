@@ -168,6 +168,11 @@ public class RoomStateService {
         return adminRepository.existsByRoomIdAndUserId(roomId, userId);
     }
 
+    /** A co-owner of the room (owner powers, but not the owner). */
+    public boolean isCoOwner(Long roomId, Long userId) {
+        return coOwnerRepository.findByRoomId(roomId).stream().anyMatch(c -> java.util.Objects.equals(c.getUserId(), userId));
+    }
+
     /** Is this person on a seat right now? */
     public boolean isSeated(Long roomId, Long userId) {
         Live live = rooms.get(roomId);

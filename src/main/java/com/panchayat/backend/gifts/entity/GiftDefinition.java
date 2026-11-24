@@ -28,6 +28,18 @@ public class GiftDefinition {
     @Column(nullable = false)
     private boolean active = true;
 
+    /** Only from the Shop: never in the gift panel; bought in the Shop (lands in the Package) and sent from there. */
+    @Column(name = "shop_only", nullable = false)
+    private boolean shopOnly = false;
+
+    public boolean isShopOnly() {
+        return shopOnly;
+    }
+
+    public void setShopOnly(boolean shopOnly) {
+        this.shopOnly = shopOnly;
+    }
+
     @Column(name = "image_url", length = 500)
     private String imageUrl;
     @Column(name = "image_public_id", length = 200)

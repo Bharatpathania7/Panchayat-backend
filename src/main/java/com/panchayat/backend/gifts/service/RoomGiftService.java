@@ -141,6 +141,8 @@ public class RoomGiftService {
         if (receiverId == null || receiverId <= 0) throw bad("Choose who gets the gift");
         if (count < 1 || count > MAX_COUNT) throw bad("Send between 1 and " + MAX_COUNT + " at a time");
         long price = GiftCatalog.price(giftId).orElseThrow(() -> bad("That gift isn't on sale"));
+        // A Shop-only gift is never bought here: only sent from the Package after buying it in the Shop
+        if (!fromBag && GiftCatalog.isShopOnly(giftId)) throw bad("This gift comes only from the Shop.");
         // VIP gifts need VIP; CP gifts go only to your CP partner
         categoryRules.check(giftId, senderId, receiverId);
 
