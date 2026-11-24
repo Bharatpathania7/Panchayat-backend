@@ -110,8 +110,10 @@ public class CpService {
     /** Ring products from the admin panel (Shop categories named like "ring") join the CP catalogue as "shop-<id>". */
     public static final String SHOP_PREFIX = "shop-";
     private static final String SHOP_RINGS =
-            "select p.id, p.name, p.price, p.rarity, p.asset_url, p.display_order, p.active from shop_products p"
-                    + " join shop_categories c on c.id = p.category_id where c.name ilike '%ring%' and p.price >= 1";
+            // A ring is a product whose type is Ring, or (type left automatic) one in a category named like "ring".
+            // Rings bought with PK Coins are never sold for coins in CP (on_sale false), but ones people own still propose.
+            "select p.id, p.name, p.price, p.rarity, p.asset_url, p.display_order, p.active and c.currency <> 'PK_COINS' as on_sale from shop_products p"
+                    + " join shop_categories c on c.id = p.category_id where (p.wear_slot = 'RING' or (p.wear_slot is null and c.name ilike '%ring%')) and p.price >= 1";
     private volatile long shopSyncedAt = 0;
 
     /**
@@ -125,11 +127,11 @@ public class CpService {
         shopSyncedAt = now;
         try {
             jdbc.update("insert into cp_rings (id, name, price, rarity, image_url, sort_order, active)"
-                    + " select 'shop-' || x.id, left(x.name, 60), x.price::bigint, initcap(lower(x.rarity)), x.asset_url, 100 + x.display_order, x.active from (" + SHOP_RINGS + ") x"
+                    + " select 'shop-' || x.id, left(x.name, 60), x.price::bigint, initcap(lower(x.rarity)), x.asset_url, 100 + x.display_order, x.on_sale from (" + SHOP_RINGS + ") x"
                     + " on conflict (id) do update set name = excluded.name, price = excluded.price, rarity = excluded.rarity,"
                     + " image_url = excluded.image_url, sort_order = excluded.sort_order, active = excluded.active");
             jdbc.update("update cp_rings r set active = false where r.id like 'shop-%' and r.active"
-                    + " and not exists (select 1 from (" + SHOP_RINGS + ") x where 'shop-' || x.id = r.id and x.active)");
+                    + " and not exists (select 1 from (" + SHOP_RINGS + ") x where 'shop-' || x.id = r.id and x.on_sale)");
         } catch (Exception e) {
             log.warn("Couldn't copy the Shop's rings into CP: {}", e.getMessage());
         }

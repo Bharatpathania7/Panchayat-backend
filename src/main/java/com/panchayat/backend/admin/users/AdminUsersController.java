@@ -253,6 +253,13 @@ public class AdminUsersController {
     public record SilentObserverRequest(boolean enabled) {
     }
 
+    /** Every account that is a silent observer (internal ID) now, so the admin can see them and turn each one off. */
+    @GetMapping("/silent-observers")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public List<Map<String, Object>> silentObservers() {
+        return jdbc.queryForList("select id as \"userId\", full_name as name from users where silent_observer order by id");
+    }
+
     /** Lets this account join any password room without the password, invisibly, for safety review
      *  (see VoiceRoomService.joinRoom). Every use is written to silent_observer_audit. Super Admin only. */
     @PostMapping("/{id:[0-9]+}/silent-observer")

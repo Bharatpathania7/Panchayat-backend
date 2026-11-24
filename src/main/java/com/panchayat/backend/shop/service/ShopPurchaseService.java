@@ -155,7 +155,8 @@ public class ShopPurchaseService {
     /** Where this product is worn: the admin's choice, else worked out from the category name (frame, bubble, entry, profile). null = not wearable. */
     static String wearSlot(ShopProduct p) {
         String w = p.getWearSlot();
-        if (w != null) return "NONE".equals(w) ? null : w;
+        // A ring is kept in the Bag (user_shop_items) and used for CP proposals, not worn
+        if (w != null) return "NONE".equals(w) || "RING".equals(w) ? null : w;
         String c = p.getCategory() == null || p.getCategory().getName() == null ? "" : p.getCategory().getName().toLowerCase();
         if (c.contains("bubble")) return "BUBBLE";
         if (c.contains("frame")) return "FRAME";

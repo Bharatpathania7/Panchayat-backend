@@ -49,6 +49,7 @@ public class ManualTopupService {
     @Autowired @Lazy private ExpService exp;
     @Autowired @Lazy private SarpanchService sarpanch;
     @Autowired @Lazy private RoyalPackService royal;
+    @Autowired @Lazy private com.panchayat.backend.vip.VipService vip;
 
     public ManualTopupService(JdbcTemplate jdbc, AdminMediaService media) {
         this.jdbc = jdbc;
@@ -156,7 +157,7 @@ public class ManualTopupService {
         if (packs.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "That pack isn't available.");
         Map<String, Object> p = packs.get(0);
         // The same pack asked for again, still unpaid: the same request
-        List<Map<String, Object>> same = jdbc.queryForList("select * from manual_topups where user_id = ? and pack_id = ? and status = 'REQUESTED' order by id desc limit 1", userId, packId);
+        List<Map<String, Object>> same = jdbc.queryForList("select * from manual_topups where user_id = ? and pack_id = ? and kind = 'COIN_PACK' and status = 'REQUESTED' order by id desc limit 1", userId, packId);
         if (!same.isEmpty()) return view(same.get(0), info);
         Long open = jdbc.queryForObject("select count(*) from manual_topups where user_id = ? and status in ('REQUESTED', 'SUBMITTED')", Long.class, userId);
         if (open != null && open >= MAX_OPEN) throw new ResponseStatusException(HttpStatus.CONFLICT, "You already have " + MAX_OPEN + " top-ups waiting. Finish or cancel one first.");
@@ -217,6 +218,52 @@ public class ManualTopupService {
                         + "3) I check the payment and give you everything in the pack. I will message you here.",
                 null, "Send payment proof", "/topup?id=" + id, "PAYMENT"), "manual-topup:" + id + ":requested");
         return view(jdbc.queryForMap("select * from manual_topups where id = ?", id), info);
+    }
+
+    /**
+     * VIP through Munshi ji: the person picks a VIP plan (set in the admin panel), pays its rupee price by UPI and sends
+     * proof. When an admin approves, the plan's days of VIP are added by themselves (on top of any VIP left).
+     */
+    @Transactional
+    public Map<String, Object> requestVip(Long userId, Long planId) {
+        Map<String, Object> info = publicInfo();
+        if (!Boolean.TRUE.equals(info.get("enabled"))) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Manual UPI top-up isn't available right now.");
+        if (planId == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose a VIP plan.");
+        com.panchayat.backend.vip.VipService.Plan plan = vip.activePlan(planId);
+        String name = plan.name().toUpperCase(java.util.Locale.ROOT).startsWith("VIP") ? plan.name() : "VIP " + plan.name();
+        // Still unpaid: the same request, switched to the plan picked now
+        List<Map<String, Object>> same = jdbc.queryForList("select * from manual_topups where user_id = ? and kind = 'VIP' and status = 'REQUESTED' order by id desc limit 1", userId);
+        if (!same.isEmpty()) {
+            long sid = ((Number) same.get(0).get("id")).longValue();
+            jdbc.update("update manual_topups set pack_id = ?, pack_name = ?, amount_inr = ?, vip_days = ? where id = ?", plan.id(), name, plan.price(), plan.days(), sid);
+            return view(jdbc.queryForMap("select * from manual_topups where id = ?", sid), info);
+        }
+        Long open = jdbc.queryForObject("select count(*) from manual_topups where user_id = ? and status in ('REQUESTED', 'SUBMITTED')", Long.class, userId);
+        if (open != null && open >= MAX_OPEN) throw new ResponseStatusException(HttpStatus.CONFLICT, "You already have " + MAX_OPEN + " top-ups waiting. Finish or cancel one first.");
+        String ref = newReference();
+        Long id = jdbc.queryForObject("insert into manual_topups (user_id, pack_id, pack_name, coins, bonus_coins, amount_inr, reference, kind, vip_days) values (?, ?, ?, 0, 0, ?, ?, 'VIP', ?) returning id",
+                Long.class, userId, plan.id(), name, plan.price(), ref, plan.days());
+        String amountText = plan.price().stripTrailingZeros().toPlainString();
+        sarpanch.sendSafely(userId, new SarpanchService.Message("Your VIP request",
+                "Namaste! 👑 Request " + ref + ": " + name + " (" + plan.days() + " days of VIP) for ₹" + amountText + "." + "\n\n"
+                        + "1) Pay ₹" + amountText + " to UPI ID " + info.get("upiId") + (info.get("payeeName") == null ? "" : " (" + info.get("payeeName") + ")") + ". Write " + ref + " in the payment note if you can." + "\n"
+                        + "2) Tap the button below and send the transaction ID (UTR) with a screenshot." + "\n"
+                        + "3) I check the payment and turn your VIP on. I will message you here.",
+                null, "Send payment proof", "/topup?id=" + id, "PAYMENT"), "manual-topup:" + id + ":requested");
+        return view(jdbc.queryForMap("select * from manual_topups where id = ?", id), info);
+    }
+
+    private static void afterCommitRun(Runnable r) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    r.run();
+                }
+            });
+        } else {
+            r.run();
+        }
     }
 
     private String newReference() {
@@ -341,10 +388,18 @@ public class ManualTopupService {
         long coins = ((Number) t.get("coins")).longValue() + ((Number) t.get("bonus_coins")).longValue();
         BigDecimal amount = new BigDecimal(String.valueOf(t.get("amount_inr")));
         boolean isRoyal = "ROYAL".equals(t.get("kind"));
+        boolean isVip = "VIP".equals(t.get("kind"));
         if (coins > 0) wallet.credit(userId, coins, "PAYMENT_PURCHASE", "manual-topup:" + id, "MANUAL-TOPUP:" + id, "Manual UPI top-up: " + t.get("pack_name"));
         jdbc.update("update manual_topups set status = 'APPROVED', reviewed_by = ?, reviewed_at = now() where id = ?", admin, id);
         RoyalPackService.Delivery royalGot = isRoyal ? royal.deliver(userId, String.valueOf(t.get("plate_name")), (String) t.get("royal_title"), (String) t.get("plate_font")) : null;
-        titleRules.onTopup(userId, isRoyal ? null : ((Number) t.get("pack_id")).longValue());
+        java.time.Instant vipUntil = null;
+        if (isVip) {
+            Object d = t.get("vip_days");
+            int days = d instanceof Number n ? n.intValue() : 0;
+            if (days <= 0) throw new ResponseStatusException(HttpStatus.CONFLICT, "This VIP request has no days set.");
+            vipUntil = vip.extend(userId, days);
+        }
+        titleRules.onTopup(userId, isRoyal || isVip ? null : ((Number) t.get("pack_id")).longValue());
         Runnable after = () -> {
             try {
                 walletPush.pushBalance(userId, "PAYMENT_PURCHASE", coins);
@@ -362,6 +417,15 @@ public class ManualTopupService {
             });
         } else {
             after.run();
+        }
+        if (isVip) {
+            String until = vipUntil == null ? "" : java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy", java.util.Locale.ENGLISH).withZone(java.time.ZoneId.of("Asia/Kolkata")).format(vipUntil);
+            afterCommitRun(() -> vip.push(userId, "VIP_PURCHASED"));
+            sarpanch.sendSafely(userId, new SarpanchService.Message("VIP is on 👑",
+                    "Mubarak ho! 👑 Payment verified ✅ ₹" + amount.stripTrailingZeros().toPlainString() + " paid for " + t.get("pack_name") + ".\n\n"
+                            + "Aapka VIP ab " + (until.isEmpty() ? "active" : until + " tak active") + " hai. Reference " + t.get("reference") + ".",
+                    null, "See my VIP", "/vip", "PAYMENT"), "manual-topup:" + id + ":approved");
+            return Map.of("approved", true, "coins", coins, "vip", true);
         }
         if (royalGot != null) {
             StringBuilder body = new StringBuilder("Mubarak ho! 👑 Payment verified ✅ ₹" + amount.stripTrailingZeros().toPlainString() + " paid for the " + t.get("pack_name") + ".\n\nAap ko mila:\n");

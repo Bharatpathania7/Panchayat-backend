@@ -67,6 +67,15 @@ public class ManualTopupController {
         return service.requestRoyal(uid(auth), body == null ? null : body.plateName(), body == null ? null : body.title(), body == null ? null : body.font());
     }
 
+    public record VipAsk(Long planId) {
+    }
+
+    /** Ask for VIP through Munshi ji: { planId } (a VIP plan on sale). Approved = the plan's days of VIP, by themselves. */
+    @PostMapping("/vip")
+    public Map<String, Object> requestVip(@org.springframework.web.bind.annotation.RequestBody VipAsk body, Authentication auth) {
+        return service.requestVip(uid(auth), body == null ? null : body.planId());
+    }
+
     @PostMapping(value = "/requests/{id:[0-9]+}/submit", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> submit(@PathVariable long id, @RequestParam("utr") String utr, @RequestPart("screenshot") MultipartFile screenshot, Authentication auth) {
         return service.submit(uid(auth), id, utr, screenshot);

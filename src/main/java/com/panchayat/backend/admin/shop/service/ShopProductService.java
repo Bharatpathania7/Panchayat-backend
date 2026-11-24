@@ -295,7 +295,7 @@ public class ShopProductService {
     private static String cleanSlot(String s) {
         if (s == null || s.isBlank()) return null;
         String u = s.strip().toUpperCase();
-        if (!java.util.Set.of("FRAME", "BUBBLE", "ENTRY", "PROFILE", "BADGE", "NONE").contains(u)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Wear slot must be FRAME, BUBBLE, ENTRY, PROFILE, BADGE or NONE");
+        if (!java.util.Set.of("FRAME", "BUBBLE", "ENTRY", "PROFILE", "BADGE", "RING", "NONE").contains(u)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Wear slot must be FRAME, BUBBLE, ENTRY, PROFILE, BADGE, RING or NONE");
         return u;
     }
 }

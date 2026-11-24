@@ -189,8 +189,14 @@ public class RoomSettingsService {
         if (required == null || required.isBlank()) return true;
         // A locked room: only its owner (and co-owners) get in without the password. Admins need it too.
         if (Objects.equals(room.getOwnerId(), userId) || roomState.isCoOwner(room.getId(), userId)) return true;
+        // A silent-observer staff account (internal ID) enters any locked room without the password, invisibly.
+        // The password itself is never sent to it or shown; each entry is logged in silent_observer_audit at join.
+        if (userId != null && Boolean.TRUE.equals(silentJdbc.query("select silent_observer from users where id = ?", rs -> rs.next() ? rs.getBoolean(1) : false, userId))) return true;
         // An invite from someone in the room (sent in a chat) lets you in without the password
         if (invites.inviteAccepted(room.getId(), password)) return true;
+
+        // No password typed (the app probing whether this person may skip it): just no, never counted as a wrong guess
+        if (password == null || password.isBlank()) return false;
 
         String key = room.getId() + ":" + userId;
         Deque<Instant> recent = wrongGuesses.computeIfAbsent(key, k -> new ArrayDeque<>());
