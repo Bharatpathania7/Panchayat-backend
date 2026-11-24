@@ -101,6 +101,15 @@ public class AdminPkController {
         return m;
     }
 
+    public record ResetRequest(String confirm, String reason) {}
+
+    /** Everyone's PK Coins back to 0 and the PK board starts again. Needs { confirm: "RESET" } so it can't happen by accident. */
+    @PostMapping("/reset-all")
+    public Map<String, Object> resetAll(@RequestBody ResetRequest body, Authentication auth) {
+        if (body == null || !"RESET".equals(body.confirm())) throw bad("Type RESET to confirm.");
+        return pkCoins.resetAll(body.reason(), auth == null ? null : auth.getName());
+    }
+
     @GetMapping("/rooms")
     public List<Map<String, Object>> rooms() {
         return jdbc.query("select r.id, r.name, r.status, r.official_pk_title, r.owner_id, u.full_name as owner_name,"

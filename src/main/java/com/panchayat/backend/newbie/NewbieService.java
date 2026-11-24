@@ -243,10 +243,13 @@ public class NewbieService {
         return n == null ? 0 : n;
     }
 
-    /** A host from the list who isn't running another active welcome room. */
+    /**
+     * A host from the list who isn't running another active welcome room. A host whose room the admin disabled is never
+     * picked again by itself (the admin turns them back on by hand).
+     */
     private Long freeHost() {
         List<Long> l = jdbc.queryForList("select h.user_id from newbie_room_hosts h where h.active"
-                + " and not exists (select 1 from newbie_rooms r where r.host_id = h.user_id and r.status = 'ACTIVE')"
+                + " and not exists (select 1 from newbie_rooms r where r.host_id = h.user_id and r.status in ('ACTIVE', 'DISABLED'))"
                 + " order by exists (select 1 from voice_room_participants p join voice_rooms v on v.id = p.room_id where p.user_id = h.user_id and p.status = 'JOINED' and v.status = 'ACTIVE') desc,"
                 + " (select count(*) from newbie_rooms r where r.host_id = h.user_id), h.user_id limit 1", Long.class);
         return l.isEmpty() ? null : l.get(0);
@@ -374,8 +377,9 @@ public class NewbieService {
         room.setNewbie(true);
         room.setOfficial(isOfficialUser(hostId));
         VoiceRoom saved = rooms.saveAndFlush(room);
-        jdbc.update("insert into newbie_rooms (room_id, room_number, name, host_id, priority, expires_at, created_by) values (?, ?, ?, ?, ?, case when ? = 0 then null else now() + make_interval(hours => ?) end, ?)",
-                saved.getId(), (int) number, name, hostId, c.priority(), c.roomLifetimeHours(), c.roomLifetimeHours(), by);
+        // Once open, a welcome room stays open until the admin closes it: no end time
+        jdbc.update("insert into newbie_rooms (room_id, room_number, name, host_id, priority, expires_at, created_by) values (?, ?, ?, ?, ?, null, ?)",
+                saved.getId(), (int) number, name, hostId, c.priority(), by);
         event(saved.getId(), hostId, "ROOM_CREATED", name);
         applyDefaultBackground(saved.getId());
         return saved.getId();
@@ -681,14 +685,30 @@ public class NewbieService {
         Map<String, Object> room = one(roomId);
         if ("ACTIVE".equals(status)) {
             if (!"ACTIVE".equals(room.get("status")) && activeCount() >= config().maxRooms()) throw conflict("You have reached the maximum number of welcome rooms.");
-            // Opening a room again gives it a fresh lifetime
-            jdbc.update("update newbie_rooms set status = 'ACTIVE', closed_at = null, host_absent_since = null, expires_at = case when ? = 0 then null else now() + make_interval(hours => ?) end where room_id = ?", config().roomLifetimeHours(), config().roomLifetimeHours(), roomId);
+            // Opened again: it stays open (no end time) until the admin closes it
+            jdbc.update("update newbie_rooms set status = 'ACTIVE', closed_at = null, host_absent_since = null, expires_at = null where room_id = ?", roomId);
             jdbc.update("update voice_rooms set status = 'ACTIVE' where id = ?", roomId);
+            // Its host may be picked for welcome rooms again
+            if (hostIdOf(room) != null) jdbc.update("update newbie_room_hosts set active = true where user_id = ?", hostIdOf(room));
         } else {
             closeRoomRows(roomId, status);
+            // Disabled by the admin: stays off, and its host isn't given a new room automatically
+            if ("DISABLED".equals(status)) stopHost(hostIdOf(room));
         }
         event(roomId, null, "STATUS_" + status, null);
         return one(roomId);
+    }
+
+    /** The host stops being picked for new welcome rooms automatically. The official (Sarpanch) account is left alone. */
+    private void stopHost(Long hostId) {
+        if (hostId != null && !isOfficialUser(hostId)) jdbc.update("update newbie_room_hosts set active = false where user_id = ?", hostId);
+    }
+
+    /** The host's account id from one(roomId), or null. */
+    private static Long hostIdOf(Map<String, Object> room) {
+        Object h = room.get("host");
+        Object id = h instanceof Map<?, ?> m ? m.get("id") : null;
+        return id == null ? null : Long.parseLong(String.valueOf(id));
     }
 
     private void closeRoomRows(Long roomId, String newbieStatus) {
@@ -700,8 +720,10 @@ public class NewbieService {
     /** Deleting a welcome room closes it for good and removes it from the list (its numbers are never reused). */
     @Transactional
     public void deleteRoom(Long roomId) {
-        one(roomId);
+        Map<String, Object> room = one(roomId);
         closeRoomRows(roomId, "CLOSED");
+        // Deleted by the admin: its host isn't given a new welcome room automatically (the admin adds them back by hand)
+        stopHost(hostIdOf(room));
         jdbc.update("update newbie_user_status set room_id = null where room_id = ?", roomId);
         jdbc.update("delete from newbie_rooms where room_id = ?", roomId);
         event(null, null, "ROOM_DELETED", String.valueOf(roomId));
@@ -783,8 +805,8 @@ public class NewbieService {
     // ------------------------------------------------------------------ upkeep
 
     /**
-     * Every minute: close rooms that ran out of time or were closed by their host, and when a host has been away longer
-     * than the grace time give the room to another host from the list, or close it if it is empty and nobody can take it.
+     * Every minute: a welcome room the admin closed from the Rooms page (or whose owner was banned) is marked closed, and the
+     * list notes when a host is away. An active welcome room never closes, ends or changes host by itself.
      */
     @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
     public void maintain() {
@@ -797,15 +819,12 @@ public class NewbieService {
 
     @Transactional
     public void doMaintain() {
-        for (Long id : jdbc.queryForList("select nr.room_id from newbie_rooms nr where nr.status = 'ACTIVE' and nr.expires_at is not null and nr.expires_at < now()", Long.class)) {
-            closeRoomRows(id, "EXPIRED");
-            event(id, null, "EXPIRED", null);
-        }
+        // Once active, a welcome room never ends by itself (rooms opened earlier with an end time keep going too)
+        jdbc.update("update newbie_rooms set expires_at = null where status = 'ACTIVE' and expires_at is not null");
         for (Long id : jdbc.queryForList("select nr.room_id from newbie_rooms nr join voice_rooms vr on vr.id = nr.room_id where nr.status = 'ACTIVE' and vr.status <> 'ACTIVE'", Long.class)) {
             jdbc.update("update newbie_rooms set status = 'CLOSED', closed_at = now() where room_id = ?", id);
-            event(id, null, "CLOSED", "by the host");
+            event(id, null, "CLOSED", "the room was closed");
         }
-        int grace = config().hostGraceMinutes();
         List<Map<String, Object>> live = jdbc.queryForList("select nr.room_id, nr.host_id, nr.host_absent_since,"
                 + " (exists (select 1 from voice_room_participants p where p.room_id = nr.room_id and p.user_id = nr.host_id and p.status = 'JOINED') or exists (select 1 from voice_rooms v where v.id = nr.room_id and v.official)) as present,"
                 + " (select count(*) from voice_room_participants p where p.room_id = nr.room_id and p.status = 'JOINED') as joined"
@@ -822,15 +841,8 @@ public class NewbieService {
                 jdbc.update("update newbie_rooms set host_absent_since = now() where room_id = ?", roomId);
                 continue;
             }
-            if (since.toInstant().plusSeconds(grace * 60L).isAfter(Instant.now())) continue;
-            Long next = freeHost();
-            if (next != null) {
-                jdbc.update("update newbie_rooms set host_id = ?, host_absent_since = null where room_id = ?", next, roomId);
-                jdbc.update("update voice_rooms set owner_id = ? where id = ?", next, roomId);
-                event(roomId, next, "HOST_REASSIGNED", "the host was away");
-                afterCommit(() -> roomState.onModeChanged(roomId));
-            }
-            // No free host: the room simply stays open (empty or not) until a host comes back; a welcome room is never closed just because it is quiet
+            // The host being away only shows in the admin list: the room stays open and stays the host's own
+            // (it is never handed to another host or closed because it is quiet; the admin changes the host by hand)
         }
     }
 }
