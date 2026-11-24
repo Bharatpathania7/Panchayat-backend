@@ -243,6 +243,85 @@ public class RoyalPackService {
         return new Delivery(lines, frameUrl);
     }
 
+    /** An account id, or the 7-digit public ID people see in the app. */
+    public Long findUser(String ref) {
+        Long pub = com.panchayat.backend.common.PublicIds.parse(ref);
+        List<Long> ids = pub != null ? jdbc.queryForList("select id from users where public_id = ? or display_public_id = ? limit 1", Long.class, pub, pub) : List.of();
+        if (ids.isEmpty()) {
+            try {
+                ids = jdbc.queryForList("select id from users where id = ?", Long.class, Long.parseLong(ref));
+            } catch (NumberFormatException e) {
+                ids = List.of();
+            }
+        }
+        if (ids.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "No user has the ID " + ref + ".");
+        return ids.get(0);
+    }
+
+    @Autowired @Lazy private com.panchayat.backend.wallet.service.CoinWalletService wallet;
+    @Autowired @Lazy private com.panchayat.backend.wallet.service.WalletPushService walletPush;
+    @Autowired @Lazy private com.panchayat.backend.sarpanch.SarpanchService sarpanch;
+
+    /**
+     * The admin gives the Royal Pack to one person, no payment: the frame with the name given here (up to 14 letters),
+     * the titles (title = KING / QUEEN, or null to go by the person's gender), and the pack's coins when includeCoins.
+     * Munshi ji tells them, with the same list as after a purchase. Not counted as "sold".
+     */
+    @Transactional
+    public Map<String, Object> grantTo(Long userId, String plateName, String title, boolean includeCoins, String admin) {
+        List<Map<String, Object>> u = jdbc.queryForList("select email, full_name from users where id = ?", userId);
+        if (u.isEmpty()) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found");
+        if (String.valueOf(u.get(0).get("email")).endsWith("@deleted.invalid")) throw bad("This account is deleted.");
+        Map<String, Object> s = row();
+        if (s.get("frame_id") == null) throw bad("Choose the pack's frame first (above), then give it.");
+        String plate = NameFrameService.cleanPlateName(plateName);
+        String which;
+        if (title == null || title.isBlank() || title.equalsIgnoreCase("AUTO")) {
+            which = titleFor(userId);
+            if (which == null) throw bad("This person has no gender set: choose Panchayat King or Panchayat Queen.");
+        } else {
+            which = title.strip().toUpperCase(Locale.ROOT);
+            if (!which.equals("KING") && !which.equals("QUEEN")) throw bad("Choose Panchayat King or Panchayat Queen.");
+        }
+        long coins = includeCoins ? ((Number) s.get("coins")).longValue() : 0;
+        String key = "royal-grant:" + java.util.UUID.randomUUID();
+        if (coins > 0) wallet.credit(userId, coins, "ROYAL_PACK_GIFT", key, key, "Royal Pack given by " + (admin == null ? "admin" : admin));
+        Delivery d = deliver(userId, plate, which);
+        StringBuilder body = new StringBuilder("Mubarak ho! 👑 Panchayat ne aapko " + s.get("name") + " diya hai.\n\nAap ko mila:\n");
+        if (coins > 0) body.append("💰 ").append(String.format(Locale.ROOT, "%,d", coins)).append(" coins in your wallet\n");
+        for (String line : d.lines()) body.append(line).append("\n");
+        body.append("\nAb aap Panchayat ke shaahi member hain.");
+        sarpanch.sendSafely(userId, new com.panchayat.backend.sarpanch.SarpanchService.Message("Royal Pack for you 👑", body.toString(), d.frameUrl(), "Open my Bag", "/bag", "PAYMENT"), key);
+        if (coins > 0) {
+            long c = coins;
+            Runnable push = () -> {
+                try {
+                    walletPush.pushBalance(userId, "ROYAL_PACK_GIFT", c);
+                } catch (Exception ignored) {
+                    // the coins are already in the wallet
+                }
+            };
+            if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+                org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        push.run();
+                    }
+                });
+            } else {
+                push.run();
+            }
+        }
+        log.info("Royal Pack given to user {} by {} (coins {}, title {})", userId, admin, coins, which);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("given", true);
+        out.put("name", u.get(0).get("full_name"));
+        out.put("plateName", plate);
+        out.put("title", which);
+        out.put("coins", coins);
+        return out;
+    }
+
     private static String days(int d) {
         return d <= 0 ? " (for ever)" : " for " + d + " days";
     }
