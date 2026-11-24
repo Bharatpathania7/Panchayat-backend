@@ -94,6 +94,60 @@ public class PkCoinService {
         return balance(userId);
     }
 
+    /** Marks the rows a "start everyone from zero" wrote; the PK board only counts what was earned after the last one. */
+    static final String RESET_REF = "reset-all";
+    /** When PK Coins were last reset for everyone (EPOCH = never); read once, then kept up to date by resetAll(). */
+    private volatile Instant lastReset;
+
+    Instant lastReset() {
+        Instant r = lastReset;
+        if (r == null) {
+            Timestamp t = jdbc.queryForObject("select max(created_at) from pk_coin_transactions where ref = ?", Timestamp.class, RESET_REF);
+            r = t == null ? Instant.EPOCH : t.toInstant();
+            lastReset = r;
+        }
+        return r;
+    }
+
+    /**
+     * Everyone starts again from zero: every balance and "earned" total goes to 0, and the PK board only counts PK Coins earned
+     * from now on. Each wallet gets a DEDUCT row (by the admin, with the reason) so the history still shows what happened.
+     * Returns how many people had PK Coins and how many were taken away in all.
+     */
+    @Transactional
+    public Map<String, Object> resetAll(String reason, String admin) {
+        String r = reason == null || reason.isBlank() ? "PK Coins reset: everyone starts from zero" : reason.strip();
+        if (r.length() > 300) r = r.substring(0, 300);
+        Instant now = Instant.now();
+        long people = 0, total = 0;
+        List<Map<String, Object>> wallets = jdbc.queryForList("select user_id, balance from pk_coin_wallets order by user_id for update");
+        for (Map<String, Object> w : wallets) {
+            long userId = ((Number) w.get("user_id")).longValue();
+            long bal = ((Number) w.get("balance")).longValue();
+            jdbc.update("insert into pk_coin_transactions (user_id, amount, kind, ref, reason, admin_name, balance_after, idempotency_key, created_at)"
+                    + " values (?, ?, 'DEDUCT', ?, ?, ?, 0, ?, ?)", userId, -bal, RESET_REF, r, admin, RESET_REF + ":" + now.toEpochMilli() + ":" + userId, Timestamp.from(now));
+            if (bal > 0) {
+                people++;
+                total += bal;
+                afterCommit(() -> push(userId, 0, -bal, "DEDUCT"));
+            }
+        }
+        jdbc.update("update pk_coin_wallets set balance = 0, earned = 0, updated_at = now()");
+        if (!wallets.isEmpty()) afterCommit(() -> lastReset = now);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("people", people);
+        m.put("removed", total);
+        m.put("wallets", wallets.size());
+        return m;
+    }
+
+    /** The start of a PK board period, never before the last reset. */
+    private Instant from(String period) {
+        Instant s = since(period);
+        Instant r = lastReset();
+        return r.isAfter(s) ? r : s;
+    }
+
     /**
      * The one place a balance changes. Locks the wallet row, refuses to go below zero, and records the change with a
      * unique key: the same key a second time does nothing (false).
@@ -145,7 +199,7 @@ public class PkCoinService {
         m.put("balance", w == null ? 0 : w[0]);
         m.put("earned", w == null ? 0 : w[1]);
         for (String p : List.of("week", "month", "all")) {
-            Instant since = since(p);
+            Instant since = from(p);
             long score = score(userId, since);
             Map<String, Object> r = new LinkedHashMap<>();
             r.put("score", score);
@@ -220,9 +274,9 @@ public class PkCoinService {
         m.put("holders", jdbc.queryForObject("select count(*) from pk_coin_wallets where balance > 0", Long.class));
         m.put("inCirculation", jdbc.queryForObject("select coalesce(sum(balance), 0) from pk_coin_wallets", Long.class));
         m.put("earnedThisWeek", jdbc.queryForObject("select coalesce(sum(amount), 0) from pk_coin_transactions where kind = 'EARN' and created_at >= ?",
-                Long.class, Timestamp.from(since("week"))));
+                Long.class, Timestamp.from(from("week"))));
         m.put("spentThisWeek", jdbc.queryForObject("select coalesce(-sum(amount), 0) from pk_coin_transactions where kind = 'SPEND' and created_at >= ?",
-                Long.class, Timestamp.from(since("week"))));
+                Long.class, Timestamp.from(from("week"))));
         return m;
     }
 
@@ -243,7 +297,7 @@ public class PkCoinService {
     /** The PK board: PK Coins earned in the period (week = since Monday, month = since the 1st, India time; all = ever). */
     @Transactional(readOnly = true)
     public Map<String, Object> ranking(String period, Long me) {
-        Instant since = since(period);
+        Instant since = from(period);
         List<Map<String, Object>> rows = jdbc.query(
                 "select x.user_id, x.score, u.full_name, u.avatar_url, coalesce(u.display_public_id, u.public_id) as public_id, u.vip_active, u.vip_level, u.gender"
                         + " from (select user_id, sum(amount) as score from pk_coin_transactions where kind = 'EARN' and created_at >= ? group by user_id) x"

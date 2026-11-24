@@ -30,7 +30,8 @@ public class MaintenanceFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         if (HttpMethod.OPTIONS.matches(request.getMethod())) return true;
         String path = request.getRequestURI();
-        return path.startsWith("/api/v1/admin/") || path.equals("/api/v1/health") || path.equals("/api/v1/gifts")
+        // Admin login / refresh live under /api/admin/auth: staff must be able to sign in to turn maintenance off
+        return path.startsWith("/api/v1/admin/") || path.startsWith("/api/admin/") || path.equals("/api/v1/health") || path.equals("/api/v1/gifts")
                 || path.equals("/api/v1/status") || path.equals("/error");
     }
 

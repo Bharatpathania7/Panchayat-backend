@@ -38,7 +38,13 @@ public class AdminUsersController {
 
     private final com.panchayat.backend.auth.service.DeviceGuard devices;
 
-    public AdminUsersController(JdbcTemplate jdbc, SimpUserRegistry online, AccountBanService bans, com.panchayat.backend.auth.service.DeviceGuard devices) {
+    private final com.panchayat.backend.user.service.AccountDeletionService deletion;
+    private final UserRestrictionService restrictions;
+
+    public AdminUsersController(JdbcTemplate jdbc, SimpUserRegistry online, AccountBanService bans, com.panchayat.backend.auth.service.DeviceGuard devices,
+                                com.panchayat.backend.user.service.AccountDeletionService deletion, UserRestrictionService restrictions) {
+        this.deletion = deletion;
+        this.restrictions = restrictions;
         this.bans = bans;
         this.devices = devices;
         this.jdbc = jdbc;
@@ -210,6 +216,38 @@ public class AdminUsersController {
         m.put("removed", amount);
         m.put("charm", Math.max(0, before - amount));
         return m;
+    }
+
+    public record DeleteAccountRequest(String confirm, String reason) {
+    }
+
+    /**
+     * Delete someone's account for good (the same as deleting it themselves: name, email and picture removed, signed out,
+     * the account can never be used again). Needs { confirm: "DELETE" }. Super Admin only.
+     */
+    @PostMapping("/{id:[0-9]+}/delete-account")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public Map<String, Object> deleteAccount(@PathVariable Long id, @RequestBody DeleteAccountRequest body, org.springframework.security.core.Authentication auth) {
+        if (body == null || !"DELETE".equals(body.confirm())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Type DELETE to confirm.");
+        return deletion.delete(id, auth == null ? "admin" : auth.getName(), body.reason());
+    }
+
+    /** Chat ban and Moment ban (short of a full ban): what this person has now. */
+    @GetMapping("/{id:[0-9]+}/restrictions")
+    public List<Map<String, Object>> restrictions(@PathVariable Long id) {
+        return restrictions.forUser(id);
+    }
+
+    /** kind: CHAT_BAN | MOMENT_BAN; on = true puts it on (days empty = until lifted), false lifts it. The person hears from Daroga ji. */
+    public record RestrictionRequest(String kind, Boolean on, String reason, Integer days) {
+    }
+
+    @PutMapping("/{id:[0-9]+}/restrictions")
+    public List<Map<String, Object>> setRestriction(@PathVariable Long id, @RequestBody RestrictionRequest body, org.springframework.security.core.Authentication auth) {
+        if (body == null || body.on() == null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Say whether to put it on or lift it.");
+        if (jdbc.queryForObject("select count(*) from users where id = ?", Long.class, id) == 0) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "User not found");
+        restrictions.setRestriction(id, body.kind(), body.on(), body.reason(), body.days(), auth == null ? null : auth.getName());
+        return restrictions.forUser(id);
     }
 
     public record SilentObserverRequest(boolean enabled) {

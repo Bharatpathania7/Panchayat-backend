@@ -27,12 +27,12 @@ public class AccountDeletionController {
 
     private final JdbcTemplate jdbc;
     private final UserRepository users;
-    private final com.panchayat.backend.admin.users.AccountBanService bans;
+    private final com.panchayat.backend.user.service.AccountDeletionService deletion;
 
-    public AccountDeletionController(JdbcTemplate jdbc, UserRepository users, com.panchayat.backend.admin.users.AccountBanService bans) {
+    public AccountDeletionController(JdbcTemplate jdbc, UserRepository users, com.panchayat.backend.user.service.AccountDeletionService deletion) {
         this.jdbc = jdbc;
         this.users = users;
-        this.bans = bans;
+        this.deletion = deletion;
     }
 
     public record ConfirmBody(String confirm) {
@@ -51,32 +51,10 @@ public class AccountDeletionController {
     }
 
     @DeleteMapping("/api/v1/users/me/account")
-    @Transactional
     public Map<String, Object> delete(@RequestBody(required = false) ConfirmBody body, Authentication auth) {
         User u = me(auth);
         if (body == null || !"DELETE".equals(body.confirm() == null ? "" : body.confirm().strip())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Type DELETE to confirm.");
         }
-        Long id = u.getId();
-        String role = jdbc.queryForObject("select role from users where id = ?", String.class, id);
-        if (!"USER".equals(role) || Boolean.TRUE.equals(jdbc.queryForObject("select coalesce(official, false) from users where id = ?", Boolean.class, id))) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "This account can't be deleted from the app.");
-        }
-        Integer leads = jdbc.queryForObject("select count(*) from parivar_members m join parivars p on p.id = m.parivar_id where m.user_id = ? and m.role = 'LEADER' and p.status = 'ACTIVE' and (select count(*) from parivar_members x where x.parivar_id = p.id) > 1", Integer.class, id);
-        if (leads != null && leads > 0) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "You are the Mukhiya of a Parivar with members. Hand over leadership first, then delete your account.");
-        }
-        jdbc.update("update voice_rooms set status = 'CLOSED' where owner_id = ? and status = 'ACTIVE'", id);
-        jdbc.update("update voice_room_participants set status = 'LEFT', left_at = now() where user_id = ? and status = 'JOINED'", id);
-        jdbc.update("delete from parivar_members where user_id = ?", id);
-        jdbc.update("delete from user_follows where follower_id = ? or followee_id = ?", id, id);
-        jdbc.update("delete from refresh_tokens where user_id = ?", id);
-        jdbc.update("delete from push_devices where user_id = ?", id);
-        jdbc.update("update users set email = ?, full_name = 'Deleted user', avatar_url = null, avatar_public_id = null, bio = null,"
-                + " vip_active = false, vip_expires_at = null, ban_permanent = true, ban_reason = 'Account deleted by the user', signup_device = null, signup_fp = null, updated_at = now() where id = ?",
-                "deleted-" + id + "@deleted.invalid", id);
-        bans.forget(id);
-        log.info("Account {} deleted by the user", id);
-        return Map.of("deleted", true);
-    }
-}
+        return deletion.delete(u.getId(), null, null);
+    }}

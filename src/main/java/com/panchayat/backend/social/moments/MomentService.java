@@ -48,6 +48,10 @@ public class MomentService {
     @org.springframework.context.annotation.Lazy
     private com.panchayat.backend.user.service.UserProfileService profiles;
 
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.admin.users.UserRestrictionService restrictions;
+
     public MomentService(JdbcTemplate jdbc, AdminMediaService media, SimpMessagingTemplate messaging) {
         this.jdbc = jdbc;
         this.media = media;
@@ -56,6 +60,10 @@ public class MomentService {
 
     @Transactional
     public Map<String, Object> post(Long me, String body, String visibility, List<MultipartFile> files) {
+        // An admin can stop someone from posting Moments (Users page > Restrict)
+        if (restrictions.isRestricted(me, "MOMENT_BAN")) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "You can't post Moments right now. Check your messages from Daroga ji.");
+        }
         dailyTasks.track(me, "POST_MOMENT", 1);
         String text = body == null ? "" : body.strip();
         if (text.length() > 1000) throw bad("A Moment can be up to 1000 characters.");
