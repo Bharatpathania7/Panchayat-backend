@@ -48,6 +48,7 @@ public class ManualTopupService {
     @Autowired @Lazy private WalletPushService walletPush;
     @Autowired @Lazy private ExpService exp;
     @Autowired @Lazy private SarpanchService sarpanch;
+    @Autowired @Lazy private RoyalPackService royal;
 
     public ManualTopupService(JdbcTemplate jdbc, AdminMediaService media) {
         this.jdbc = jdbc;
@@ -123,6 +124,9 @@ public class ManualTopupService {
         m.put("id", String.valueOf(r.get("id")));
         m.put("reference", r.get("reference"));
         m.put("status", r.get("status"));
+        m.put("kind", r.get("kind"));
+        m.put("plateName", r.get("plate_name"));
+        m.put("royalTitle", r.get("royal_title"));
         m.put("packName", r.get("pack_name"));
         m.put("amountInr", ((Number) r.get("amount_inr")).doubleValue());
         m.put("coins", ((Number) r.get("coins")).longValue() + ((Number) r.get("bonus_coins")).longValue());
@@ -167,6 +171,43 @@ public class ManualTopupService {
                         + "1) Pay ₹" + amountText + " to UPI ID " + info.get("upiId") + (info.get("payeeName") == null ? "" : " (" + info.get("payeeName") + ")") + ". Write " + ref + " in the payment note if you can." + "\n"
                         + "2) Tap the button below and send the transaction ID (UTR) with a screenshot." + "\n"
                         + "3) I check the payment and add your coins. I will message you here.",
+                null, "Send payment proof", "/topup?id=" + id, "PAYMENT"), "manual-topup:" + id + ":requested");
+        return view(jdbc.queryForMap("select * from manual_topups where id = ?", id), info);
+    }
+
+    /**
+     * The Royal Pack, through Munshi ji only. plateName: the name for the frame's plate (up to 14 letters).
+     * title: KING or QUEEN, used only when the person's gender isn't set to male or female.
+     */
+    @Transactional
+    public Map<String, Object> requestRoyal(Long userId, String plateName, String title) {
+        Map<String, Object> info = publicInfo();
+        if (!Boolean.TRUE.equals(info.get("enabled"))) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Manual UPI top-up isn't available right now.");
+        Map<String, Object> pack = royal.publicInfo(userId, true);
+        if (!Boolean.TRUE.equals(pack.get("enabled"))) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "The Royal Pack isn't on sale right now.");
+        String plate = com.panchayat.backend.titles.NameFrameService.cleanPlateName(plateName);
+        String which = royal.chooseTitle(userId, title);
+        // Still unpaid: the same request, with the new name
+        List<Map<String, Object>> same = jdbc.queryForList("select * from manual_topups where user_id = ? and kind = 'ROYAL' and status = 'REQUESTED' order by id desc limit 1", userId);
+        if (!same.isEmpty()) {
+            long sid = ((Number) same.get(0).get("id")).longValue();
+            jdbc.update("update manual_topups set plate_name = ?, royal_title = ? where id = ?", plate, which, sid);
+            return view(jdbc.queryForMap("select * from manual_topups where id = ?", sid), info);
+        }
+        Long open = jdbc.queryForObject("select count(*) from manual_topups where user_id = ? and status in ('REQUESTED', 'SUBMITTED')", Long.class, userId);
+        if (open != null && open >= MAX_OPEN) throw new ResponseStatusException(HttpStatus.CONFLICT, "You already have " + MAX_OPEN + " top-ups waiting. Finish or cancel one first.");
+        String ref = newReference();
+        long coins = ((Number) pack.get("coins")).longValue();
+        BigDecimal price = new BigDecimal(String.valueOf(pack.get("priceInr")));
+        Long id = jdbc.queryForObject("insert into manual_topups (user_id, pack_id, pack_name, coins, bonus_coins, amount_inr, reference, kind, plate_name, royal_title) values (?, 0, ?, ?, 0, ?, ?, 'ROYAL', ?, ?) returning id",
+                Long.class, userId, pack.get("name"), coins, price, ref, plate, which);
+        String amountText = price.stripTrailingZeros().toPlainString();
+        sarpanch.sendSafely(userId, new SarpanchService.Message("Your " + pack.get("name") + " request",
+                "Namaste! 👑 Request " + ref + ": " + pack.get("name") + " for ₹" + amountText + "." + "\n"
+                        + "Frame name: " + plate + "\n\n"
+                        + "1) Pay ₹" + amountText + " to UPI ID " + info.get("upiId") + (info.get("payeeName") == null ? "" : " (" + info.get("payeeName") + ")") + ". Write " + ref + " in the payment note if you can." + "\n"
+                        + "2) Tap the button below and send the transaction ID (UTR) with a screenshot." + "\n"
+                        + "3) I check the payment and give you everything in the pack. I will message you here.",
                 null, "Send payment proof", "/topup?id=" + id, "PAYMENT"), "manual-topup:" + id + ":requested");
         return view(jdbc.queryForMap("select * from manual_topups where id = ?", id), info);
     }
@@ -258,6 +299,9 @@ public class ManualTopupService {
                     m.put("status", rs.getString("status"));
                     m.put("user", Map.of("id", String.valueOf(uid), "publicId", PublicIds.user(uid), "name", String.valueOf(rs.getString("full_name"))));
                     m.put("packName", rs.getString("pack_name"));
+                    m.put("kind", rs.getString("kind"));
+                    m.put("plateName", rs.getString("plate_name"));
+                    m.put("royalTitle", rs.getString("royal_title"));
                     m.put("amountInr", rs.getBigDecimal("amount_inr").doubleValue());
                     m.put("coins", rs.getLong("coins") + rs.getLong("bonus_coins"));
                     m.put("utr", rs.getString("utr"));
@@ -289,9 +333,11 @@ public class ManualTopupService {
         long userId = ((Number) t.get("user_id")).longValue();
         long coins = ((Number) t.get("coins")).longValue() + ((Number) t.get("bonus_coins")).longValue();
         BigDecimal amount = new BigDecimal(String.valueOf(t.get("amount_inr")));
-        wallet.credit(userId, coins, "PAYMENT_PURCHASE", "manual-topup:" + id, "MANUAL-TOPUP:" + id, "Manual UPI top-up: " + t.get("pack_name"));
+        boolean isRoyal = "ROYAL".equals(t.get("kind"));
+        if (coins > 0) wallet.credit(userId, coins, "PAYMENT_PURCHASE", "manual-topup:" + id, "MANUAL-TOPUP:" + id, "Manual UPI top-up: " + t.get("pack_name"));
         jdbc.update("update manual_topups set status = 'APPROVED', reviewed_by = ?, reviewed_at = now() where id = ?", admin, id);
-        titleRules.onTopup(userId, ((Number) t.get("pack_id")).longValue());
+        RoyalPackService.Delivery royalGot = isRoyal ? royal.deliver(userId, String.valueOf(t.get("plate_name")), (String) t.get("royal_title")) : null;
+        titleRules.onTopup(userId, isRoyal ? null : ((Number) t.get("pack_id")).longValue());
         Runnable after = () -> {
             try {
                 walletPush.pushBalance(userId, "PAYMENT_PURCHASE", coins);
@@ -309,6 +355,15 @@ public class ManualTopupService {
             });
         } else {
             after.run();
+        }
+        if (royalGot != null) {
+            StringBuilder body = new StringBuilder("Mubarak ho! 👑 Payment verified ✅ ₹" + amount.stripTrailingZeros().toPlainString() + " paid for the " + t.get("pack_name") + ".\n\nAap ko mila:\n");
+            if (coins > 0) body.append("💰 ").append(String.format(java.util.Locale.ROOT, "%,d", coins)).append(" coins in your wallet\n");
+            for (String line : royalGot.lines()) body.append(line).append("\n");
+            body.append("\nAb aap Panchayat ke shaahi member hain. Reference ").append(t.get("reference")).append(".");
+            sarpanch.sendSafely(userId, new SarpanchService.Message("Royal Pack delivered 👑", body.toString(), royalGot.frameUrl(), "Open my Bag", "/bag", "PAYMENT"),
+                    "manual-topup:" + id + ":approved");
+            return Map.of("approved", true, "coins", coins, "royal", true);
         }
         sarpanch.sendSafely(userId, new SarpanchService.Message("Payment verified",
                 "Payment verified ✅ ₹" + amount.stripTrailingZeros().toPlainString() + " paid. " + coins + " coins have been added to your wallet. Reference " + t.get("reference") + ".",

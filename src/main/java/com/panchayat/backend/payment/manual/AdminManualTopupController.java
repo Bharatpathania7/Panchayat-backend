@@ -28,10 +28,24 @@ public class AdminManualTopupController {
 
     private final ManualTopupService service;
     private final PublicImageStorage store;
+    private final RoyalPackService royal;
 
-    public AdminManualTopupController(ManualTopupService service, PublicImageStorage store) {
+    public AdminManualTopupController(ManualTopupService service, PublicImageStorage store, RoyalPackService royal) {
         this.service = service;
         this.store = store;
+        this.royal = royal;
+    }
+
+    /** The Royal Pack (sold only through Munshi ji): price, coins, frame, titles and how many days they last. */
+    @GetMapping("/royal")
+    public Map<String, Object> royal() {
+        return royal.settings();
+    }
+
+    @PutMapping("/royal")
+    public Map<String, Object> saveRoyal(@org.springframework.web.bind.annotation.RequestBody Map<String, Object> body) {
+        if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Send the settings.");
+        return royal.save(body);
     }
 
     public record SettingsBody(Boolean enabled, String upiId, String payeeName, String note, String name) {

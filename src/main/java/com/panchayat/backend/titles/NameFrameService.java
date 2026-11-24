@@ -53,6 +53,30 @@ public class NameFrameService {
     /** Puts the frame in the person's Bag (or renews it): days = 0 never ends; otherwise it ends that many days from now (never sooner than it already did). */
     @Transactional
     public void grant(Long userId, Long frameId, int days) {
+        grant(userId, frameId, days, null);
+    }
+
+    /**
+     * Like grant, with the name the person chose for the plate (up to 14 letters; null keeps what they had, or their account name).
+     * Returns the Bag item's id.
+     */
+    @Transactional
+    public Long grant(Long userId, Long frameId, int days, String plateName) {
+        grantOnly(userId, frameId, days);
+        Long rid = jdbc.queryForObject("select id from user_rewards where user_id = ? and name_frame_id = ? order by id limit 1", Long.class, userId, frameId);
+        if (plateName != null && !plateName.isBlank()) jdbc.update("update user_rewards set plate_name = ? where id = ?", plateName, rid);
+        return rid;
+    }
+
+    /** A name for a frame's plate: trimmed, 1 to 14 letters (emoji count as one), no control characters. */
+    public static String cleanPlateName(String raw) {
+        String s = raw == null ? "" : raw.replaceAll("\\p{Cntrl}", "").replaceAll("\\s+", " ").strip();
+        if (s.isEmpty()) throw bad("Write the name for your frame.");
+        if (s.codePointCount(0, s.length()) > 14) throw bad("The frame name can have up to 14 letters.");
+        return s;
+    }
+
+    private void grantOnly(Long userId, Long frameId, int days) {
         List<Map<String, Object>> f = jdbc.queryForList("select name, image_url from name_frames where id = ?", frameId);
         if (f.isEmpty()) throw bad("That frame doesn't exist.");
         String name = (String) f.get(0).get("name");
@@ -101,7 +125,7 @@ public class NameFrameService {
 
     public List<Map<String, Object>> list() {
         return jdbc.queryForList("select f.id, f.name, f.image_url as \"imageUrl\", f.frame_scale as \"frameScale\", f.frame_y as \"frameY\", f.plate_x as \"plateX\", f.plate_y as \"plateY\","
-                + " f.plate_w as \"plateW\", f.plate_h as \"plateH\", f.text_color as \"textColor\", f.stroke_color as \"strokeColor\", f.active, f.sort_order as \"sortOrder\","
+                + " f.plate_w as \"plateW\", f.plate_h as \"plateH\", f.text_color as \"textColor\", f.stroke_color as \"strokeColor\", f.display_size as \"displaySize\", f.active, f.sort_order as \"sortOrder\","
                 + " (select count(*) from user_rewards u where u.name_frame_id = f.id and (u.expires_at is null or u.expires_at > now())) as holders"
                 + " from name_frames f order by f.sort_order, f.id");
     }
@@ -142,7 +166,8 @@ public class NameFrameService {
             jdbc.update("update user_rewards set item_name = ? where name_frame_id = ?", n, id);
         }
         if (in.containsKey("frameScale")) jdbc.update("update name_frames set frame_scale = ? where id = ?", dbl(in.get("frameScale"), "Frame scale", 1, 3), id);
-        if (in.containsKey("frameY")) jdbc.update("update name_frames set frame_y = ? where id = ?", dbl(in.get("frameY"), "Frame centre", 0.2, 0.9), id);
+        if (in.containsKey("displaySize")) jdbc.update("update name_frames set display_size = ? where id = ?", dbl(in.get("displaySize"), "Size on the seat", 1, 3), id);
+        if (in.containsKey("frameY"))jdbc.update("update name_frames set frame_y = ? where id = ?", dbl(in.get("frameY"), "Frame centre", 0.2, 0.9), id);
         for (Map.Entry<String, String> c : COLS.entrySet()) {
             if (in.containsKey(c.getKey())) jdbc.update("update name_frames set " + c.getValue() + " = ? where id = ?", dbl(in.get(c.getKey()), c.getKey(), 0, 100), id);
         }

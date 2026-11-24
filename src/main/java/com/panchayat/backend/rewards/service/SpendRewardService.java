@@ -205,8 +205,8 @@ public class SpendRewardService {
         List<Long> ids = userIds == null ? List.of() : userIds.stream().filter(Objects::nonNull).distinct().toList();
         if (ids.isEmpty()) return out;
         String in = String.join(",", Collections.nCopies(ids.size(), "?"));
-        jdbc.query("select r.user_id, r.slot, r.item_name, r.media_url, r.media_format, r.sound_url, r.name_frame_id, u.full_name, r.entry_avatar, r.layout_level,"
-                        + " f.frame_scale, f.frame_y, f.plate_x, f.plate_y, f.plate_w, f.plate_h, f.text_color, f.stroke_color"
+        jdbc.query("select r.user_id, r.slot, r.item_name, r.media_url, r.media_format, r.sound_url, r.name_frame_id, coalesce(r.plate_name, u.full_name) as full_name, r.entry_avatar, r.layout_level,"
+                        + " f.display_size, f.frame_scale, f.frame_y, f.plate_x, f.plate_y, f.plate_w, f.plate_h, f.text_color, f.stroke_color"
                         + " from user_rewards r join users u on u.id = r.user_id left join name_frames f on f.id = r.name_frame_id"
                         + " where r.equipped and r.slot is not null and r.media_url is not null"
                         + " and (r.expires_at is null or r.expires_at > now()) and r.user_id in (" + in + ")",
@@ -218,6 +218,7 @@ public class SpendRewardService {
                         Map<String, Object> nf = new LinkedHashMap<>();
                         nf.put("name", rs.getString("full_name"));
                         nf.put("scale", rs.getDouble("frame_scale"));
+                        nf.put("size", rs.getDouble("display_size"));
                         nf.put("y", rs.getDouble("frame_y"));
                         nf.put("plateX", rs.getDouble("plate_x"));
                         nf.put("plateY", rs.getDouble("plate_y"));
