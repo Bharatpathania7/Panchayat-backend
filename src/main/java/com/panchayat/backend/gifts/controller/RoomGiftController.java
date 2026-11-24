@@ -37,11 +37,16 @@ public class RoomGiftController {
     public record SendGiftRequest(String giftId, Long toUserId, Integer count, String requestId, Boolean fromBag, String message) {
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.wallet.service.WalletQueue walletQueue;
+
     @PostMapping("/gifts")
     public GiftSent send(@PathVariable Long roomId, @RequestBody SendGiftRequest body, Authentication auth) {
         if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Gift details are required");
-        GiftSent sent = gifts.send(roomId, me(auth), body.giftId(), body.toUserId(), body.count() == null ? 1 : body.count(), body.requestId(),
-                Boolean.TRUE.equals(body.fromBag()));
+        Long me = me(auth);
+        // In line (no DB connection held) behind other gifts touching the same wallets, then sent and committed
+        GiftSent sent = walletQueue.run(me, body.toUserId(), () -> gifts.send(roomId, me, body.giftId(), body.toUserId(), body.count() == null ? 1 : body.count(), body.requestId(),
+                Boolean.TRUE.equals(body.fromBag())));
         // Big gifts are announced to everyone in the app, with the sender's message
         giftNews.announce(sent, body.message());
         return sent;

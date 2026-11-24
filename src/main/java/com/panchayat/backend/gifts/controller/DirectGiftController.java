@@ -30,10 +30,15 @@ public class DirectGiftController {
     public record SendRequest(String giftId, Integer count, String requestId, String context) {
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
+    private com.panchayat.backend.wallet.service.WalletQueue walletQueue;
+
     @PostMapping("/api/v1/users/{userId:[0-9]+}/gifts")
     public Map<String, Object> send(@PathVariable Long userId, @RequestBody SendRequest body, Authentication auth) {
         if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose a gift");
-        return gifts.send(me(auth), userId, body.giftId(), body.count() == null ? 1 : body.count(), body.requestId(), body.context());
+        Long me = me(auth);
+        // In line (no DB connection held) behind other gifts touching the same wallets, then sent and committed
+        return walletQueue.run(me, userId, () -> gifts.send(me, userId, body.giftId(), body.count() == null ? 1 : body.count(), body.requestId(), body.context()));
     }
 
     @GetMapping("/api/v1/users/{userId:[0-9]+}/gifts/with-me")
