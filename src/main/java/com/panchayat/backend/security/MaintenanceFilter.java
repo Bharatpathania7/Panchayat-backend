@@ -32,6 +32,8 @@ public class MaintenanceFilter extends OncePerRequestFilter {
         String path = request.getRequestURI();
         // Admin login / refresh live under /api/admin/auth: staff must be able to sign in to turn maintenance off
         return path.startsWith("/api/v1/admin/") || path.startsWith("/api/admin/") || path.equals("/api/v1/health") || path.equals("/api/v1/gifts")
+                // the public Products & Pricing page works during maintenance too
+                || path.equals("/api/v1/wallet/coin-packs") || path.equals("/api/v1/vip/plans") || path.equals("/api/v1/manual-topup/royal")
                 || path.equals("/api/v1/status") || path.equals("/error");
     }
 

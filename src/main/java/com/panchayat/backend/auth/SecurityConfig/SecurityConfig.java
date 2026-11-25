@@ -127,6 +127,14 @@ public class SecurityConfig {
                                 "/api/v1/festival/active"
                         ).permitAll()
 
+                        // Price lists for the public Products & Pricing page (no personal data): coin packs, VIP plans, Royal Pack
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/v1/wallet/coin-packs",
+                                "/api/v1/vip/plans",
+                                "/api/v1/manual-topup/royal"
+                        ).permitAll()
+
                         // Gifts on sale (managed from the admin panel).
                         .requestMatchers(
                                 HttpMethod.GET,
