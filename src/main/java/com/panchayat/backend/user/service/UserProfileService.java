@@ -154,10 +154,19 @@ public class UserProfileService {
         // Avatar and banner images use dedicated Cloudinary upload APIs.
 
         if (request.favoriteGames() != null) {
-            List<String> games =
-                    new ArrayList<>(request.favoriteGames());
-
-            user.setFavoriteGames(games);
+            // Each game once (the table allows a game only once per person), in the order chosen, blanks dropped
+            List<String> games = new ArrayList<>(new java.util.LinkedHashSet<>(request.favoriteGames().stream()
+                    .filter(g -> g != null && !g.isBlank())
+                    .map(String::trim)
+                    .map(g -> g.length() > 30 ? g.substring(0, 30) : g)
+                    .toList()));
+            if (!games.equals(user.getFavoriteGames())) {
+                // Clear first, then write the new list: updating the rows in place (a reorder such as A,B -> B,A) would put the
+                // same game in two rows for a moment and break the unique (user, game) rule
+                user.setFavoriteGames(List.of());
+                userRepository.saveAndFlush(user);
+                user.setFavoriteGames(games);
+            }
         }
 
         User savedUser = userRepository.save(user);
