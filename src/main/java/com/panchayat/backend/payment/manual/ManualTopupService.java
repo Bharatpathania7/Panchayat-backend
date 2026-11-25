@@ -59,7 +59,7 @@ public class ManualTopupService {
     /* ---------------- settings ---------------- */
 
     public Map<String, Object> settings() {
-        Map<String, Object> s = jdbc.queryForMap("select enabled, upi_id, payee_name, qr_url, note, helper_name from manual_topup_settings where id = 1");
+        Map<String, Object> s = jdbc.queryForMap("select enabled, upi_id, payee_name, qr_url, note, helper_name, gateway_closed from manual_topup_settings where id = 1");
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("enabled", Boolean.TRUE.equals(s.get("enabled")));
         out.put("upiId", s.get("upi_id"));
@@ -67,6 +67,7 @@ public class ManualTopupService {
         out.put("qrUrl", s.get("qr_url"));
         out.put("note", s.get("note"));
         out.put("name", s.get("helper_name"));
+        out.put("gatewayClosed", Boolean.TRUE.equals(s.get("gateway_closed")));
         List<String> av = jdbc.queryForList("select avatar_url from users where official_role = 'MUNSHI' limit 1", String.class);
         out.put("avatarUrl", av.isEmpty() ? null : av.get(0));
         return out;
@@ -98,6 +99,18 @@ public class ManualTopupService {
         return settings();
     }
 
+    /** Online payment (PayU) on or temporarily closed. Closing needs Munshi ji switched on, so people can still pay. */
+    public Map<String, Object> setGatewayClosed(boolean closed) {
+        if (closed && !Boolean.TRUE.equals(publicInfo().get("enabled"))) throw bad("Switch Munshi ji (UPI) on first, so people still have a way to pay.");
+        jdbc.update("update manual_topup_settings set gateway_closed = ? where id = 1", closed);
+        return settings();
+    }
+
+    /** True while the admin has closed online payment (the app then uses Munshi ji). */
+    public boolean gatewayClosed() {
+        return Boolean.TRUE.equals(jdbc.query("select gateway_closed from manual_topup_settings where id = 1", rs -> rs.next() ? rs.getBoolean(1) : false));
+    }
+
     public void saveQr(String url) {
         jdbc.update("update manual_topup_settings set qr_url = ? where id = 1", url);
     }
@@ -109,6 +122,8 @@ public class ManualTopupService {
         boolean on = Boolean.TRUE.equals(s.get("enabled")) && s.get("upiId") != null;
         out.put("enabled", on);
         out.put("name", s.get("name"));
+        // Online payment closed by the admin: the app shows "pay through Munshi ji" instead of the PayU checkout
+        out.put("gatewayClosed", on && Boolean.TRUE.equals(s.get("gatewayClosed")));
         if (on) {
             out.put("upiId", s.get("upiId"));
             out.put("payeeName", s.get("payeeName"));

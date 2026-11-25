@@ -95,4 +95,11 @@ public class ManualTopupController {
         if (auth == null) throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first");
         return users.findByEmailIgnoreCase(auth.getName()).orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Sign in first")).getId();
     }
+
+    /** Readable { "message": ... } for refusals (Spring hides the reason text by default). */
+    @org.springframework.web.bind.annotation.ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public org.springframework.http.ResponseEntity<java.util.Map<String, String>> readable(org.springframework.web.server.ResponseStatusException e) {
+        return org.springframework.http.ResponseEntity.status(e.getStatusCode())
+                .body(java.util.Map.of("message", e.getReason() == null ? "That didn't work" : e.getReason()));
+    }
 }

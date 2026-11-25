@@ -89,6 +89,16 @@ public class AdminManualTopupController {
         return service.saveSettings(b.enabled(), b.upiId(), b.payeeName(), b.note(), b.name());
     }
 
+    public record GatewayBody(Boolean closed) {
+    }
+
+    /** Online payment (PayU): { closed: true } = temporarily closed, everyone pays through Munshi ji. */
+    @PutMapping("/settings/gateway")
+    public Map<String, Object> gateway(@org.springframework.web.bind.annotation.RequestBody GatewayBody b) {
+        if (b == null || b.closed() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Send closed.");
+        return service.setGatewayClosed(b.closed());
+    }
+
     @PostMapping(value = "/settings/qr", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
     public Map<String, Object> qr(@RequestPart("file") MultipartFile file) {
         Map<String, Object> saved = store.uploadImage(file, "topupqr");
@@ -112,5 +122,12 @@ public class AdminManualTopupController {
     @PostMapping("/{id:[0-9]+}/reject")
     public Map<String, Object> reject(@PathVariable long id, @org.springframework.web.bind.annotation.RequestBody RejectBody b, Authentication auth) {
         return service.reject(id, b == null ? null : b.reason(), auth == null ? null : auth.getName());
+    }
+
+    /** Readable { "message": ... } for refusals (Spring hides the reason text by default). */
+    @org.springframework.web.bind.annotation.ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public org.springframework.http.ResponseEntity<java.util.Map<String, String>> readable(org.springframework.web.server.ResponseStatusException e) {
+        return org.springframework.http.ResponseEntity.status(e.getStatusCode())
+                .body(java.util.Map.of("message", e.getReason() == null ? "That didn't work" : e.getReason()));
     }
 }

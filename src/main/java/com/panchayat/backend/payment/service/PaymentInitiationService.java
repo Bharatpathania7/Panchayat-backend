@@ -31,6 +31,9 @@ public class PaymentInitiationService {
     private final PayUClientService payUClientService;
     private final PayUProperties payUProperties;
     private final com.panchayat.backend.vip.VipService vipService;
+    @org.springframework.beans.factory.annotation.Autowired
+    @org.springframework.context.annotation.Lazy
+    private com.panchayat.backend.payment.manual.ManualTopupService manualTopup;
 
     public PaymentInitiationService(
             PaymentTransactionRepository transactionRepository,
@@ -53,6 +56,10 @@ public class PaymentInitiationService {
             User user,
             PaymentInitiationRequest request
     ) {
+        // The admin closed online payment for now: never start a PayU payment (the app offers Munshi ji instead)
+        if (manualTopup.gatewayClosed()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Online payment is closed for now. Please pay through " + manualTopup.helperName() + " (UPI).");
+        }
         if (user == null || user.getId() == null) {
             throw new ResponseStatusException(
                     HttpStatus.UNAUTHORIZED,
