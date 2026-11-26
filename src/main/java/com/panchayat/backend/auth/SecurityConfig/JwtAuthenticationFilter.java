@@ -167,27 +167,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             SecurityContextHolder.clearContext();
         } catch (RuntimeException ex) {
-            // Every DB connection busy (the user / ban lookup could not get one in time): answer 503 "try again",
+            // The database is briefly unavailable (busy pool, restart, dropped connection): answer 503 "try again",
             // like the controllers do, instead of a bare 500. Anything else is a real error and goes on as before.
-            if (!isPoolTimeout(ex)) throw ex;
+            if (!com.panchayat.backend.common.error.DbTransient.is(ex)) throw ex;
             log.warn("Database busy during sign-in check: answered 503. URI={}", requestUri);
             SecurityContextHolder.clearContext();
             response.setStatus(503);
             response.setHeader("Retry-After", "2");
             response.setContentType("application/json;charset=UTF-8");
-            response.getWriter().write("{\"status\":503,\"message\":\"The server is very busy right now. Please try again in a moment.\"}");
+            response.getWriter().write("{\"status\":503,\"message\":\"Connection is slow right now. Please try again in a moment.\"}");
             return;
         }
 
         filterChain.doFilter(request, response);
-    }
-
-    private static boolean isPoolTimeout(Throwable e) {
-        for (Throwable t = e; t != null; t = t.getCause()) {
-            if (t instanceof java.sql.SQLTransientConnectionException) return true;
-            if (t.getCause() == t) break;
-        }
-        return false;
     }
 
     private void authenticateUser(
