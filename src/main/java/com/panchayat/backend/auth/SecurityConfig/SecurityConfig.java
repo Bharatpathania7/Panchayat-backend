@@ -108,6 +108,9 @@ public class SecurityConfig {
                         // reach the client instead of being masked as 403.
                         .requestMatchers("/error").permitAll()
 
+                        // Duo Dash game server reports results itself (checked by DuoController: same machine + shared secret).
+                        .requestMatchers(HttpMethod.POST, "/api/v1/duo/internal/result").permitAll()
+
                         // Public health endpoint.
                         .requestMatchers(
                                 HttpMethod.GET,

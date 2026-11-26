@@ -20,7 +20,7 @@ import java.util.*;
 @PreAuthorize("hasAnyRole('SUPER_ADMIN','ADMIN')")
 public class AdminGamesController {
 
-    private static final List<String> GAMES = List.of("GADDAR", "RMCS", "LUDO", "JACKAROO", "HILL");
+    private static final List<String> GAMES = List.of("GADDAR", "RMCS", "LUDO", "JACKAROO", "HILL", "DUO");
 
     private final GaddarService gaddar;
     private final RmcsService rmcs;
@@ -50,6 +50,14 @@ public class AdminGamesController {
         rows.add(rr);
         Map<String, Object> hs = hill.stats();
         rows.add(row("HILL", "Pahadi Daud", null, hs.get("playersToday"), hs.get("runsToday")));
+        long duoCouples = 0, duoLevels = 0;
+        try {
+            duoCouples = jdbc.queryForObject("select count(distinct pair_key) from duo_results where created_at >= now() - interval '1 day'", Long.class);
+            duoLevels = jdbc.queryForObject("select count(*) from duo_results where created_at >= now() - interval '1 day'", Long.class);
+        } catch (Exception ignored) {
+            // leave zero
+        }
+        rows.add(row("DUO", "Duo Dash", null, duoCouples * 2, duoLevels));
         for (String[] x : new String[][]{{"LUDO", "Ludo"}, {"JACKAROO", "Jackaroo"}}) {
             long tables = 0, playing = 0;
             try {
