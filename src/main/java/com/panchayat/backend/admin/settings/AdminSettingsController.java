@@ -9,6 +9,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
@@ -82,10 +83,40 @@ public class AdminSettingsController {
     public AppSettingsService.Settings save(@RequestBody SaveBody in, Authentication auth) {
         if (in == null) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "Send the settings.");
         AppSettingsService.Settings body = in.toSettings();
-        boolean turningOn = body.maintenance() && !settings.settings().maintenance();
+        boolean wasOn = settings.settings().maintenance();
+        boolean turningOn = body.maintenance() && !wasOn;
+        boolean turningOff = !body.maintenance() && wasOn;
         AppSettingsService.Settings saved = settings.saveSettings(body, auth == null ? null : auth.getName());
         if (turningOn) notifyOnlineUsers(saved.maintenanceMessage());
+        if (turningOff) notifyBackLive();
         return saved;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbc;
+
+    /**
+     * Maintenance is over: "Panchayat is live again" goes ONLY to the people who got the closing email (kept in
+     * maintenance_notified), each exactly once, then the list is cleared. Runs off-thread so Save doesn't wait on SMTP.
+     */
+    private void notifyBackLive() {
+        List<String> emails = jdbc.queryForList("select email from maintenance_notified order by notified_at", String.class);
+        if (emails.isEmpty()) return;
+        Thread.ofVirtual().start(() -> {
+            int sent = 0;
+            for (String e : emails) {
+                try {
+                    // Remove first: a crash half-way never sends someone the same email twice
+                    if (jdbc.update("delete from maintenance_notified where email = ?", e) == 0) continue;
+                    email.sendBackLiveNotice(e);
+                    sent++;
+                    Thread.sleep(200);
+                } catch (Exception ex) {
+                    log.warn("Couldn't send back-live notice to {}: {}", e, ex.toString());
+                }
+            }
+            log.info("Back-live notice sent to {} users (those who got the maintenance email)", sent);
+        });
     }
 
     /** People with the app open right now: their live connection's name is their email. Runs off-thread so Save doesn't wait on SMTP. */
@@ -100,6 +131,8 @@ public class AdminSettingsController {
             for (String e : emails) {
                 try {
                     email.sendMaintenanceNotice(e, message);
+                    // Remember who was told we're closing: only they get the "live again" email later
+                    jdbc.update("insert into maintenance_notified (email) values (?) on conflict (email) do update set notified_at = now()", e);
                     Thread.sleep(200);
                 } catch (Exception ex) {
                     log.warn("Couldn't send maintenance notice to {}: {}", e, ex.toString());

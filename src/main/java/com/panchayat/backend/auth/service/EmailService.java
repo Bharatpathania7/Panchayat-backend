@@ -34,6 +34,37 @@ public class EmailService {
         dispatcher.send(new EmailMessage(recipientEmail, "Panchayat is briefly closing for maintenance", maintenancePlainText(message), maintenanceHtml(message), "MAINTENANCE"));
     }
 
+    /** Maintenance is over (sent only to the people who got the maintenance email). */
+    public void sendBackLiveNotice(String recipientEmail) {
+        String text = "Hello,\n\nPanchayat is live again with new updates and features. Open the app and jump back in!\n\n"
+                + siteUrl + "\n\nThanks for your patience.\n\nRegards,\nPanchayat Team";
+        dispatcher.send(new EmailMessage(recipientEmail, "Panchayat is live again - new updates are here", text, backLiveHtml(), "MAINTENANCE"));
+    }
+
+    String backLiveHtml() {
+        String logo = siteUrl + "/brand/panchayat-logo-email.png";
+        return "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                + "<meta name=\"color-scheme\" content=\"light\"><title>Panchayat is live again</title></head>"
+                + "<body style=\"margin:0;padding:0;background:#f4efe9;\">"
+                + "<div style=\"display:none;max-height:0;overflow:hidden;opacity:0;\">We're back with new updates and features.</div>"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#f4efe9;padding:24px 12px;\"><tr><td align=\"center\">"
+                + "<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"max-width:480px;background:#ffffff;border-radius:20px;overflow:hidden;"
+                + "box-shadow:0 6px 24px rgba(60,20,20,0.12);font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;\">"
+                + "<tr><td align=\"center\" style=\"background:#2a0a14;background-image:linear-gradient(160deg,#4a0f24 0%,#1d0710 100%);padding:30px 20px 24px;\">"
+                + "<img src=\"" + logo + "\" width=\"220\" alt=\"Panchayat\" style=\"display:block;width:220px;max-width:70%;height:auto;border:0;\">"
+                + "</td></tr>"
+                + "<tr><td style=\"padding:32px 28px 8px;color:#2a1a1a;\">"
+                + "<div style=\"font-size:22px;font-weight:800;color:#2a0f14;\">Panchayat is live again! &#127881;</div>"
+                + "<div style=\"margin-top:10px;font-size:15px;line-height:1.55;color:#5a4646;\">Thanks for waiting. We're back with <b>new updates and features</b>. "
+                + "Your rooms, friends and coins are all here. Jump back in!</div></td></tr>"
+                + "<tr><td align=\"center\" style=\"padding:22px 28px 30px;\">"
+                + "<a href=\"" + siteUrl + "\" style=\"display:inline-block;background:#c0392b;color:#ffffff;text-decoration:none;font-weight:800;font-size:15px;"
+                + "padding:13px 30px;border-radius:999px;\">Open Panchayat</a></td></tr>"
+                + "<tr><td align=\"center\" style=\"background:#faf5ef;border-top:1px solid #efe3d4;padding:18px 20px;font-size:12px;line-height:1.6;color:#9a8a7a;\">"
+                + "Panchayat Team<br><a href=\"" + siteUrl + "\" style=\"color:#c0392b;text-decoration:none;\">" + siteUrl.replaceFirst("^https?://", "") + "</a></td></tr>"
+                + "</table></td></tr></table></body></html>";
+    }
+
     /** A short test email (admin panel), through one named provider only, no fallback. Returns "PROVIDER:messageId". */
     public String sendTest(String recipientEmail, EmailProviderType provider) {
         String text = "Hello,\n\nThis is a test email from the Panchayat admin panel, sent through " + provider + ".\n\nRegards,\nPanchayat Team";
