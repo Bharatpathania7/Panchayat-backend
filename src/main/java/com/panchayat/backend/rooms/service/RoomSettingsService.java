@@ -346,7 +346,7 @@ public class RoomSettingsService {
 
     /** Backgrounds can be big animations: pictures, GIF / WEBP or an MP4 video, up to 100 MB. */
     public static final long MAX_BACKGROUND = 100L * 1024 * 1024;
-    /** From this level on, a room's owner or admin may set its background. Official PK hosts may at any level. */
+    /** From this ROOM level on (or a person at this level), a room's owner or admin may set its background. Official PK hosts may at any level. */
     public static final int BACKGROUND_MIN_LEVEL = 5;
 
     /**
@@ -359,8 +359,13 @@ public class RoomSettingsService {
         if (actor != null) {
             requireMod(room, actor);
             if (!room.isOfficialPk()) {
-                Integer level = silentJdbc.query("select level from users where id = ?", rs -> rs.next() ? rs.getInt(1) : 0, actor);
-                if (level == null || level < BACKGROUND_MIN_LEVEL) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Room backgrounds unlock at level " + BACKGROUND_MIN_LEVEL + ".");
+                // The ROOM's level (from its EXP) unlocks it; a person at level 5+ also may (as before)
+                Long exp = silentJdbc.query("select exp from voice_rooms where id = ?", rs -> rs.next() ? rs.getLong(1) : 0L, roomId);
+                int roomLevel = RoomLevels.level(exp == null ? 0L : exp);
+                Integer userLevel = silentJdbc.query("select level from users where id = ?", rs -> rs.next() ? rs.getInt(1) : 0, actor);
+                if (roomLevel < BACKGROUND_MIN_LEVEL && (userLevel == null || userLevel < BACKGROUND_MIN_LEVEL)) {
+                    throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Room backgrounds unlock at room level " + BACKGROUND_MIN_LEVEL + " (this room is level " + roomLevel + ").");
+                }
             }
         }
         if (file == null || file.isEmpty()) throw bad("Pick a picture or a video");
