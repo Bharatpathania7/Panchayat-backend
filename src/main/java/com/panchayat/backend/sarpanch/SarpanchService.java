@@ -52,7 +52,9 @@ import java.util.regex.Pattern;
 public class SarpanchService {
 
     private static final Logger log = LoggerFactory.getLogger(SarpanchService.class);
-    public static final Set<String> CATEGORIES = Set.of("PAYMENT", "VIP", "RED_PACKET", "REWARD", "CP", "SAFETY", "ANNOUNCEMENT", "OTHER");
+    /** Notice chips in the app (up to 20 letters; underscores show as spaces). */
+    public static final Set<String> CATEGORIES = Set.of("PAYMENT", "VIP", "RED_PACKET", "REWARD", "CP", "SAFETY", "ANNOUNCEMENT", "OTHER",
+            "UPDATE", "NEW_GAME", "GAME", "EVENT", "OFFER", "FRIENDS", "PARIVAR", "CONTEST", "WINNER");
     public static final int BATCH = 500;
     private static final ZoneId ZONE = ZoneId.of("Asia/Kolkata");
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("d MMM yyyy").withZone(ZONE);
