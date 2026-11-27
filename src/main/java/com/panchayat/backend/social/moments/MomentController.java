@@ -21,6 +21,7 @@ import java.util.Map;
  *   GET    /api/v1/moments/{id}/comments?after=
  *   POST   /api/v1/moments/{id}/comments { body, replyTo }
  *   DELETE /api/v1/moments/{id}/comments/{commentId}
+ *   GET    /api/v1/moments/activity?limit=     likes / comments on my Moments and replies to my comments, newest first
  */
 @RestController
 @RequestMapping("/api/v1/moments")
@@ -77,6 +78,11 @@ public class MomentController {
     public Map<String, Object> comment(@PathVariable Long id, @RequestBody CommentRequest body, Authentication auth) {
         if (body == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Write a comment.");
         return moments.comment(me(auth), id, body.body(), body.replyTo());
+    }
+
+    @GetMapping("/activity")
+    public List<Map<String, Object>> activity(@RequestParam(defaultValue = "40") int limit, Authentication auth) {
+        return moments.activity(me(auth), limit);
     }
 
     @DeleteMapping("/{id:[0-9]+}/comments/{commentId:[0-9]+}")

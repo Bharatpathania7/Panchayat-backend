@@ -311,4 +311,47 @@ public class MomentService {
     private static ResponseStatusException bad(String m) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, m);
     }
+
+    /**
+     * For the notifications list: who liked or commented on my Moments, and who replied to my comments, newest first.
+     * My own actions are left out. Deleted Moments and comments are left out.
+     */
+    public List<Map<String, Object>> activity(Long me, int limit) {
+        int n = Math.max(1, Math.min(limit, 80));
+        String sql = """
+                select * from (
+                  select 'LIKE' as kind, l.created_at as at, l.user_id as who, m.id as moment_id, null::text as text, m.body as moment_body, m.media->0->>'url' as thumb, m.media->0->>'type' as thumb_type
+                    from moment_likes l join moments m on m.id = l.moment_id
+                   where m.user_id = ? and l.user_id <> ? and m.deleted_at is null
+                  union all
+                  select 'COMMENT', c.created_at, c.user_id, m.id, c.body, m.body, m.media->0->>'url', m.media->0->>'type'
+                    from moment_comments c join moments m on m.id = c.moment_id
+                   where m.user_id = ? and c.user_id <> ? and c.deleted_at is null and m.deleted_at is null
+                  union all
+                  select 'REPLY', c.created_at, c.user_id, m.id, c.body, m.body, m.media->0->>'url', m.media->0->>'type'
+                    from moment_comments c join moment_comments mine on mine.id = c.reply_to join moments m on m.id = c.moment_id
+                   where mine.user_id = ? and m.user_id <> ? and c.user_id <> ? and c.deleted_at is null and m.deleted_at is null
+                ) a join users u on u.id = a.who
+                order by a.at desc limit ?""";
+        return jdbc.query(sql, (rs, i) -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("kind", rs.getString("kind"));
+            m.put("at", rs.getTimestamp("at").getTime());
+            m.put("momentId", String.valueOf(rs.getLong("moment_id")));
+            Map<String, Object> who = new LinkedHashMap<>();
+            who.put("userId", String.valueOf(rs.getLong("who")));
+            who.put("name", rs.getString("full_name") == null ? "Someone" : rs.getString("full_name"));
+            String av = MediaUrls.link(rs.getString("avatar_url"));
+            if (av != null) who.put("avatarUrl", av);
+            m.put("user", who);
+            if (rs.getString("text") != null) m.put("text", rs.getString("text"));
+            if (rs.getString("moment_body") != null) m.put("momentBody", rs.getString("moment_body"));
+            String thumb = rs.getString("thumb");
+            if (thumb != null) {
+                m.put("thumb", MediaUrls.link(thumb));
+                m.put("thumbType", "VIDEO".equals(rs.getString("thumb_type")) ? "VIDEO" : "IMAGE");
+            }
+            return m;
+        }, me, me, me, me, me, me, me, n);
+    }
 }
