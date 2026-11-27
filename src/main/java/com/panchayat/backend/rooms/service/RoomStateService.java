@@ -205,9 +205,9 @@ public class RoomStateService {
         }
     }
 
-    /** The owner or an admin of this room. */
+    /** The owner, a co-owner (owner powers) or an admin of this room. */
     public boolean isModerator(VoiceRoom room, Long userId) {
-        return Objects.equals(room.getOwnerId(), userId) || isAdmin(room.getId(), userId);
+        return Objects.equals(room.getOwnerId(), userId) || isAdmin(room.getId(), userId) || isCoOwner(room.getId(), userId);
     }
 
     /** May this person talk the moment they join? Only the owner (on seat 0). */
@@ -636,18 +636,22 @@ public class RoomStateService {
     }
 
     /**
-     * Staff action (an Official PK room, from the admin panel): makes someone a room admin without the owner's own
-     * click, the follow/member requirement or the room-level admin cap, so they can set up, start and close PK
-     * battles (and do everything else an admin can) in that room. The room sees it as the owner's own doing.
+     * Staff action (an Official PK room, from the admin panel): makes someone the room's host without the owner's own
+     * click, the join/follow requirement, the room level or the admin / co-owner caps. The host is a room admin AND a
+     * co-owner, so they run everything from the app: set up, start and close PK battles, change the room's settings,
+     * background and seats, and choose admins. They keep it even if they unfollow or leave (only staff remove it).
+     * The room sees it as the owner's own doing.
      */
     @Transactional
     public RoomStateResponse setAdminByStaff(Long roomId, Long target) {
         Ctx ctx = load(roomId);
         if (ctx.isOwner(target)) throw conflict("The owner is already in charge of the room");
         if (!ctx.isAdmin(target)) adminRepository.save(new RoomAdmin(roomId, target, ctx.room().getOwnerId()));
+        boolean host = ctx.room().isOfficialPk();
+        if (host && !ctx.isCoOwner(target)) coOwnerRepository.save(new RoomCoOwner(roomId, target, ctx.room().getOwnerId()));
         participantRepository.findByRoomIdAndUserIdAndStatus(roomId, target, "JOINED")
                 .ifPresent(p -> {
-                    p.setRole("MODERATOR");
+                    p.setRole(host ? "CO_OWNER" : "MODERATOR");
                     participantRepository.save(p);
                 });
         Ctx fresh = load(roomId);
@@ -658,9 +662,10 @@ public class RoomStateService {
         }
     }
 
-    /** Admins must stay members and followers: leaving either ends the role. */
+    /** Admins must stay members and followers: leaving either ends the role (not for an Official PK room's hosts). */
     public void dropAdminRole(Long roomId, Long userId) {
         if (!adminRepository.existsByRoomIdAndUserId(roomId, userId)) return;
+        if (load(roomId).room().isOfficialPk()) return;
         adminRepository.deleteByRoomIdAndUserId(roomId, userId);
         participantRepository.findByRoomIdAndUserIdAndStatus(roomId, userId, "JOINED")
                 .ifPresent(p -> {

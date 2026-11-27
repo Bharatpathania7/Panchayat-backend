@@ -389,7 +389,7 @@ public class RoomSettingsService {
     }
 
     private void requireMod(VoiceRoom room, Long actor) {
-        if (!Objects.equals(room.getOwnerId(), actor) && !roomState.isAdmin(room.getId(), actor)) {
+        if (!roomState.isModerator(room, actor)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Only the owner or an admin can change room settings");
         }
     }
