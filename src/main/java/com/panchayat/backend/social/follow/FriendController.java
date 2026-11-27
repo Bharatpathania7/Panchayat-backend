@@ -15,6 +15,8 @@ import java.util.Map;
  *   GET  /api/v1/friends/{userId}/status              { following, followsYou, friends, followers, followingCount, friendsCount }
  *   GET  /api/v1/friends?kind=friends|following|followers   { counts…, onlineCount, people[{…, online, room{name, game}}] }
  *   GET  /api/v1/friends/activity                     what friends did lately
+ *   GET  /api/v1/friends/requests                     { incoming[], sent[], accepted[], incomingCount }  (Add friend = follow)
+ *   POST /api/v1/friends/{userId}/decline | unfriend   → status
  */
 @RestController
 public class FriendController {
@@ -35,6 +37,21 @@ public class FriendController {
     @PostMapping("/api/v1/friends/{userId:[0-9]+}/unfollow")
     public Map<String, Object> unfollow(@PathVariable Long userId, Authentication auth) {
         return friends.unfollow(me(auth), userId);
+    }
+
+    @PostMapping("/api/v1/friends/{userId:[0-9]+}/decline")
+    public Map<String, Object> decline(@PathVariable Long userId, Authentication auth) {
+        return friends.decline(me(auth), userId);
+    }
+
+    @PostMapping("/api/v1/friends/{userId:[0-9]+}/unfriend")
+    public Map<String, Object> unfriend(@PathVariable Long userId, Authentication auth) {
+        return friends.unfriend(me(auth), userId);
+    }
+
+    @GetMapping("/api/v1/friends/requests")
+    public Map<String, Object> requests(@RequestParam(defaultValue = "100") int limit, Authentication auth) {
+        return friends.requests(me(auth), limit);
     }
 
     @GetMapping("/api/v1/friends/{userId:[0-9]+}/status")

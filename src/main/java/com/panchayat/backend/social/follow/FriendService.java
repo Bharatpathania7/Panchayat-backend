@@ -70,7 +70,7 @@ public class FriendService {
                 note.put("byName", name);
                 afterCommit(() -> {
                     messaging.convertAndSendToUser(email, "/queue/notify", (Object) note);
-                    push.toEmail(email, "Panchayat", Boolean.TRUE.equals(st.get("friends")) ? name + " is now your friend" : name + " followed you", Map.of("type", "FOLLOW", "userId", String.valueOf(me)));
+                    push.toEmail(email, "Panchayat", Boolean.TRUE.equals(st.get("friends")) ? name + " accepted your friend request" : name + " sent you a friend request", Map.of("type", "FOLLOW", "userId", String.valueOf(me)));
                 });
             }
         }
@@ -81,6 +81,65 @@ public class FriendService {
     public Map<String, Object> unfollow(Long me, Long other) {
         jdbc.update("delete from user_follows where follower_id = ? and followee_id = ?", me, other);
         return status(me, other);
+    }
+
+    /*
+     * Friend requests, on top of follows: "Add friend" follows them, which is a request until they follow back
+     * ("Accept"). Reject removes their follow of you; Cancel removes yours; Unfriend removes both.
+     */
+
+    /** Turn down someone's friend request (their follow of you goes away; they aren't told). */
+    @Transactional
+    public Map<String, Object> decline(Long me, Long other) {
+        jdbc.update("delete from user_follows where follower_id = ? and followee_id = ?", other, me);
+        return status(me, other);
+    }
+
+    /** No longer friends: both follows go away, so it doesn't come back as a request. */
+    @Transactional
+    public Map<String, Object> unfriend(Long me, Long other) {
+        jdbc.update("delete from user_follows where (follower_id = ? and followee_id = ?) or (follower_id = ? and followee_id = ?)", me, other, other, me);
+        return status(me, other);
+    }
+
+    /**
+     * incoming: people who asked to be your friend (they follow you, you don't follow them), newest first;
+     * sent: people you asked (you follow them, they don't follow back); accepted: who accepted your request lately
+     * (their follow came after yours, in the last 30 days). Blocked people are left out.
+     */
+    @Transactional(readOnly = true)
+    public Map<String, Object> requests(Long me, int limit) {
+        int n = Math.max(1, Math.min(limit, 200));
+        String notBlocked = " and not exists (select 1 from user_blocks b where (b.blocker_id = ? and b.blocked_id = %1$s) or (b.blocker_id = %1$s and b.blocked_id = ?))";
+        List<Map<String, Object>> in = jdbc.queryForList(
+                "select f.follower_id as id, f.created_at as at from user_follows f where f.followee_id = ?"
+                        + " and not exists (select 1 from user_follows g where g.follower_id = ? and g.followee_id = f.follower_id)"
+                        + String.format(notBlocked, "f.follower_id") + " order by f.created_at desc limit ?", me, me, me, me, n);
+        List<Map<String, Object>> sent = jdbc.queryForList(
+                "select f.followee_id as id, f.created_at as at from user_follows f where f.follower_id = ?"
+                        + " and not exists (select 1 from user_follows g where g.follower_id = f.followee_id and g.followee_id = ?)"
+                        + String.format(notBlocked, "f.followee_id") + " order by f.created_at desc limit ?", me, me, me, me, n);
+        List<Map<String, Object>> accepted = jdbc.queryForList(
+                "select g.follower_id as id, g.created_at as at from user_follows f join user_follows g on g.follower_id = f.followee_id and g.followee_id = f.follower_id"
+                        + " where f.follower_id = ? and g.created_at > f.created_at and g.created_at > now() - interval '30 days' order by g.created_at desc limit 30", me);
+        Set<String> online = social.visibleOnlineEmails();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("incoming", withAt(in, online));
+        out.put("sent", withAt(sent, online));
+        out.put("accepted", withAt(accepted, online));
+        out.put("incomingCount", n("select count(*) from user_follows f where f.followee_id = ? and not exists (select 1 from user_follows g where g.follower_id = ? and g.followee_id = f.follower_id)", me, me));
+        return out;
+    }
+
+    private List<Map<String, Object>> withAt(List<Map<String, Object>> rows, Set<String> online) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> r : rows) {
+            Map<String, Object> c = card(((Number) r.get("id")).longValue(), online, false);
+            Object at = r.get("at");
+            c.put("at", at instanceof java.sql.Timestamp t ? t.getTime() : at instanceof java.time.OffsetDateTime o ? o.toInstant().toEpochMilli() : null);
+            out.add(c);
+        }
+        return out;
     }
 
     /** Whether you follow them, they follow you, and their counts. */
