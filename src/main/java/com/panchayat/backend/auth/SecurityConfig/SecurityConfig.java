@@ -109,7 +109,7 @@ public class SecurityConfig {
                         .requestMatchers("/error").permitAll()
 
                         // Duo Dash game server reports results itself (checked by DuoController: same machine + shared secret).
-                        .requestMatchers(HttpMethod.POST, "/api/v1/duo/internal/result").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/duo/internal/result", "/api/v1/duo/internal/pair", "/api/v1/duo/internal/propose").permitAll()
 
                         // Public health endpoint.
                         .requestMatchers(

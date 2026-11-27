@@ -36,17 +36,19 @@ public class DuoService {
     private final JdbcTemplate jdbc;
     private final LiveKitTokenService liveKit;
     private final GameSwitches switches;
+    private final com.panchayat.backend.cp.CpService cp;
     private final String secret;
     private final String liveKitUrl;
     private final String gameServerUrl;
 
-    public DuoService(JdbcTemplate jdbc, LiveKitTokenService liveKit, GameSwitches switches,
+    public DuoService(JdbcTemplate jdbc, LiveKitTokenService liveKit, GameSwitches switches, com.panchayat.backend.cp.CpService cp,
                       @Value("${app.duo.secret:}") String secret,
                       @Value("${livekit.url}") String liveKitUrl,
                       @Value("${app.duo.game-server-url:}") String gameServerUrl) {
         this.jdbc = jdbc;
         this.liveKit = liveKit;
         this.switches = switches;
+        this.cp = cp;
         this.secret = secret == null ? "" : secret.trim();
         this.liveKitUrl = liveKitUrl;
         this.gameServerUrl = gameServerUrl;
@@ -106,6 +108,27 @@ public class DuoService {
         voice.put("room", "duo-" + code);
         voice.put("token", liveKit.generateJoinToken("duo-" + code, String.valueOf(userId), true));
         out.put("voice", voice);
+        out.put("rings", myRings(userId));
+        return out;
+    }
+
+    /** The CP rings in your Bag (bought in the Shop / won), for proposing in the game. */
+    List<Map<String, Object>> myRings(long userId) {
+        Map<String, Integer> bag = cp.bag(userId);
+        if (bag.isEmpty()) return List.of();
+        Map<String, Map<String, Object>> info = new HashMap<>();
+        for (Map<String, Object> r : cp.rings()) info.put(String.valueOf(r.get("id")), r);
+        List<Map<String, Object>> out = new ArrayList<>();
+        bag.forEach((id, qty) -> {
+            Map<String, Object> r = info.getOrDefault(id, Map.of());
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", id);
+            m.put("name", r.getOrDefault("name", id));
+            m.put("rarity", r.getOrDefault("rarity", "Common"));
+            if (r.get("imageUrl") != null) m.put("imageUrl", r.get("imageUrl"));
+            m.put("qty", qty);
+            out.add(m);
+        });
         return out;
     }
 
@@ -149,6 +172,51 @@ public class DuoService {
         return Map.of("ok", true, "pair", key);
     }
 
+    /* ---------------- rings ---------------- */
+
+    public record PairBody(String code, String ticketA, String ticketB, Boolean engage) {
+    }
+
+    /**
+     * Called by the game server when both players are in a room (engage=false: "are these two engaged?") and when a
+     * ring proposal was accepted in the game (engage=true: remember it). Both tickets must be valid for the code.
+     */
+    @Transactional
+    public Map<String, Object> pair(PairBody b) {
+        String code = cleanCode(b.code());
+        Long a = verify(b.ticketA(), code);
+        Long c = verify(b.ticketB(), code);
+        if (a == null || c == null || a.equals(c)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tickets don't check out.");
+        return cpStatus(a, c);
+    }
+
+    /** Are these two CP partners in Panchayat? Then they wear their CP ring in the game. */
+    Map<String, Object> cpStatus(long a, long b) {
+        List<Map<String, Object>> l = jdbc.queryForList("select c.ring_id, r.name from cp_members ma join cp_members mb on mb.couple_id = ma.couple_id"
+                + " join cp_couples c on c.id = ma.couple_id left join cp_rings r on r.id = c.ring_id where ma.user_id = ? and mb.user_id = ? and c.ended_at is null", a, b);
+        if (l.isEmpty()) return Map.of("engaged", false);
+        return Map.of("engaged", true, "ringId", String.valueOf(l.get(0).get("ring_id")), "ringName", String.valueOf(l.get(0).get("name")));
+    }
+
+    public record ProposeBody(String code, String ticketFrom, String ticketTo, String ringId) {
+    }
+
+    /**
+     * A ring proposal made in the game, and the partner said YES in the game: it goes through Panchayat's own CP system
+     * (the ring leaves the Bag, the two become CP partners, with all its rules: no existing CP, not blocked...).
+     */
+    @Transactional
+    public Map<String, Object> propose(ProposeBody b) {
+        String code = cleanCode(b.code());
+        Long from = verify(b.ticketFrom(), code);
+        Long to = verify(b.ticketTo(), code);
+        if (from == null || to == null || from.equals(to)) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tickets don't check out.");
+        Map<String, Object> p = cp.propose(from, to, b.ringId(), "Proposed in Duo Dash");
+        cp.accept(to, Long.parseLong(String.valueOf(p.get("id"))));
+        log.info("Duo Dash: {} proposed to {} with ring {} in the game, accepted", from, to, b.ringId());
+        return cpStatus(from, to);
+    }
+
     /* ---------------- ranking ---------------- */
 
     /** Couples ranked by the furthest level, then stars, then coins. "week" counts only this week's finished levels. */
@@ -156,11 +224,11 @@ public class DuoService {
         boolean week = "week".equalsIgnoreCase(period);
         String sql = week
                 ? "select p.pair_key, p.user_a, p.user_b, max(r.level_no) best_level, count(distinct r.level_no) levels_done, coalesce(sum(r.stars), 0) total_stars,"
-                + " coalesce(sum(r.coins), 0) total_coins, coalesce(sum(r.couple_moments), 0) couple_moments"
+                + " coalesce(sum(r.coins), 0) total_coins, coalesce(sum(r.couple_moments), 0) couple_moments, bool_or(exists(select 1 from cp_members ma join cp_members mb on mb.couple_id = ma.couple_id where ma.user_id = p.user_a and mb.user_id = p.user_b)) engaged"
                 + " from duo_results r join duo_pairs p on p.pair_key = r.pair_key"
                 + " where r.created_at >= date_trunc('week', now() at time zone 'Asia/Kolkata') at time zone 'Asia/Kolkata'"
                 + " group by p.pair_key, p.user_a, p.user_b order by best_level desc, total_stars desc, total_coins desc limit ?"
-                : "select pair_key, user_a, user_b, best_level, levels_done, total_stars, total_coins, couple_moments from duo_pairs"
+                : "select pair_key, user_a, user_b, best_level, levels_done, total_stars, total_coins, couple_moments, exists(select 1 from cp_members ma join cp_members mb on mb.couple_id = ma.couple_id where ma.user_id = p.user_a and mb.user_id = p.user_b) engaged from duo_pairs p"
                 + " order by best_level desc, total_stars desc, total_coins desc, updated_at limit ?";
         List<Map<String, Object>> rows = jdbc.queryForList(sql, Math.max(1, Math.min(100, limit)));
         Set<Long> ids = new HashSet<>();
@@ -181,6 +249,7 @@ public class DuoService {
             m.put("stars", ((Number) r.get("total_stars")).intValue());
             m.put("coins", ((Number) r.get("total_coins")).intValue());
             m.put("coupleMoments", ((Number) r.get("couple_moments")).intValue());
+            m.put("engaged", Boolean.TRUE.equals(r.get("engaged")));
             out.add(m);
         }
         return out;
